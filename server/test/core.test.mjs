@@ -76,7 +76,7 @@ async function main() {
       headers: { 'Content-Type': 'application/json', ...(token ? { token } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
-    return res.json();
+    return { ...(await res.json()), httpStatus: res.status };
   };
   const login = async (phone) =>
     (await api('/api/member/accountLogin', { method: 'POST', body: { phone, password: phone } })).data?.token;
@@ -475,6 +475,21 @@ async function main() {
     ok(sv.code === 1, '保存设置不被通用路由拦截', sv.msg);
     const svBack = await api('/admin/api/setting/trade', { token: at });
     eq(svBack.data?.values?.listing_fee_rate, '2.8', '设置保存后可回读');
+    const promptBefore = (await api('/admin/api/setting/prompt', { token: at })).data?.values?.prompt_withdraw;
+    const crossGroupSave = await api('/admin/api/setting/save', {
+      method: 'POST', token: at, body: { group: 'trade', values: { prompt_withdraw: '不应写入' } },
+    });
+    ok(crossGroupSave.code === 0, '拒绝跨设置分组写入配置键', crossGroupSave.msg);
+    const promptAfter = (await api('/admin/api/setting/prompt', { token: at })).data?.values?.prompt_withdraw;
+    ok(promptBefore === promptAfter, '跨组写入失败后原设置保持不变');
+    await api('/admin/api/setting/save', {
+      method: 'POST', token: at, body: { group: 'prompt', values: { prompt_withdraw: '测试用提现说明' } },
+    });
+    const h5SystemInfo = await api('/api/finance/getSystemInfo', { token: buyer });
+    ok(h5SystemInfo.data?.prompt_withdraw === '测试用提现说明', '提现页系统信息接口返回后台提现须知配置');
+    await api('/admin/api/setting/save', {
+      method: 'POST', token: at, body: { group: 'prompt', values: { prompt_withdraw: promptBefore || '' } },
+    });
 
     const sg = await api('/admin/api/setting/storage', { token: at });
     ok(sg.code === 1 && (sg.data?.items || []).length > 0, '新增配置组可读取（上传配置）');
@@ -560,9 +575,55 @@ async function main() {
     });
     const tOp = (await api('/admin/api/login', { method: 'POST', body: { user_name: 't_op', password: '123456' } })).data?.token;
     ok(!!tOp, '受限账号可登录');
+    const tOpId = db.prepare("SELECT store_user_id FROM store_user WHERE user_name = 't_op'").get().store_user_id;
+    const resetAdminPwd = await api('/admin/api/storeuser/save', {
+      method: 'POST', token: at,
+      body: { store_user_id: tOpId, user_name: 't_op', password: '654321', nick_name: '测试运营', role_id: opRoleId, status: 10 },
+    });
+    ok(resetAdminPwd.code === 1 && !!(await api('/admin/api/login', { method: 'POST', body: { user_name: 't_op', password: '654321' } })).data?.token,
+      '后台管理员可通过编辑表单修改登录密码', resetAdminPwd.msg);
     const mp = await api('/admin/api/my-paths', { token: tOp });
     ok(mp.data?.unrestricted === false, '受限角色返回明确权限集合');
     ok((mp.data?.paths || []).includes('/goods'), '权限集合包含已分配的菜单', JSON.stringify(mp.data?.paths));
+
+    const restrictedMemberList = await api('/admin/api/member/list', { token: tOp });
+    ok(restrictedMemberList.httpStatus === 403, '受限角色直接调用未授权会员接口被服务端拒绝', String(restrictedMemberList.httpStatus));
+    const restrictedOrderList = await api('/admin/api/orders/list', { token: tOp });
+    ok(restrictedOrderList.httpStatus === 403, '受限角色不能省略订单类型读取全部订单', String(restrictedOrderList.httpStatus));
+    const restrictedAdvance = await api('/admin/api/member/advance', {
+      method: 'POST', token: tOp, body: { member_id: 1, enable: true, count: 3 },
+    });
+    ok(restrictedAdvance.httpStatus === 403, '受限角色不能直接调用未授权会员操作接口', String(restrictedAdvance.httpStatus));
+
+    const secretList = await api('/admin/api/member/list?limit=10', { token: at });
+    const secretRow = secretList.data?.data?.[0] || {};
+    ok(!['password', 'pay_password', 'pay_setting', 'open_id', 'idcard', 'sign_image', 'child_id', 'path'].some((k) => k in secretRow), '会员列表不会返回密码及账户配置字段');
+    const secretDetail = await api(`/admin/api/member/detail?id=${secretRow.member_id}`, { token: at });
+    ok(secretDetail.code === 1 && !['password', 'pay_password', 'pay_setting', 'open_id'].some((k) => k in (secretDetail.data || {})), '会员详情不会返回密码或收款配置');
+    const adminRows = await api('/admin/api/storeuser/list?limit=10', { token: at });
+    ok(!(adminRows.data?.data?.[0] && 'password' in adminRows.data.data[0]), '管理员列表不会返回密码哈希');
+    const modules = await api('/admin/api/modules', { token: at });
+    const goodsStatusField = modules.data?.find((x) => x.key === 'goods')?.fields?.find((x) => x.k === 'goods_status');
+    ok(goodsStatusField?.type === 'select' && Object.keys(goodsStatusField.opts || {}).length === 3,
+      '商品状态编辑元数据提供上架、下架、流拍三态选择');
+
+    const newMember = await api('/admin/api/member/save', {
+      method: 'POST', token: at,
+      body: { mobile: '13912345678', password: 'first123', nick_name: '后台创建会员', p_id: bid },
+    });
+    ok(newMember.code === 1, '后台新增会员提交密码后创建成功', newMember.msg);
+    const newMemberId = newMember.data?.id;
+    const newMemberPath = db.prepare('SELECT path FROM member WHERE member_id = ?').get(newMemberId)?.path;
+    ok(newMemberPath === `${db.prepare('SELECT path FROM member WHERE member_id = ?').get(bid).path}${bid}/`, '新增会员自动加入所选上级团队路径');
+    ok(!!(await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13912345678', password: 'first123' } })).data?.token, '后台创建会员的密码可用于登录');
+    await api('/admin/api/member/save', { method: 'POST', token: at, body: { member_id: newMemberId, password: 'second123' } });
+    ok(!!(await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13912345678', password: 'second123' } })).data?.token, '后台可修改会员登录密码');
+    const deleteOrder = await api('/admin/api/orders/remove', { method: 'POST', token: at, body: { ids: [impOid] } });
+    ok(deleteOrder.code === 0 && db.prepare('SELECT 1 FROM orders WHERE order_id = ?').get(impOid), '通用删除接口拒绝删除订单并保留记录');
+    const originalOrderStatus = db.prepare('SELECT status FROM orders WHERE order_id = ?').get(impOid).status;
+    const editOrderDirectly = await api('/admin/api/orders/save', { method: 'POST', token: at, body: { order_id: impOid, status: 30 } });
+    ok(editOrderDirectly.code === 0 && db.prepare('SELECT status FROM orders WHERE order_id = ?').get(impOid).status === originalOrderStatus,
+      '通用保存接口拒绝绕过流程修改订单状态');
 
     // 菜单单一数据源 + 按权限下发
     const mn = await api('/admin/api/menu', { token: at });
@@ -580,6 +641,9 @@ async function main() {
     const gList2 = await api('/admin/api/goods/list?type=2&limit=50', { token: at });
     ok((gList1.data?.data || []).every((x) => x.type === 1), '抢购商品列表只含 type=1', `${gList1.data?.total} 件`);
     ok((gList2.data?.data || []).every((x) => x.type === 2), '商城商品列表只含 type=2', `${gList2.data?.total} 件`);
+
+    const wrongGoodsType = await api('/admin/api/goods/list?type=99', { token: tOp });
+    ok(wrongGoodsType.httpStatus === 403, '商品接口拒绝未定义商品类型的权限绕过', String(wrongGoodsType.httpStatus));
 
     // 后台角色与会员等级已分离
     const roles = db.prepare('SELECT role_id, role_name FROM store_role').all();

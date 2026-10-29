@@ -5,7 +5,12 @@
         <h2>{{ pageTitle }}</h2>
         <div class="desc">{{ desc }}</div>
       </div>
-      <el-button v-if="modKey !== 'report'" type="primary" @click="openCreate">+ 新增{{ mod.label || '' }}</el-button>
+      <div class="page-actions">
+        <el-button v-if="modKey === 'orders'" @click="importOrders">批量导入</el-button>
+        <el-button v-if="modKey === 'orders' && Number(fixed.type) === 3" type="primary" plain @click="openShopOrder">新建寄买单</el-button>
+        <el-button v-if="modKey === 'orders' && Number(fixed.type) === 5" type="warning" @click="scanStreambeat">扫描流拍</el-button>
+        <el-button v-if="modKey !== 'report' && modKey !== 'orders'" type="primary" @click="openCreate">+ 新增{{ mod.label || '' }}</el-button>
+      </div>
     </div>
 
     <div class="stat-row" v-if="modKey === 'goods' && stats">
@@ -135,15 +140,20 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="210" fixed="right">
+        <el-table-column label="操作" :width="modKey === 'member' ? 330 : modKey === 'orders' ? 300 : 210" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <template v-if="modKey === 'orders'">
                 <el-button size="small" @click="openEdit(row)">详情</el-button>
+                <el-button v-if="Number(row.is_examine) === 0" size="small" type="warning" @click="auditOrder(row, true)">审核</el-button>
+                <el-button v-if="Number(row.is_examine) === 0" size="small" type="danger" @click="auditOrder(row, false)">拒绝</el-button>
                 <el-button v-if="row.status === 10" size="small" type="primary" @click="openDeliver(row)">发货</el-button>
                 <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认收款</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
                 <el-button v-if="row.type === 5 && row.status === 50" size="small" type="warning" @click="releaseStream(row)">释放</el-button>
+                <el-button v-if="row.type === 5" size="small" @click="openAssignStream(row)">指派会员</el-button>
+                <el-button v-if="Number(row.pay_status) === 10" size="small" type="success" plain @click="grantAward(row)">补发直推奖</el-button>
+                <el-button v-if="Number(row.num) > 1" size="small" @click="openSplitOrder(row)">拆分订单</el-button>
               </template>
               <template v-else-if="modKey === 'withdraw'">
                 <el-button v-if="row.status === 0" size="small" type="primary" @click="auditWithdraw(row, true)">通过</el-button>
@@ -162,6 +172,11 @@
               <template v-else-if="modKey === 'member'">
                 <el-button size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button size="small" type="success" @click="openAdjust(row)">调账</el-button>
+                <el-button size="small" @click="viewTeamOrders(row)">团队订单</el-button>
+                <el-button v-if="Number(row.e_card_number) > 0" size="small" type="warning" plain @click="clearCommission(row)">清除佣金</el-button>
+                <el-button size="small" :type="Number(row.is_advance) === 10 ? 'warning' : 'primary'" @click="toggleAdvance(row)">
+                  {{ Number(row.is_advance) === 10 ? '关闭提前抢购' : '开通提前抢购' }}
+                </el-button>
               </template>
               <template v-else-if="modKey === 'role'">
                 <el-button v-if="row.role_id !== 6" size="small" type="primary" @click="openPerm(row)">分配权限</el-button>
@@ -219,8 +234,18 @@
     </div>
 
     <!-- 编辑 / 新增 弹窗 -->
-    <el-dialog v-model="dialog" :title="formTitle" width="620px" destroy-on-close>
-      <el-form label-width="104px" label-position="right">
+    <el-dialog v-model="dialog" :title="modKey === 'orders' ? '订单详情' : formTitle" width="620px" destroy-on-close>
+      <el-descriptions v-if="modKey === 'orders'" :column="2" border>
+        <el-descriptions-item label="订单号">{{ form.order_no || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="订单类型">{{ labelOf(mod.fields?.find((f) => f.k === 'type'), form.type) }}</el-descriptions-item>
+        <el-descriptions-item label="商品">{{ form.goods_name || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="数量">{{ form.num ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="订单金额">¥{{ Number(form.total_price || 0).toFixed(2) }}</el-descriptions-item>
+        <el-descriptions-item label="订单状态">{{ labelOf(mod.fields?.find((f) => f.k === 'status'), form.status) }}</el-descriptions-item>
+        <el-descriptions-item label="审核状态">{{ Number(form.is_examine) === 10 ? '已通过' : Number(form.is_examine) === 20 ? '已拒绝' : '待审核' }}</el-descriptions-item>
+        <el-descriptions-item label="下单时间">{{ form.create_time || '—' }}</el-descriptions-item>
+      </el-descriptions>
+      <el-form v-else label-width="104px" label-position="right">
         <el-form-item v-for="f in formFields" :key="f.k" :label="f.t">
           <template v-if="f.type === 'image'">
             <div class="image-field">
@@ -269,12 +294,14 @@
             style="width: 100%"
             controls-position="right"
           />
+          <el-input v-else-if="f.type === 'password'" v-model="form[f.k]" type="password" show-password autocomplete="new-password"
+            :placeholder="editing ? '留空则不修改密码' : `请设置${f.t}`" />
           <el-input v-else v-model="form[f.k]" :placeholder="`请输入${f.t}`" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button @click="dialog = false">{{ modKey === 'orders' ? '关闭' : '取消' }}</el-button>
+        <el-button v-if="modKey !== 'orders'" type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
 
@@ -373,6 +400,65 @@
         <el-button type="primary" @click="doAdjust">确认调整</el-button>
       </template>
     </el-dialog>
+
+    <!-- 团队订单 -->
+    <el-dialog v-model="teamDlg" :title="`${teamData.member || '会员'} · 团队订单`" width="820px">
+      <div class="team-summary">
+        <span>团队人数：{{ teamData.team_count || 0 }}</span>
+        <span>订单数：{{ teamData.order_count || 0 }}</span>
+        <span>订单金额：¥{{ Number(teamData.stats?.total_amount || 0).toFixed(2) }}</span>
+        <span>已支付：¥{{ Number(teamData.stats?.paid_amount || 0).toFixed(2) }}</span>
+      </div>
+      <el-table :data="teamData.list || []" max-height="440" size="small">
+        <el-table-column prop="order_no" label="订单号" min-width="165" />
+        <el-table-column prop="goods_name" label="商品" min-width="150" />
+        <el-table-column label="会员" min-width="130">
+          <template #default="{ row }">{{ row.nick_name }} <span class="muted">{{ row.mobile }}</span></template>
+        </el-table-column>
+        <el-table-column prop="total_price" label="金额" width="100" />
+        <el-table-column prop="status_text" label="订单状态" width="100" />
+        <el-table-column prop="create_time" label="时间" min-width="150" />
+      </el-table>
+    </el-dialog>
+
+    <!-- 流拍订单指派 -->
+    <el-dialog v-model="assignDlg" title="指派流拍订单" width="560px">
+      <div class="muted" style="margin-bottom: 12px">{{ assignRow.order_no }} · {{ assignRow.goods_name }}</div>
+      <el-input v-model="assignKeyword" placeholder="搜索会员昵称或手机号" clearable @input="searchAssignMembers" />
+      <el-select v-model="assignMemberId" placeholder="请选择接收会员" filterable style="width: 100%; margin-top: 12px">
+        <el-option v-for="m in assignMembers" :key="m.member_id" :value="m.member_id" :label="`${m.nick_name || '会员'} · ${m.mobile}`" />
+      </el-select>
+      <template #footer>
+        <el-button @click="assignDlg = false">取消</el-button>
+        <el-button type="primary" :disabled="!assignMemberId" @click="assignStreambeat">确认指派</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 订单操作 -->
+    <el-dialog v-model="orderSplitDlg" title="拆分订单" width="460px">
+      <el-form label-width="90px">
+        <el-form-item label="订单号">{{ orderSplitRow.order_no }}</el-form-item>
+        <el-form-item label="订单数量">{{ orderSplitRow.num }}</el-form-item>
+        <el-form-item label="拆分份数"><el-input-number v-model="orderSplitNum" :min="2" :max="Number(orderSplitRow.num)" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="orderSplitDlg = false">取消</el-button>
+        <el-button type="primary" @click="splitOrder">确认拆分</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="shopOrderDlg" title="新建寄买订单" width="500px">
+      <el-form label-width="100px">
+        <el-form-item label="商品 ID"><el-input-number v-model="shopOrderForm.goods_id" :min="1" /></el-form-item>
+        <el-form-item label="会员 ID"><el-input-number v-model="shopOrderForm.member_id" :min="1" /></el-form-item>
+        <el-form-item label="寄买价格"><el-input-number v-model="shopOrderForm.price" :min="0" :precision="2" /></el-form-item>
+        <el-form-item label="备注"><el-input v-model="shopOrderForm.remark" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="shopOrderDlg = false">取消</el-button>
+        <el-button type="primary" @click="createShopOrder">创建订单</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -417,6 +503,18 @@ const deliverForm = reactive({ order_id: 0, express_company: '顺丰速运', exp
 const adjustDlg = ref(false);
 const adjustRow = ref({});
 const adjustForm = reactive({ field: 'amount', value: 0, remark: '' });
+const teamDlg = ref(false);
+const teamData = ref({});
+const assignDlg = ref(false);
+const assignRow = ref({});
+const assignKeyword = ref('');
+const assignMembers = ref([]);
+const assignMemberId = ref(0);
+const orderSplitDlg = ref(false);
+const orderSplitRow = ref({});
+const orderSplitNum = ref(2);
+const shopOrderDlg = ref(false);
+const shopOrderForm = reactive({ goods_id: 0, member_id: 0, price: 0, remark: '' });
 
 const visibleFields = computed(() => (mod.value.fields || []).filter((f) => !f.hide));
 const formFields = computed(() =>
@@ -602,6 +700,10 @@ function openCreate() {
   if ('goods_status' in form) form.goods_status = 10;
   if ('is_open' in form) form.is_open = 10;
   if ('disabled' in form && modKey.value === 'navigation') form.disabled = 10;
+  if ('disabled' in form && modKey.value === 'member') form.disabled = 10;
+  if ('is_valid' in form) form.is_valid = 10;
+  if ('role_id' in form && optsCache.role?.length) form.role_id = optsCache.role[0].id;
+  if ('status' in form && modKey.value === 'storeuser') form.status = 10;
   if ('type' in form) form.type = 1;
   if ('sort' in form) form.sort = 100;
   if ('num' in form) form.num = 1;
@@ -612,6 +714,11 @@ function openEdit(row) {
   editing.value = true;
   for (const k of Object.keys(form)) delete form[k];
   for (const f of mod.value.fields || []) form[f.k] = row[f.k];
+  if (modKey.value === 'orders') {
+    form.is_examine = row.is_examine;
+    form.pay_status = row.pay_status;
+  }
+  if ('password' in form) form.password = '';
   dialog.value = true;
 }
 
@@ -662,6 +769,15 @@ async function doDeliver() {
 async function confirmPay(row) {
   await adminApi.confirmPay({ order_id: row.order_id });
   ElMessage.success('已确认收款');
+  load();
+}
+
+async function auditOrder(row, pass) {
+  try {
+    await ElMessageBox.confirm(pass ? '确认通过该订单审核？' : '确认拒绝该订单？', '订单审核', { type: 'warning' });
+  } catch { return; }
+  await adminApi.auditOrder({ order_id: row.order_id, pass });
+  ElMessage.success(pass ? '审核通过' : '已拒绝');
   load();
 }
 
@@ -765,7 +881,7 @@ const statItems = computed(() => {
 async function loadStats() {
   if (modKey.value !== 'goods') return;
   try {
-    const r = await http.get('/stats/goods');
+    const r = await http.get('/stats/goods', { params: { type: Number(fixed.value.type) || 1 } });
     stats.value = r.data || null;
   } catch {}
 }
@@ -806,6 +922,124 @@ async function releaseStream(row) {
     ElMessage.success('已释放');
     load();
   } else ElMessage.warning(r.msg);
+}
+
+async function scanStreambeat() {
+  try {
+    await ElMessageBox.confirm('将扫描全部场次中已超过转拍期限的商品，并按规则标记流拍。确定继续？', '扫描流拍', { type: 'warning' });
+  } catch { return; }
+  const r = await adminApi.scanStreambeat();
+  ElMessage.success(r.msg || '扫描完成');
+  load();
+}
+
+async function importOrders() {
+  const example = JSON.stringify([{ goods_id: 1, member_id: 1, price: 100, num: 1, type: Number(fixed.value.type) || 1, remark: '后台导入' }], null, 2);
+  let value;
+  try {
+    ({ value } = await ElMessageBox.prompt('粘贴订单 JSON 数组；每项至少包含 goods_id 和 member_id。', '批量导入订单', {
+      inputType: 'textarea', inputValue: example, inputPlaceholder: example, inputValidator: (v) => {
+        try { return Array.isArray(JSON.parse(v)); } catch { return '请输入有效的 JSON 数组'; }
+      }, confirmButtonText: '开始导入', cancelButtonText: '取消',
+    }));
+  } catch { return; }
+  const r = await adminApi.importOrders(JSON.parse(value));
+  ElMessage.success(r.msg || '导入完成');
+  load();
+}
+
+async function viewTeamOrders(row) {
+  const r = await adminApi.teamOrders(row.member_id);
+  teamData.value = r.data || {};
+  teamDlg.value = true;
+}
+
+async function clearCommission(row) {
+  try { await ElMessageBox.confirm(`将清空 ${row.nick_name} 当前 ¥${Number(row.e_card_number).toFixed(2)} 佣金，并写入负数流水。确定继续？`, '清除佣金', { type: 'warning' }); }
+  catch { return; }
+  await http.post('/member/clear-commission', { member_id: row.member_id });
+  ElMessage.success('佣金已清除');
+  load();
+}
+
+async function grantAward(row) {
+  try { await ElMessageBox.confirm(`为订单 ${row.order_no} 补发直推奖？`, '补发直推奖', { type: 'warning' }); }
+  catch { return; }
+  await adminApi.grantAward({ order_id: row.order_id });
+  ElMessage.success('直推奖已补发');
+  load();
+}
+
+function openAssignStream(row) {
+  assignRow.value = row;
+  assignKeyword.value = '';
+  assignMemberId.value = 0;
+  assignDlg.value = true;
+  searchAssignMembers();
+}
+
+let assignSearchTimer;
+async function searchAssignMembers() {
+  clearTimeout(assignSearchTimer);
+  assignSearchTimer = setTimeout(async () => {
+    const r = await adminApi.streambeatMembers(assignKeyword.value);
+    assignMembers.value = r.data || [];
+  }, 180);
+}
+
+async function assignStreambeat() {
+  try { await ElMessageBox.confirm('指派后会把商品持有人改为所选会员，并更新订单状态。确定指派？', '确认操作', { type: 'warning' }); }
+  catch { return; }
+  await adminApi.assignStreambeat({ order_id: assignRow.value.order_id, member_id: assignMemberId.value });
+  ElMessage.success('订单已指派');
+  assignDlg.value = false;
+  load();
+}
+
+function openSplitOrder(row) {
+  orderSplitRow.value = row;
+  orderSplitNum.value = 2;
+  orderSplitDlg.value = true;
+}
+
+async function splitOrder() {
+  await adminApi.splitOrder({ order_id: orderSplitRow.value.order_id, split_num: orderSplitNum.value });
+  ElMessage.success('订单拆分完成');
+  orderSplitDlg.value = false;
+  load();
+}
+
+function openShopOrder() {
+  Object.assign(shopOrderForm, { goods_id: 0, member_id: 0, price: 0, remark: '' });
+  shopOrderDlg.value = true;
+}
+
+async function createShopOrder() {
+  if (!shopOrderForm.goods_id || !shopOrderForm.member_id) return ElMessage.warning('请填写商品 ID 和会员 ID');
+  const r = await adminApi.createShopOrder({ ...shopOrderForm });
+  ElMessage.success(r.msg || '寄买订单已创建');
+  shopOrderDlg.value = false;
+  load();
+}
+
+async function toggleAdvance(row) {
+  const enable = Number(row.is_advance) !== 10;
+  let count = Number(row.advance_count) || 0;
+  if (enable) {
+    try {
+      const answer = await ElMessageBox.prompt('请输入提前抢购次数（0 表示不限制）。', '开通提前抢购', {
+        inputType: 'number', inputValue: String(count), confirmButtonText: '开通', cancelButtonText: '取消',
+        inputValidator: (v) => Number.isInteger(Number(v)) && Number(v) >= 0 || '请输入大于等于 0 的整数',
+      });
+      count = Number(answer.value);
+    } catch { return; }
+  } else {
+    try { await ElMessageBox.confirm(`确定关闭 ${row.nick_name} 的提前抢购资格？`, '提示', { type: 'warning' }); }
+    catch { return; }
+  }
+  await adminApi.advanceMember({ member_id: row.member_id, enable, count });
+  ElMessage.success(enable ? '已开通提前抢购' : '已关闭提前抢购');
+  load();
 }
 
 // ---------- 商品拆分 ----------
@@ -850,6 +1084,10 @@ watch(() => route.fullPath, () => {
   filters.status = '';
   filters.kind = '';
   filters.disabled = '';
+  teamDlg.value = false;
+  assignDlg.value = false;
+  orderSplitDlg.value = false;
+  shopOrderDlg.value = false;
   load();
 });
 
@@ -857,7 +1095,13 @@ onMounted(load);
 </script>
 
 <style scoped>
+.page-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.team-summary { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-bottom: 14px; color: #596273; font-size: 13px; }
 .total-hint { font-size: 12.5px; color: #8c93a0; }
+
+@media (max-width: 900px) {
+  .page-actions { justify-content: flex-start; }
+}
 
 .perm-head {
   display: flex;

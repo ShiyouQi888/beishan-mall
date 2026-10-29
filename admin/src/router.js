@@ -4,7 +4,7 @@ const list = (path, name, module, title, extra = {}) => ({
   path,
   name,
   component: () => import('./views/ListPage.vue'),
-  meta: { title, module, ...extra },
+  meta: { title, module, permissionPath: path, ...extra },
 });
 
 export default [
@@ -13,12 +13,12 @@ export default [
     path: '/',
     component: Layout,
     children: [
-      { path: '', name: 'dashboard', component: () => import('./views/Dashboard.vue'), meta: { title: '控制面板' } },
+      { path: '', name: 'dashboard', component: () => import('./views/Dashboard.vue'), meta: { title: '控制面板', permissionPath: '/' } },
       list('/goods', 'goods', 'goods', '抢购商品', { fixed: { type: 1 } }),
       list('/shop-goods', 'shopGoods', 'goods', '商城商品', { fixed: { type: 2 } }),
       list('/category', 'category', 'category', '商品分类'),
       list('/specialarea', 'specialarea', 'specialarea', '抢购场次'),
-      { path: '/specialarea/:id', name: 'specialareaConfig', component: () => import('./views/SpecialareaConfig.vue'), meta: { title: '抢购专场配置' } },
+      { path: '/specialarea/:id', name: 'specialareaConfig', component: () => import('./views/SpecialareaConfig.vue'), meta: { title: '抢购专场配置', permissionPath: '/specialarea' } },
       list('/orders', 'orders', 'orders', '全部订单'),
       list('/orders/consign', 'ordersConsign', 'orders', '寄卖订单', { fixed: { type: 2 }, title: '寄卖订单' }),
       list('/orders/shop', 'ordersShop', 'orders', '商城订单', { fixed: { type: 3 }, title: '商城订单' }),
@@ -26,7 +26,7 @@ export default [
       list('/report', 'report', 'report', '举报处理'),
       list('/delivery', 'delivery', 'delivery', '运费模板'),
       list('/settle', 'settle', 'settle', '结算账目'),
-      { path: '/settlement', name: 'settlement', component: () => import('./views/Settlement.vue'), meta: { title: '差价结算' } },
+      { path: '/settlement', name: 'settlement', component: () => import('./views/Settlement.vue'), meta: { title: '差价结算', permissionPath: '/settlement' } },
       list('/energy', 'energy', 'energy', '佣金记录'),
       list('/withdraw', 'withdraw', 'withdraw', '提现审核'),
       list('/member', 'member', 'member', '会员列表'),
@@ -42,5 +42,6 @@ export default [
       { path: '/setting/:group', name: 'setting', component: () => import('./views/SettingPage.vue'), meta: { title: '系统设置' } },
     ],
   },
+  { path: '/forbidden', name: 'forbidden', component: () => import('./views/AccessDenied.vue'), meta: { title: '无权访问' } },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];

@@ -44,7 +44,8 @@ r.get('/getSystemInfo', authMember, (req, res) => {
   res.json(
     ok({
       service_charge: cfg('service_charge', '0'),
-      consignment_rule: cfg('consignment_rule', '提现规则：可提现至已绑定的收款账户，T+1 到账。'),
+      consignment_rule: cfg('consignment_rule', ''),
+      prompt_withdraw: cfg('prompt_withdraw', '提现申请提交后由平台审核，审核通过后 T+1 个工作日到账。'),
       amount: Number(req.member.amount).toFixed(2),
       withdraw_min: cfg('withdraw_min', '10'),
       withdraw_fee: cfg('withdraw_fee', '0'),

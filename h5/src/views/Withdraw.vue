@@ -44,7 +44,7 @@
 
       <div class="card wd__rule">
         <div class="sec-title" style="padding: 14px 0 4px"><span>提现说明</span></div>
-        <div class="rule-text">{{ sys.consignment_rule || '提现申请提交后由平台审核，审核通过后 T+1 个工作日到账。' }}</div>
+        <div class="rule-text">{{ sys.prompt_withdraw || '提现申请提交后由平台审核，审核通过后 T+1 个工作日到账。' }}</div>
       </div>
 
       <button class="btn-main" style="margin-top: 18px" :disabled="loading" @click="submit">

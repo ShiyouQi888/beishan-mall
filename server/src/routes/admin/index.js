@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, tx, now, today } from '../../db.js';
 import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE } from '../../lib/helper.js';
-import { hashPwd, verifyPwd, signAdmin } from '../../lib/auth.js';
+import { hashPwd, verifyPwd, signAdmin, randomCode } from '../../lib/auth.js';
 import { settleOrder } from '../../lib/settle.js';
 import { runSettlement } from '../../lib/settlement.js';
 import { splitGoods, scanStreambeat, releaseStreambeat } from '../../lib/split.js';
@@ -34,7 +34,7 @@ const M = {
       { k: 'turn_beat_num', t: '转拍次数', type: 'number', w: 88, hide: true },
       { k: 'sales_actual', t: '销量', type: 'number', w: 72, hide: true },
       { k: 'goods_sort', t: '排序', type: 'number', w: 72, hide: true },
-      { k: 'goods_status', t: '状态', type: 'switch', opts: GOODS_STATUS, w: 84 },
+      { k: 'goods_status', t: '状态', type: 'select', opts: GOODS_STATUS, w: 84 },
       { k: 'detail', t: '商品详情', type: 'rich', hide: true },
       { k: 'images', t: '图集', type: 'images', hide: true },
       { k: 'create_time', t: '添加时间', type: 'text', readonly: true, w: 150, hide: true },
@@ -79,17 +79,18 @@ const M = {
       { k: 'avatar_url', t: '头像', type: 'avatar', w: 70 },
       { k: 'nick_name', t: '昵称', type: 'text', w: 120 },
       { k: 'mobile', t: '手机号', type: 'text', w: 130 },
-      { k: 'invitation_code', t: '邀请码', type: 'text', w: 100, hide: true },
+      { k: 'password', t: '登录密码', type: 'password', hide: true },
+      { k: 'invitation_code', t: '邀请码', type: 'text', w: 100, hide: true, readonly: true },
       { k: 'identity_vip', t: '会员等级', type: 'vip', w: 100 },
       { k: 'is_valid', t: '会员身份', type: 'select', opts: { 10: '有效会员', 20: '无效会员' }, w: 110, hide: true },
-      { k: 'is_certification', t: '实名', type: 'cert', w: 90 },
-      { k: 'amount', t: '账户余额', type: 'money', w: 110 },
-      { k: 'e_card_number', t: '佣金', type: 'money', w: 100 },
-      { k: 'rush_amount', t: '抢购金额', type: 'money', w: 110, hide: true },
-      { k: 'fy_price', t: '礼券', type: 'money', w: 90, hide: true },
-      { k: 'score', t: '积分', type: 'number', w: 80 },
+      { k: 'is_certification', t: '实名', type: 'cert', w: 90, readonly: true },
+      { k: 'amount', t: '账户余额', type: 'money', w: 110, readonly: true },
+      { k: 'e_card_number', t: '佣金', type: 'money', w: 100, readonly: true },
+      { k: 'rush_amount', t: '抢购金额', type: 'money', w: 110, hide: true, readonly: true },
+      { k: 'fy_price', t: '礼券', type: 'money', w: 90, hide: true, readonly: true },
+      { k: 'score', t: '积分', type: 'number', w: 80, readonly: true },
       { k: 'p_id', t: '上级ID', type: 'parent', w: 110 },
-      { k: 'is_advance', t: '提前抢购', type: 'switch', opts: { 10: '已开通', 0: '未开通' }, w: 100 },
+      { k: 'is_advance', t: '提前抢购', type: 'switch', opts: { 10: '已开通', 0: '未开通' }, w: 100, readonly: true },
       { k: 'disabled', t: '状态', type: 'switch', opts: { 10: '正常', 20: '禁用' }, w: 90 },
       { k: 'create_time', t: '注册时间', type: 'text', readonly: true, w: 160 },
     ],
@@ -278,6 +279,7 @@ const M = {
     fields: [
       { k: 'store_user_id', t: 'ID', type: 'text', readonly: true, w: 70 },
       { k: 'user_name', t: '登录账号', type: 'text', required: true, w: 130 },
+      { k: 'password', t: '登录密码', type: 'password', hide: true },
       { k: 'nick_name', t: '昵称', type: 'text', w: 120 },
       { k: 'role_id', t: '角色', type: 'select', opts: 'role', w: 110 },
       { k: 'status', t: '状态', type: 'switch', opts: { 10: '正常', 20: '停用' }, w: 90 },
@@ -482,19 +484,25 @@ const SETTING_GROUPS = {
 };
 
 r.get('/setting/:group', authAdmin, (req, res) => {
-  const g = SETTING_GROUPS[req.params.group];
+  const g = Object.prototype.hasOwnProperty.call(SETTING_GROUPS, req.params.group) ? SETTING_GROUPS[req.params.group] : null;
   if (!g) return res.json(fail('设置组不存在'));
   res.json(ok({ group: req.params.group, items: g, values: Object.fromEntries(g.map((x) => [x.k, cfg(x.k, '')])) }));
 });
 
 r.post('/setting/save', authAdmin, (req, res) => {
-  const { group, values } = req.body;
-  if (!group || !values) return res.json(fail('参数错误'));
+  const { group, values } = req.body || {};
+  const fields = Object.prototype.hasOwnProperty.call(SETTING_GROUPS, group) ? SETTING_GROUPS[group] : null;
+  if (!fields || !values || typeof values !== 'object' || Array.isArray(values)) return res.json(fail('参数错误'));
+  const allowed = new Set(fields.map((x) => x.k));
+  const keys = Object.keys(values);
+  if (!keys.length || keys.some((k) => !allowed.has(k))) return res.json(fail('设置项不属于当前设置分组'));
+  tx(() => {
   for (const [k, v] of Object.entries(values)) {
     const exist = get('SELECT 1 FROM setting_config WHERE `key` = ?', k);
     if (exist) run('UPDATE setting_config SET `value` = ? WHERE `key` = ?', String(v ?? ''), k);
     else run('INSERT INTO setting_config (`key`, `value`, `group`) VALUES (?,?,?)', k, String(v ?? ''), group);
   }
+  });
   res.json(ok([], '保存成功'));
 });
 
@@ -619,8 +627,19 @@ r.get('/:module/list', authAdmin, (req, res) => {
   const total = get(`SELECT COUNT(*) c FROM ${mod.table} ${w}`, ...args)?.c || 0;
   const rows = all(`SELECT * FROM ${mod.table} ${w} ORDER BY ${mod.orderBy} LIMIT ? OFFSET ?`, ...args, pp, (p - 1) * pp);
 
-  res.json(ok({ ...page(rows.map((x) => enrich(req.params.module, x)), total, p, pp), module: mod }));
+  res.json(ok({ ...page(rows.map((x) => safeAdminRow(req.params.module, enrich(req.params.module, x))), total, p, pp), module: mod }));
 });
+
+/** 后台列表/详情不返回认证凭证、支付口令或会员收款配置。 */
+function safeAdminRow(module, row) {
+  const out = { ...row };
+  for (const key of ['password', 'pay_password', 'pay_setting', 'open_id']) delete out[key];
+  if (module === 'member') {
+    for (const key of ['idcard', 'sign_image', 'child_id', 'path', 'client_type',
+      'personal_income', 'total_amount', 'distribution_amount', 'team_water', 'advance_time']) delete out[key];
+  }
+  return out;
+}
 
 /** 列表数据补充（关联展示字段） */
 function enrich(mod, row) {
@@ -670,38 +689,143 @@ r.get('/:module/detail', authAdmin, (req, res) => {
   if (!mod) return res.json(fail('模块不存在'));
   const row = get(`SELECT * FROM ${mod.table} WHERE ${mod.pk} = ?`, req.query.id);
   if (!row) return res.json(fail('记录不存在'));
-  res.json(ok(enrich(req.params.module, row)));
+  res.json(ok(safeAdminRow(req.params.module, enrich(req.params.module, row))));
 });
 
 // ---------------- 通用保存 ----------------
 r.post('/:module/save', authAdmin, (req, res) => {
   const mod = M[req.params.module];
   if (!mod) return res.json(fail('模块不存在'));
+  if (req.params.module === 'orders') return res.json(fail('订单请通过审核、发货等专用操作修改'));
   const body = req.body || {};
-  const keys = mod.fields.map((f) => f.k).filter((k) => k in body && !['create_time'].includes(k));
+  const keys = mod.fields
+    .filter((f) => !f.readonly)
+    .map((f) => f.k)
+    .filter((k) => k in body && !['create_time'].includes(k));
   if (!keys.length) return res.json(fail('没有可保存的字段'));
 
   const id = body[mod.pk];
   if (id) {
-    const sets = keys.filter((k) => k !== mod.pk).map((k) => `${k} = ?`);
-    const vals = keys.filter((k) => k !== mod.pk).map((k) => body[k]);
-    if (!sets.length) return res.json(fail('没有可更新的字段'));
-    run(`UPDATE ${mod.table} SET ${sets.join(', ')} WHERE ${mod.pk} = ?`, ...vals, id);
+    const updateKeys = keys.filter((k) => k !== mod.pk && !(k === 'password' && !body[k])
+      && !(mod.table === 'member' && k === 'p_id'));
+    const currentMember = mod.table === 'member' ? get('SELECT * FROM member WHERE member_id = ?', Number(id)) : null;
+    let nextMemberParent = null;
+    if (mod.table === 'member') {
+      if (!currentMember) return res.json(fail('会员不存在'));
+      if (body.mobile && !/^1\d{10}$/.test(String(body.mobile))) return res.json(fail('手机号格式不正确'));
+      if (body.mobile && get('SELECT 1 FROM member WHERE mobile = ? AND member_id <> ?', String(body.mobile), Number(id))) {
+        return res.json(fail('手机号已存在'));
+      }
+      if (body.password && String(body.password).length < 6) return res.json(fail('密码至少 6 位'));
+      if ('p_id' in body) {
+        const parentId = Number(body.p_id) || 0;
+        nextMemberParent = parentId ? get('SELECT * FROM member WHERE member_id = ?', parentId) : null;
+        if (parentId && !nextMemberParent) return res.json(fail('上级会员不存在'));
+        const oldRoot = `${currentMember.path || '/'}${currentMember.member_id}/`;
+        if (parentId === Number(id) || (nextMemberParent && String(nextMemberParent.path || '').startsWith(oldRoot))) {
+          return res.json(fail('不能将会员调整到自己的团队下'));
+        }
+      }
+    }
+    if (mod.table === 'store_user') {
+      if (body.user_name && get('SELECT 1 FROM store_user WHERE user_name = ? AND store_user_id <> ?', body.user_name, Number(id))) {
+        return res.json(fail('登录账号已存在'));
+      }
+      if (body.role_id && !get('SELECT 1 FROM store_role WHERE role_id = ?', Number(body.role_id))) return res.json(fail('所选角色不存在'));
+      if (body.password && String(body.password).length < 6) return res.json(fail('密码至少 6 位'));
+    }
+    const sets = updateKeys.map((k) => `${k} = ?`);
+    const vals = updateKeys.map((k) => k === 'password' ? hashPwd(body[k]) : body[k]);
+    const parentChange = mod.table === 'member' && 'p_id' in body
+      && Number(body.p_id || 0) !== Number(currentMember.p_id || 0);
+    if (!sets.length && !parentChange) return res.json(fail('没有可更新的字段'));
+    tx(() => {
+      if (sets.length) run(`UPDATE ${mod.table} SET ${sets.join(', ')} WHERE ${mod.pk} = ?`, ...vals, id);
+      if (mod.table === 'member' && nextMemberParent && Number(nextMemberParent.member_id) !== Number(currentMember.p_id || 0)) {
+        const oldRoot = `${currentMember.path || '/'}${currentMember.member_id}/`;
+        const nextPath = `${nextMemberParent.path || '/'}${nextMemberParent.member_id}/`;
+        const nextRoot = `${nextPath}${currentMember.member_id}/`;
+        const nextLevel = Number(nextMemberParent.level || 1) + 1;
+        const descendants = all('SELECT member_id, path, level FROM member WHERE path LIKE ?', `${oldRoot}%`);
+        run('UPDATE member SET p_id = ?, path = ?, level = ? WHERE member_id = ?', nextMemberParent.member_id, nextPath, nextLevel, Number(id));
+        const delta = nextLevel - Number(currentMember.level || 1);
+        for (const child of descendants) {
+          run('UPDATE member SET path = ?, level = ? WHERE member_id = ?',
+            `${nextRoot}${child.path.slice(oldRoot.length)}`, Number(child.level || 1) + delta, child.member_id);
+        }
+        if (currentMember.p_id) {
+          const oldParent = get('SELECT child_id FROM member WHERE member_id = ?', Number(currentMember.p_id));
+          const remaining = (oldParent?.child_id || '').split(',').filter((x) => x && Number(x) !== Number(id));
+          run('UPDATE member SET child_id = ? WHERE member_id = ?', remaining.join(','), Number(currentMember.p_id));
+        }
+        const childIds = (nextMemberParent.child_id || '').split(',').filter(Boolean);
+        if (!childIds.includes(String(id))) childIds.push(String(id));
+        run('UPDATE member SET child_id = ? WHERE member_id = ?', childIds.join(','), nextMemberParent.member_id);
+      } else if (mod.table === 'member' && 'p_id' in body && Number(body.p_id || 0) === 0 && Number(currentMember.p_id || 0) !== 0) {
+        const oldRoot = `${currentMember.path || '/'}${currentMember.member_id}/`;
+        const descendants = all('SELECT member_id, path, level FROM member WHERE path LIKE ?', `${oldRoot}%`);
+        run("UPDATE member SET p_id = 0, path = '/', level = 1 WHERE member_id = ?", Number(id));
+        const delta = 1 - Number(currentMember.level || 1);
+        for (const child of descendants) {
+          run('UPDATE member SET path = ?, level = ? WHERE member_id = ?',
+            `/${currentMember.member_id}/${child.path.slice(oldRoot.length)}`, Number(child.level || 1) + delta, child.member_id);
+        }
+        const oldParent = get('SELECT child_id FROM member WHERE member_id = ?', Number(currentMember.p_id));
+        const remaining = (oldParent?.child_id || '').split(',').filter((x) => x && Number(x) !== Number(id));
+        run('UPDATE member SET child_id = ? WHERE member_id = ?', remaining.join(','), Number(currentMember.p_id));
+      }
+    });
     return res.json(ok({ id }, '修改成功'));
   }
   // 新增
   let ins = keys;
   let vals = keys.map((k) => body[k]);
   if (mod.table === 'store_user') {
-    if (!body.password) return res.json(fail('请设置登录密码'));
+    if (!body.password || String(body.password).length < 6) return res.json(fail('请设置至少 6 位登录密码'));
+    if (!body.user_name || !body.role_id) return res.json(fail('请填写登录账号并选择角色'));
+    if (get('SELECT 1 FROM store_user WHERE user_name = ?', body.user_name)) return res.json(fail('登录账号已存在'));
+    if (!get('SELECT 1 FROM store_role WHERE role_id = ?', Number(body.role_id))) return res.json(fail('所选角色不存在'));
     ins = [...keys.filter((k) => k !== 'password'), 'password', 'create_time'];
     vals = [...keys.filter((k) => k !== 'password').map((k) => body[k]), hashPwd(body.password), now()];
   } else if (mod.table === 'member') {
     if (!body.mobile) return res.json(fail('请填写手机号'));
     if (get('SELECT 1 FROM member WHERE mobile = ?', body.mobile)) return res.json(fail('手机号已存在'));
-    if (!body.password) return res.json(fail('请设置登录密码'));
-    ins = [...keys.filter((k) => k !== 'password'), 'password', 'create_time'];
-    vals = [...keys.filter((k) => k !== 'password').map((k) => body[k]), hashPwd(body.password), now()];
+    if (!/^1\d{10}$/.test(String(body.mobile))) return res.json(fail('手机号格式不正确'));
+    if (!body.password || String(body.password).length < 6) return res.json(fail('请设置至少 6 位登录密码'));
+    const parent = Number(body.p_id) ? get('SELECT * FROM member WHERE member_id = ?', Number(body.p_id)) : null;
+    if (Number(body.p_id) && !parent) return res.json(fail('上级会员不存在'));
+    const makeCode = () => {
+      let code = randomCode(6);
+      while (get('SELECT 1 FROM member WHERE invitation_code = ?', code)) code = randomCode(6);
+      return code;
+    };
+    const code = body.invitation_code || makeCode();
+    if (get('SELECT 1 FROM member WHERE invitation_code = ?', code)) return res.json(fail('邀请码已存在'));
+    const permittedMemberKeys = keys.filter((k) => !['password', 'is_advance', 'invitation_code'].includes(k));
+    const memberValues = { ...body, invitation_code: code, p_id: parent?.member_id || 0,
+      path: parent ? `${parent.path || '/'}${parent.member_id}/` : '/',
+      level: parent ? Number(parent.level || 1) + 1 : 1,
+      grade_id: Number(body.grade_id) || 1, identity_vip: Number(body.identity_vip) || 0,
+      is_valid: Number(body.is_valid) || 10, is_certification: Number(body.is_certification) || 0,
+      disabled: Number(body.disabled) || 10,
+      amount: Number(body.amount) || 0, score: Number(body.score) || 0,
+      e_card_number: Number(body.e_card_number) || 0, rush_amount: Number(body.rush_amount) || 0,
+      fy_price: Number(body.fy_price) || 0, create_time: now(), update_time: now() };
+    ins = [...permittedMemberKeys, 'invitation_code', 'path', 'level', 'grade_id', 'password', 'create_time', 'update_time'];
+    vals = [...permittedMemberKeys.map((k) => memberValues[k]), code, memberValues.path, memberValues.level,
+      memberValues.grade_id, hashPwd(body.password), memberValues.create_time, memberValues.update_time];
+    const create = () => {
+      const info = run(`INSERT INTO member (${ins.join(',')}) VALUES (${ins.map(() => '?').join(',')})`, ...vals);
+      const memberId = Number(info.lastInsertRowid);
+      if (parent) {
+        const childIds = (parent.child_id || '').split(',').filter(Boolean);
+        childIds.push(String(memberId));
+        run('UPDATE member SET child_id = ? WHERE member_id = ?', childIds.join(','), parent.member_id);
+      }
+      return memberId;
+    };
+    const memberId = tx(create);
+    return res.json(ok({ id: memberId }, '添加成功'));
   } else {
     if (mod.fields.some((f) => f.k === 'create_time')) {
       ins = [...keys, 'create_time'];
@@ -718,10 +842,34 @@ r.post('/:module/save', authAdmin, (req, res) => {
 r.post('/:module/remove', authAdmin, (req, res) => {
   const mod = M[req.params.module];
   if (!mod) return res.json(fail('模块不存在'));
-  const ids = Array.isArray(req.body.ids) ? req.body.ids : [req.body.id];
-  for (const id of ids.filter(Boolean)) {
-    run(`DELETE FROM ${mod.table} WHERE ${mod.pk} = ?`, id);
+  const ids = (Array.isArray(req.body?.ids) ? req.body.ids : [req.body?.id]).filter(Boolean);
+  if (!ids.length) return res.json(fail('请选择要删除的记录'));
+  const moduleName = req.params.module;
+  if (['orders', 'member', 'energy', 'withdraw', 'settle', 'certification', 'report'].includes(moduleName)) {
+    return res.json(fail('业务记录需保留审计，不能通过通用接口删除'));
   }
+  for (const id of ids) {
+    if (moduleName === 'storeuser') {
+      const user = get('SELECT store_user_id, role_id FROM store_user WHERE store_user_id = ?', Number(id));
+      if (user && (Number(user.store_user_id) === Number(req.admin.store_user_id) || Number(user.role_id) === 6)) {
+        return res.json(fail('不能删除当前管理员或超级管理员'));
+      }
+    }
+    if (moduleName === 'role') {
+      if (Number(id) === 6) return res.json(fail('不能删除超级管理员角色'));
+      if (get('SELECT 1 FROM store_user WHERE role_id = ?', Number(id))) return res.json(fail('该角色仍被管理员使用，不能删除'));
+    }
+    if (moduleName === 'goods' && get('SELECT 1 FROM orders WHERE goods_id = ?', Number(id))) {
+      return res.json(fail('商品已有关联订单，不能删除'));
+    }
+    if (moduleName === 'category' && get('SELECT 1 FROM goods WHERE category_id = ?', Number(id))) {
+      return res.json(fail('分类下仍有商品，不能删除'));
+    }
+    if (moduleName === 'specialarea' && get('SELECT 1 FROM goods WHERE specialarea_id = ?', Number(id))) {
+      return res.json(fail('场次下仍有商品，不能删除'));
+    }
+  }
+  tx(() => ids.forEach((id) => run(`DELETE FROM ${mod.table} WHERE ${mod.pk} = ?`, id)));
   res.json(ok([], '删除成功'));
 });
 

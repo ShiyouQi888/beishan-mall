@@ -7,14 +7,23 @@ import 'element-plus/dist/index.css';
 import './styles/main.css';
 import App from './App.vue';
 import routes from './router.js';
+import { adminApi } from './api.js';
 
 const router = createRouter({ history: createWebHashHistory(), routes });
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const token = localStorage.getItem('ADMIN_TOKEN');
   if (to.path !== '/login' && !token) return { path: '/login' };
   if (to.path === '/login' && token) return { path: '/' };
-  return true;
+  if (to.path === '/login' || to.path === '/forbidden') return true;
+  try {
+    const result = await adminApi.myPaths();
+    const permission = to.meta.permissionPath || (to.path.startsWith('/setting/') ? to.path : '');
+    if (result.data?.unrestricted || result.data?.paths?.includes(permission)) return true;
+    return { path: '/forbidden', replace: true };
+  } catch {
+    return { path: '/login', replace: true };
+  }
 });
 
 createApp(App).use(createPinia()).use(router).use(ElementPlus, { locale: zhCn }).mount('#app');

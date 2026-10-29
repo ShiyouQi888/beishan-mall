@@ -207,6 +207,7 @@ r.post('/orders/import', authAdmin, (req, res) => {
         if (num <= 0) throw new Error('数量必须大于 0');
 
         const type = Number(row.type) || 1;
+        if (![1, 2, 3, 4, 5].includes(type)) throw new Error('订单类型无效');
         const no = orderNo('I');
         const info = run(
           `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
