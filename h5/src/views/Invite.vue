@@ -213,7 +213,7 @@ async function copyCode() {
 function share() {
   const url = `${location.origin}${location.pathname}#/register?code=${me.value.invitation_code || ''}`;
   if (navigator.share) {
-    navigator.share({ title: '邀请你加入锦云商城', url }).catch(() => {});
+    navigator.share({ title: '邀请你加入北山商城', url }).catch(() => {});
   } else {
     navigator.clipboard?.writeText(url);
     showToast('邀请链接已复制');

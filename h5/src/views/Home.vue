@@ -22,7 +22,7 @@
     <div class="home__banner home__banner--ph" v-else>
       <div class="home__banner-text">
         <img v-if="store.logo" :src="store.logo" class="home__brand-logo" alt="商城 Logo" />
-        <div class="t1">{{ store.name || '锦云商城' }}</div>
+        <div class="t1">{{ store.name || '北山商城' }}</div>
         <div class="t2">精品 · 正品 · 臻选</div>
       </div>
     </div>

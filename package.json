@@ -1,5 +1,5 @@
 {
-  "name": "mall-replica",
+  "name": "beishan-mall",
   "version": "1.0.0",
   "private": true,
   "description": "挂售/转拍类商城复刻：后端 + 后台 + H5 一体化，支持 Docker 部署",
@@ -9,7 +9,7 @@
     "start": "node server/src/app.js",
     "test": "npm --prefix server test",
     "seed": "npm --prefix server run seed",
-    "docker:build": "docker build -t mall-replica:latest .",
+    "docker:build": "docker build -t beishan-mall:latest .",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"

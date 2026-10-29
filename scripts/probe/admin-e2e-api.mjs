@@ -274,7 +274,11 @@ async function main() {
     num(db.prepare('SELECT e_card_number e FROM member WHERE member_id = ?').get(mid).e, 0, '清除后佣金归零');
 
     const er = await api(`/admin/api/member/energy-record?member_id=${mid}`, { token: at });
-    ok(er.code === 1, '会员资金流水可读', er.msg);
+    ok(er.code === 1 && er.data?.scope === 'award', '会员返佣流水可读（默认只看返佣）', er.msg);
+    const erAll = await api(`/admin/api/member/energy-record?member_id=${mid}&scope=all`, { token: at });
+    ok(erAll.code === 1 && erAll.data?.scope === 'all', '会员全部资金流水可读（scope=all）', erAll.msg);
+    ok((erAll.data?.list || []).length >= (er.data?.list || []).length, '全部流水不少于返佣流水',
+      `${(erAll.data?.list || []).length} vs ${(er.data?.list || []).length}`);
     const to = await api('/admin/api/member/team-orders?member_id=1', { token: at });
     ok(to.code === 1 && to.data?.team_count >= 1, '团队订单视图', `团队 ${to.data?.team_count} 人`);
 

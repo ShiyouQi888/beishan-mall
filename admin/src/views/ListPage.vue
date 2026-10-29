@@ -140,7 +140,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="modKey === 'member' ? 330 : modKey === 'orders' ? 300 : 210" fixed="right">
+        <el-table-column label="操作" :width="modKey === 'member' ? 430 : modKey === 'orders' ? 300 : 210" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <template v-if="modKey === 'orders'">
@@ -174,6 +174,7 @@
                 <el-button size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button size="small" type="success" @click="openAdjust(row)">调账</el-button>
                 <el-button size="small" @click="viewTeamOrders(row)">团队订单</el-button>
+                <el-button size="small" @click="openEnergy(row)">资金流水</el-button>
                 <el-button v-if="Number(row.e_card_number) > 0" size="small" type="warning" plain @click="clearCommission(row)">清除佣金</el-button>
                 <el-button size="small" :type="Number(row.is_advance) === 10 ? 'warning' : 'primary'" @click="toggleAdvance(row)">
                   {{ Number(row.is_advance) === 10 ? '关闭提前抢购' : '开通提前抢购' }}
@@ -190,19 +191,7 @@
               </template>
               <template v-else-if="modKey === 'specialarea'">
                 <el-button size="small" type="primary" @click="$router.push(`/specialarea/${row.specialarea_id}`)">配置</el-button>
-                <el-button size="small" type="danger" plain @click="removeOne(row)">删除</el-button>
-              </template>
-              <template v-else-if="modKey === 'role'">
-                <el-button v-if="row.role_id !== 6" size="small" type="primary" @click="openPerm(row)">分配权限</el-button>
                 <el-button size="small" @click="openEdit(row)">编辑</el-button>
-                <el-button v-if="row.role_id !== 6" size="small" type="danger" plain @click="removeOne(row)">删除</el-button>
-              </template>
-              <template v-else-if="modKey === 'report'">
-                <el-button v-if="row.status === 0" size="small" type="primary" @click="auditReport(row)">处理</el-button>
-                <el-button size="small" @click="openEdit(row)">查看</el-button>
-              </template>
-              <template v-else-if="modKey === 'specialarea'">
-                <el-button size="small" type="primary" @click="$router.push(`/specialarea/${row.specialarea_id}`)">配置</el-button>
                 <el-button size="small" type="danger" plain @click="removeOne(row)">删除</el-button>
               </template>
               <template v-else-if="modKey === 'goods'">
@@ -422,6 +411,27 @@
       </el-table>
     </el-dialog>
 
+    <!-- 会员资金流水 -->
+    <el-dialog v-model="energyDlg" :title="`${energyMember} · 资金流水`" width="880px">
+      <div class="team-summary">
+        <span>共 {{ energyList.length }} 条</span>
+        <span>合计：¥{{ Number(energyTotal).toFixed(2) }}</span>
+        <span class="muted">含余额变动与返佣，最多显示最近 200 条</span>
+      </div>
+      <el-table :data="energyList" max-height="440" size="small">
+        <el-table-column label="金额" width="120">
+          <template #default="{ row }">
+            <span :style="{ color: Number(row.face_value) < 0 ? '#e24b4a' : '#1a9c56', fontWeight: 500 }">
+              {{ Number(row.face_value) > 0 ? '+' : '' }}{{ Number(row.face_value).toFixed(2) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="type_name" label="类型" width="130" />
+        <el-table-column prop="remarks" label="备注" min-width="260" show-overflow-tooltip />
+        <el-table-column prop="create_time" label="时间" width="165" />
+      </el-table>
+    </el-dialog>
+
     <!-- 流拍订单指派 -->
     <el-dialog v-model="assignDlg" title="指派流拍订单" width="560px">
       <div class="muted" style="margin-bottom: 12px">{{ assignRow.order_no }} · {{ assignRow.goods_name }}</div>
@@ -505,6 +515,10 @@ const adjustDlg = ref(false);
 const adjustRow = ref({});
 const adjustForm = reactive({ field: 'amount', value: 0, remark: '' });
 const teamDlg = ref(false);
+const energyDlg = ref(false);
+const energyMember = ref('');
+const energyList = ref([]);
+const energyTotal = ref(0);
 const teamData = ref({});
 const assignDlg = ref(false);
 const assignRow = ref({});
@@ -965,6 +979,15 @@ async function importOrders() {
   const r = await adminApi.importOrders(JSON.parse(value));
   ElMessage.success(r.msg || '导入完成');
   load();
+}
+
+async function openEnergy(row) {
+  const r = await http.get('/member/energy-record', { params: { member_id: row.member_id, scope: 'all' } });
+  const d = r.data || {};
+  energyList.value = d.list || [];
+  energyTotal.value = d.total || 0;
+  energyMember.value = `${row.nick_name || '会员'} ${row.mobile || ''}`.trim();
+  energyDlg.value = true;
 }
 
 async function viewTeamOrders(row) {

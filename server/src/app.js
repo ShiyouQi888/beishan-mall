@@ -54,6 +54,15 @@ for (const [to, from] of [
   }
 }
 
+// 支付开关统一为 10 开 / 20 关（旧数据是 1 / 0，后台开关组件认不出）
+for (const [key, on] of [['pay_wx', true], ['pay_zfb', true], ['pay_bank', false]]) {
+  const cur = get('SELECT `value` v FROM setting_config WHERE `key` = ?', key);
+  if (cur && ['0', '1'].includes(String(cur.v))) {
+    run('UPDATE setting_config SET `value` = ? WHERE `key` = ?', on ? '10' : '20', key);
+    console.log(`[migrate] 支付开关 ${key} 归一化为 ${on ? '10' : '20'}`);
+  }
+}
+
 // 清掉早期「三级佣金」错误模型遗留的配置键（幂等；现在是单级直推奖 0.5%，这几个键无人读取）
 for (const deadKey of ['commission_l1', 'commission_l2', 'commission_l3', 'commission_base']) {
   if (get('SELECT 1 FROM setting_config WHERE `key` = ?', deadKey)) {

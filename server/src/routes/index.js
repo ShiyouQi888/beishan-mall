@@ -153,13 +153,14 @@ r.get('/index/getGroupAfterSalesAgreement', (req, res) => {
   );
 });
 
-// 支付开关
+// 支付开关：库里统一用 10 开 / 20 关（与后台开关组件一致），对外仍返回 '1'/'0'
+const switchOn = (key, def = '20') => (Number(cfg(key, def)) === 10 ? '1' : '0');
 r.get('/index/getPaySeeting', (req, res) => {
   res.json(
     ok({
-      wx_open: cfg('pay_wx', '1'),
-      zfb_open: cfg('pay_zfb', '1'),
-      bank_open: cfg('pay_bank', '0'),
+      wx_open: switchOn('pay_wx', '10'),
+      zfb_open: switchOn('pay_zfb', '10'),
+      bank_open: switchOn('pay_bank', '20'),
     }),
   );
 });

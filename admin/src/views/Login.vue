@@ -9,7 +9,7 @@
             <path d="M12.2 13a3.8 3.8 0 0 1 7.6 0" stroke="#fff" stroke-width="1.8" stroke-linecap="round" fill="none" />
           </svg>
         </div>
-        <span>{{ store.name || '锦云商城' }} · 管理后台</span>
+        <span>{{ store.name || '北山商城' }} · 管理后台</span>
       </div>
 
       <div class="hero">
@@ -30,7 +30,7 @@
       <div class="foot">
         <span v-if="store.copyright">{{ store.copyright }}</span>
         <span v-if="store.icp_number">{{ store.icp_number }}</span>
-        <span v-if="!store.copyright && !store.icp_number">© {{ new Date().getFullYear() }} {{ store.name || '锦云商城' }} · 管理后台</span>
+        <span v-if="!store.copyright && !store.icp_number">© {{ new Date().getFullYear() }} {{ store.name || '北山商城' }} · 管理后台</span>
       </div>
     </div>
 

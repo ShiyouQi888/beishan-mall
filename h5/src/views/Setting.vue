@@ -37,7 +37,7 @@
 
       <div class="set-brand">
         <img v-if="store.logo" :src="store.logo" alt="" />
-        <span>{{ store.name || '锦云商城' }} · v1.0.0</span>
+        <span>{{ store.name || '北山商城' }} · v1.0.0</span>
       </div>
     </div>
 

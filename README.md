@@ -1,4 +1,4 @@
-# 锦云商城 · 场次抢购寄售系统（复刻版）
+# 北山商城 · 场次抢购寄售系统
 
 对一个「场次抢购 + 寄售转拍 + 多级分销」商城的完整技术复刻：**后台管理端 + H5 商城端 + Node 后端**，三端可独立运行、数据互通。
 
@@ -77,6 +77,15 @@ cd server && npm install && npm run seed && npm run dev   # 3300
 cd admin  && npm install && npm run dev                   # 5274
 cd h5     && npm install && npm run dev                   # 5273
 ```
+
+### 文档
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/admin-manual.md`](docs/admin-manual.md) | **后台操作手册**（逐菜单说明 + 业务 SOP + FAQ） |
+| [`docs/target-system-spec.md`](docs/target-system-spec.md) | 原站算法与字段实证 |
+| [`docs/api-coverage.md`](docs/api-coverage.md) | 接口覆盖与实现说明 |
+| [`docs/streambeat-split-inference.md`](docs/streambeat-split-inference.md) | 流拍与拆分的推断依据 |
 
 ### 演示账号
 

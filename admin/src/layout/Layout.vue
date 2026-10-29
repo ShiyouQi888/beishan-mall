@@ -10,7 +10,7 @@
           </svg>
         </div>
         <div class="brand__text" v-show="!collapsed">
-          <div class="t">{{ store.name || '锦云商城' }}</div>
+          <div class="t">{{ store.name || '北山商城' }}</div>
           <div class="s">管理后台</div>
         </div>
       </div>

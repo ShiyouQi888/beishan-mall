@@ -37,7 +37,7 @@ function makeBanner(file) {
 <circle cx="110" cy="370" r="115" fill="rgba(255,255,255,.035)"/>
 <rect x="200" y="92" width="400" height="266" rx="4" fill="none" stroke="#c9a55f" stroke-width="1.2" opacity=".45"/>
 <text x="400" y="212" font-family="'Noto Sans SC','Microsoft YaHei',sans-serif" font-size="58" fill="#f5e6c8"
- text-anchor="middle" font-weight="700" letter-spacing="12">锦云商贸</text>
+ text-anchor="middle" font-weight="700" letter-spacing="12">北山商城</text>
 <line x1="310" y1="244" x2="490" y2="244" stroke="#c9a55f" stroke-width="1.4" opacity=".6"/>
 <text x="400" y="292" font-family="'Noto Sans SC','Microsoft YaHei',sans-serif" font-size="22" fill="rgba(245,230,200,.82)"
  text-anchor="middle" letter-spacing="9">精品臻选 · 正品保障</text>
@@ -78,9 +78,9 @@ tx(() => {
 
   // ---------- 系统设置 ----------
   const settings = [
-    ['store_name', '锦云商贸', 'store'],
+    ['store_name', '北山商城', 'store'],
     ['store_mobile', '400-888-8888', 'store'],
-    ['copyright', '版权所有 © 锦云商贸 2026', 'store'],
+    ['copyright', '版权所有 © 北山商城 2026', 'store'],
     ['icp_number', 'ICP备00000000号', 'store'],
     ['customer_link', '#', 'store'],
     // 演示默认口径：抢单服务费 2%、上架费 0、提现手续费 0、转拍涨价 3%
@@ -95,9 +95,9 @@ tx(() => {
     ['consignment_rule', '转拍免上架费；商品按后台涨价率自动加价进入下一轮，成交后货款全额结算给上一手持有人。', 'trade'],
     ['withdraw_min', '10', 'trade'],
     ['withdraw_fee', '0', 'trade'],
-    ['pay_wx', '1', 'pay'],
-    ['pay_zfb', '1', 'pay'],
-    ['pay_bank', '0', 'pay'],
+    ['pay_wx', '10', 'pay'],
+    ['pay_zfb', '10', 'pay'],
+    ['pay_bank', '20', 'pay'],
     ['pay_gateway_open', '10', 'pay'],
     ['auction_open', '0', 'auction'],
     ['auction_start_price', '80', 'auction'],
@@ -114,7 +114,7 @@ tx(() => {
     ['prompt_shop', '<p>商城服务协议内容。</p>', 'prompt'],
     ['prompt_trade', '<p>交易规则：商品一经售出，非质量问题不予退换。</p>', 'prompt'],
     ['prompt_loot', '<p>抢购成功后请在 30 分钟内完成支付，超时订单自动关闭。</p>', 'prompt'],
-    ['prompt_consign', '<p>转拍需支付上架费，上架费按本轮抢购金额计算。</p>', 'prompt'],
+    ['prompt_consign', '<p>转拍免上架费；商品按平台设定的涨价率自动加价后进入下一轮，成交后货款全额结算给上一手持有人。</p>', 'prompt'],
     ['prompt_withdraw', '<p>提现申请审核通过后 T+1 个工作日到账。</p>', 'prompt'],
     ['customer_type', '1', 'store'],
     ['to_examine', '10', 'store'],

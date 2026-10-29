@@ -10,7 +10,7 @@
           <path d="M19.5 20a4.5 4.5 0 0 1 9 0" stroke="#fff" stroke-width="2.2" stroke-linecap="round" />
         </svg>
       </div>
-      <div class="login__brand-name">{{ store.name || '锦云商城' }}</div>
+      <div class="login__brand-name">{{ store.name || '北山商城' }}</div>
       <div class="login__slogan">精品严选 <i /> 品质生活</div>
     </div>
 

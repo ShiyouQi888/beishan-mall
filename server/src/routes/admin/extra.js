@@ -108,13 +108,15 @@ r.get('/member/energy-record', authAdmin, (req, res) => {
     );
     return res.json(ok({ summary: true, list }));
   }
-  const rows = all(
-    'SELECT * FROM finance_energy WHERE member_id = ? AND type = 3 ORDER BY energy_id DESC LIMIT 200',
-    memberId,
-  );
+  // scope=all 返回全部资金流水（余额变动 + 返佣），默认只看返佣
+  const allTypes = String(req.query.scope || '') === 'all';
+  const rows = allTypes
+    ? all('SELECT * FROM finance_energy WHERE member_id = ? ORDER BY energy_id DESC LIMIT 200', memberId)
+    : all('SELECT * FROM finance_energy WHERE member_id = ? AND type = 3 ORDER BY energy_id DESC LIMIT 200', memberId);
   res.json(
     ok({
       member_id: memberId,
+      scope: allTypes ? 'all' : 'award',
       total: money(rows.reduce((s, x) => s + Number(x.face_value || 0), 0)),
       list: rows,
     }),

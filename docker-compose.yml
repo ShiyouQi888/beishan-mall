@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mall-replica:latest
-    container_name: mall-replica
+    image: beishan-mall:latest
+    container_name: beishan-mall
     restart: unless-stopped
     ports:
       - "3300:3300"
