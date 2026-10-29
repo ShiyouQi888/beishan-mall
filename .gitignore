@@ -1,0 +1,19 @@
+# Dependencies and generated frontend bundles
+**/node_modules/
+**/dist/
+
+# Local databases and uploaded user media
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+server/data/uploads/
+
+# Local tooling and browser profiles
+_npmcache/
+_probe/
+.workbuddy/
+
+# Local environment secrets
+.env
+.env.*
+!.env.example
