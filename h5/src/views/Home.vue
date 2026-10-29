@@ -39,6 +39,16 @@
     <div class="home__tabs">
       <div class="home__tabs-inner">
         <div
+          class="home__tab"
+          :class="{ on: activeCat === 0 }"
+          @click="activeCat = 0"
+        >
+          <span class="home__tab-icon tone-brand">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+          </span>
+          <span>全部</span>
+        </div>
+        <div
           v-for="c in categories"
           :key="c.category_id"
           class="home__tab"
@@ -50,7 +60,6 @@
           </span>
           <span>{{ c.name }}</span>
         </div>
-        <div v-if="!categories.length" class="home__tab on">全部商品</div>
       </div>
     </div>
 
@@ -124,10 +133,14 @@ const iconFor = (name = '') => {
 async function loadGoods() {
   loading.value = true;
   try {
-    const params = { page: 1, limit: 20 };
-    if (activeCat.value) params.category_id = activeCat.value;
-    const r = await api.categoryGoods(params);
-    goods.value = r.data.data || [];
+    // 0 = 全部：不按分类过滤，展示所有在售抢购商品
+    if (!activeCat.value) {
+      const r = await api.lootGoods({ page: 1, limit: 20 });
+      goods.value = r.data.data || [];
+    } else {
+      const r = await api.categoryGoods({ page: 1, limit: 20, category_id: activeCat.value });
+      goods.value = r.data.data || [];
+    }
   } catch {
     goods.value = [];
   } finally {
@@ -143,21 +156,12 @@ onMounted(async () => {
   if (n.status === 'fulfilled') navs.value = n.value.data || [];
   if (s.status === 'fulfilled') store.value = s.value.data || {};
   if (l.status === 'fulfilled') areas.value = l.value.data?.list || [];
-  if (c.status === 'fulfilled') {
-    categories.value = c.value.data?.categoryList || [];
-    activeCat.value = categories.value[0]?.category_id || 0;
-  }
-  if (!activeCat.value) {
-    // 无分类时退化为全部抢购商品
-    const r = await api.lootGoods({ page: 1, limit: 20 });
-    goods.value = r.data.data || [];
-    loading.value = false;
-  }
+  if (c.status === 'fulfilled') categories.value = c.value.data?.categoryList || [];
+  // 默认展示「全部」，避免首页被第一个分类锁死只剩一两件商品
+  await loadGoods();
 });
 
-watch(activeCat, () => {
-  if (activeCat.value) loadGoods();
-});
+watch(activeCat, () => loadGoods());
 </script>
 
 <style scoped>
@@ -273,6 +277,7 @@ watch(activeCat, () => {
 .home__tab-icon svg { width:17px;height:17px; }
 .home__tab-icon img { width:100%;height:100%;object-fit:cover;border-radius:inherit; }
 .tone-gold { color:#a57b3e; background:#f1e5d0; }
+.tone-brand { color: var(--brand); background: #fff2f0; }
 .tone-jade { color:#568371; background:#dfede6; }
 .tone-rose { color:#ad6c70; background:#f3e2e3; }
 .tone-blue { color:#65819a; background:#e0eaf1; }

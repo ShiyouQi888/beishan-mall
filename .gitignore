@@ -1,6 +1,9 @@
 # Dependencies and generated frontend bundles
 **/node_modules/
 **/dist/
+# 一体化构建产物（由 npm run build 生成）
+public/
+
 
 # Local databases and uploaded user media
 server/data/*.db

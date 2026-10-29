@@ -179,6 +179,8 @@ r.get('/index/getTradeConfig', (req, res) => {
   res.json(
     ok({
       listing_fee_rate: cfg('listing_fee_rate', '2.8'),
+      service_charge: cfg('service_charge', '0'),
+      price_increase_rate: cfg('price_increase_rate', '3'),
       drive_award_rate: cfg('drive_award_rate', '0.5'),
       same_level_award_rate: cfg('same_level_award_rate', '0'),
       consignment_open: cfg('consignment_open', '10'),

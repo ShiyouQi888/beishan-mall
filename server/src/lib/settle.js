@@ -123,7 +123,7 @@ function payCommission(memberId, amount, label, orderNo) {
  * 团队流水累计 + 等级升级
  * 沿推荐链向上累加业绩，然后逐个检查是否满足升级条件
  */
-export function addTeamWater(buyerId, amount) {
+function addTeamWater(buyerId, amount) {
   const buyer = get('SELECT member_id, p_id FROM member WHERE member_id = ?', buyerId);
   let cur = buyer;
   for (let i = 0; i < 20 && cur?.p_id; i++) {
@@ -136,7 +136,7 @@ export function addTeamWater(buyerId, amount) {
 }
 
 /** 按 member_grade 的升级条件判定是否可升级（只升不降） */
-export function checkGradeUpgrade(memberId) {
+function checkGradeUpgrade(memberId) {
   const m = get('SELECT * FROM member WHERE member_id = ?', memberId);
   if (!m) return;
 

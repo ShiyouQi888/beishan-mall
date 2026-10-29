@@ -20,7 +20,22 @@
 
 "流拍"在拍卖语境 = **标的无人应价，未能成交**。在本系统里对应：
 
-> 场次结束后，寄售挂单（`type=2` 且 `status=0` 未被购买）的商品，判定为流拍。
+> 场次结束后，已转拍挂出、但商品仍由原持有人持有的，判定为流拍。
+
+**数据源（后续重构）**：最初实现靠一张独立的 `type=2` 寄卖挂单来记录"已挂出"，
+但该单据与「`goods` 的持有人/标价/上下架」+「原订单的 `consignment_status` / `transposition_time`」
+完全重复，且成交后不会结清，会留下买家为空的僵尸记录。现已取消该单据，
+流拍改为直接从原订单推导：
+
+```sql
+-- 挂了但没卖掉：订单标记已转拍 + 商品仍归该买家 + 仍在架
+o.consignment_status = 10 AND o.type = 1 AND o.status IN (10,30)
+AND g.member_id = o.member_id AND g.goods_status = 10
+AND IFNULL(o.transposition_time, o.create_time) <= <结算日 23:59:59>
+```
+
+判为流拍后：生成 `type=5` 流拍记录、商品置 `goods_status=30`、原订单 `consignment_status` 归 0（关闭挂单）。
+因为挂单标记会被清零，同一挂单不会被重复判流拍（幂等）。
 
 处理：商品下架（`goods_status=30`），生成一条流拍记录（`orders.type=5`），持有人可在后台「释放订单」把商品退回可售状态。
 

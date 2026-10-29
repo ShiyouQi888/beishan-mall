@@ -4,7 +4,8 @@ import { all, get, run, now } from '../db.js';
 import { MENU } from './menu.config.js';
 
 // 菜单结构统一来自 menu.config.js（单一数据源）
-export const MENU_TREE = MENU.map((g) => ({
+// 仅本模块用于同步节点表，不需要对外暴露
+const MENU_TREE = MENU.map((g) => ({
   group: g.label,
   items: g.items.map((i) => ({ name: i.title, path: i.path })),
 }));

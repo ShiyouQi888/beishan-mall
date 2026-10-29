@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, tx, now, today } from '../db.js';
-import { ok, fail, authMember, page, money } from '../lib/helper.js';
+import { ok, fail, authMember, page, money, calcNextPrice, priceIncreaseRate, assetUrl } from '../lib/helper.js';
+import { calcListingFee } from '../lib/settle.js';
 import { hashPwd, verifyPwd, signMember, randomCode } from '../lib/auth.js';
 
 const r = Router();
@@ -70,11 +71,7 @@ r.get('/getMemberDetails', authMember, (req, res) => {
   const parent = m.p_id ? get('SELECT nick_name FROM member WHERE member_id = ?', m.p_id) : null;
   const teamCount = get('SELECT COUNT(*) c FROM member WHERE path LIKE ?', `%/${m.member_id}/%`)?.c || 0;
   const childCount = m.child_id ? m.child_id.split(',').filter(Boolean).length : 0;
-  const avatar = m.avatar_url
-    ? m.avatar_url.startsWith('http')
-      ? m.avatar_url
-      : `http://127.0.0.1:3300${m.avatar_url}`
-    : '';
+  const avatar = assetUrl(m.avatar_url);
 
   const todayProfit = get(
     'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 3 AND create_time >= ?',
@@ -396,6 +393,8 @@ r.post('/certification/addRealName', authMember, (req, res) => {
   if (!idcard) return res.json(fail('请填写身份证号'));
   if (!/^\d{17}[\dXx]$/.test(idcard)) return res.json(fail('身份证号格式不正确'));
   if (req.member.is_certification === 1) return res.json(fail('已经认证过了'));
+  // 2 = 资料已提交待审核：此时再提交会产生多条待审记录，后台审核时会重复处理
+  if (req.member.is_certification === 2) return res.json(fail('实名资料审核中，请耐心等待'));
   run(
     `INSERT INTO member_certification (member_id, real_name, idcard, front_image, back_image, hand_image, status, create_time)
      VALUES (?,?,?,?,?,?,0,?)`,
@@ -410,6 +409,67 @@ r.get('/certification/getIsRealName', authMember, (req, res) => {
   const m = req.member;
   if (m.is_certification === 1) return res.json(ok([], '已经认证过了'));
   res.json(ok({ status: m.is_certification, name: m.certification_name || '' }, '未认证'));
+});
+
+// ---------------- 我的店铺 ----------------
+/**
+ * 当前持有的在售商品 + 预计收益
+ * 预计净收益 = 下一轮标价 − 我的买入价 − 上架费
+ *   已挂牌：下一轮标价取商品现标价（已涨过），上架费已实际扣除
+ *   未挂牌：下一轮标价按涨价率预估，上架费按预估
+ * 商品被下一轮买走后 goods.member_id 变更，自然从列表消失，无需额外处理
+ */
+r.get('/myShop', authMember, (req, res) => {
+  const me = req.member.member_id;
+  const goodsList = all(
+    `SELECT goods_id, goods_name, good_thumb, goods_min_price, goods_status, turn_beat_num, update_time
+     FROM goods WHERE member_id = ? AND goods_status = 10
+     ORDER BY update_time DESC, goods_id DESC`,
+    me,
+  );
+
+  const list = goodsList.map((g) => {
+    const o = get(
+      `SELECT order_id, order_no, total_price, consignment_status, listing_fee FROM orders
+       WHERE goods_id = ? AND member_id = ? AND type = 1 AND pay_status = 10 AND status <> 40
+       ORDER BY order_id DESC LIMIT 1`,
+      g.goods_id, me,
+    );
+    const myPrice = Number(o?.total_price || 0);
+    const listed = Number(o?.consignment_status) === 10;
+    // 已挂牌：商品标价就是下一轮成交价；未挂牌：按涨价率预估
+    const nextPrice = listed ? Number(g.goods_min_price) : calcNextPrice(g.goods_min_price);
+    const listingFee = listed ? Number(o?.listing_fee || 0) : calcListingFee(myPrice || g.goods_min_price);
+    // 没有买入订单（平台指派/赠送）时无法算收益，返回 null 让前端显示「—」
+    const estNet = myPrice > 0 ? money(nextPrice - myPrice - listingFee) : null;
+    return {
+      goods_id: g.goods_id,
+      goods_name: g.goods_name,
+      good_thumb: g.good_thumb,
+      my_price: money(myPrice),
+      current_price: money(g.goods_min_price),
+      next_price: money(nextPrice),
+      listing_fee: money(listingFee),
+      est_net: estNet,
+      listed,
+      turn_beat_num: Number(g.turn_beat_num || 0),
+      order_no: o?.order_no || '',
+      update_time: g.update_time,
+    };
+  });
+
+  const listedCount = list.filter((x) => x.listed).length;
+  const totalNet = money(list.reduce((s, x) => s + (x.est_net || 0), 0));
+  res.json(ok({
+    list,
+    summary: {
+      count: list.length,
+      listed_count: listedCount,
+      unlisted_count: list.length - listedCount,
+      total_net: totalNet,
+      increase_rate: priceIncreaseRate(),
+    },
+  }));
 });
 
 export default r;

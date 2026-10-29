@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 
-export const SECRET = process.env.JWT_SECRET || 'mall-replica-secret-2026';
+// 仅本模块使用，不外泄签名密钥
+const SECRET = process.env.JWT_SECRET || 'mall-replica-secret-2026';
 
 export function hashPwd(plain) {
   return crypto.createHash('sha256').update(String(plain) + '::mall').digest('hex');

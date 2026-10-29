@@ -83,7 +83,9 @@ async function main() {
   const detail = async (token) => (await api('/api/member/getMemberDetails', { token })).data;
 
   try {
-    console.log('\n[1] 抢购分账（抢购不收费，卖家全额，上级拿 0.5% 直推奖）');
+    console.log('\n[1] 抢购分账（服务费按配置收，卖家全额，上级拿 0.5% 直推奖）');
+    const svcRate = Number(db.prepare("SELECT `value` v FROM setting_config WHERE `key`='service_charge'").get().v);
+    console.log(`    当前抢单服务费率：${svcRate}%`);
     const buyer = await login('13822367845');
     const seller = await login('13800000002');
     const top = await login('13800000001');
@@ -104,14 +106,15 @@ async function main() {
       method: 'POST', token: buyer, body: { goods_id: target.goods_id, num: 1, pay_type: 1 },
     });
     ok(order.code === 1, '下单成功', order.msg);
-    eq(order.data.service_charge, 0, '抢购下单不收取服务费');
+    eq(order.data.service_charge, money(price * svcRate / 100), `抢购服务费 = ${price} × ${svcRate}%`);
 
     const oid = order.data.order_id;
     const paid = await api('/api/order/toPay', { method: 'POST', token: buyer, body: { order_id: oid, pay_type: 1 } });
     ok(paid.code === 1, '余额支付成功', paid.msg);
 
     const b1 = await detail(buyer), s1 = await detail(seller), t1 = await detail(top);
-    eq(Number(b0.amount) - Number(b1.amount), price, `买家支出 = 商品价 ${price}（无额外费用）`);
+    eq(Number(b0.amount) - Number(b1.amount), money(price + Number(order.data.service_charge)),
+      `买家支出 = 商品价 ${price} + 服务费 ${order.data.service_charge}`);
     eq(Number(s1.amount) - Number(s0.amount), price, `卖家实收 = 商品价全额 ${price}`);
 
     const driveExpect = money(price * 0.005);
@@ -127,17 +130,23 @@ async function main() {
     const gAfter = await api('/api/goods/getLootDetails?goods_id=' + target.goods_id);
     ok(gAfter.data.holder === '北山', '商品持有人已转移', `实际 ${gAfter.data.holder}`);
 
-    console.log('\n[2] 转拍上架（收 2.8% 上架费）');
+    console.log('\n[2] 转拍上架（上架费与服务费按配置，标价自动涨价）');
     const rate = Number(db.prepare("SELECT `value` v FROM setting_config WHERE `key`='listing_fee_rate'").get().v);
     const feeExpect = money(price * rate / 100);
-    const newPrice = money(price + 200);
+    // 新模型：标价由服务端按「上一手成交价 ×(1+涨价率)」自动算，前端不再手填
+    const incRate = Number(db.prepare("SELECT `value` v FROM setting_config WHERE `key`='price_increase_rate'").get().v);
+    ok(incRate > 0, '转拍涨价率已配置', `${incRate}%`);
+    const newPrice = money(price * (1 + incRate / 100));
 
     const before = await detail(buyer);
     const consign = await api('/api/order/consignment', {
-      method: 'POST', token: buyer, body: { order_id: oid, price: newPrice },
+      method: 'POST', token: buyer, body: { order_id: oid },
     });
     ok(consign.code === 1, '转拍成功', consign.msg);
     eq(consign.data?.listing_fee, feeExpect, `上架费 = ${price} × ${rate}% = ${feeExpect}`);
+    eq(consign.data?.prev_price, price, '报价里的上一手成交价正确');
+    eq(consign.data?.increase_rate, incRate, '报价返回涨价率');
+    eq(consign.data?.next_price, newPrice, `自动标价 = ${price} × (1+${incRate}%) = ${newPrice}`);
 
     const after = await detail(buyer);
     eq(Number(before.amount) - Number(after.amount), feeExpect, '上架费从余额扣减');
@@ -150,22 +159,37 @@ async function main() {
       `现价 ${g2.data.goods_min_price} / 划线价 ${g2.data.line_price}`,
     );
 
-    const co = db.prepare("SELECT * FROM orders WHERE goods_id = ? AND type = 2 ORDER BY order_id DESC LIMIT 1").get(target.goods_id);
-    ok(!!co && co.seller_id === after.member_id, '生成寄卖挂单（卖家=原持有人，买家为空）');
-    eq(co?.listing_fee, feeExpect, '寄卖单记录上架费');
+    // 转拍不再另开 type=2 寄卖单：挂单信息就在原订单 + 商品上
+    const coCount = db.prepare('SELECT COUNT(*) c FROM orders WHERE goods_id = ? AND type = 2').get(target.goods_id).c;
+    eq(coCount, 0, '转拍不再生成寄卖挂单(type=2)');
+    const oRow = db.prepare('SELECT consignment_status, listing_fee, transposition_time FROM orders WHERE order_id = ?').get(oid);
+    eq(oRow.consignment_status, 10, '原订单标记为已转拍');
+    eq(oRow.listing_fee, feeExpect, '原订单记录上架费');
+    ok(!!oRow.transposition_time, '原订单记录转拍时间（流拍扫描依据）');
 
-    const net = money(feeExpect - driveExpect);
-    console.log(`    商品价 ${price} / 上架费 ${feeExpect} / 直推奖 ${driveExpect} / 平台净收 ${net}`);
-    ok(net > 0, '平台本轮净收入为正', `净收 ${net}`);
+    // 平台单轮净收 = 抢单服务费 + 转拍上架费 − 直推奖
+    const svcFee = money(price * svcRate / 100);
+    const net = money(svcFee + feeExpect - driveExpect);
+    console.log(`    商品价 ${price} / 服务费 ${svcFee} / 上架费 ${feeExpect} / 直推奖 ${driveExpect} / 平台净收 ${net}`);
+    ok(net > 0, '平台本轮净收入为正', `净收 ${net}（服务费 ${svcFee} + 上架费 ${feeExpect} − 直推奖 ${driveExpect}）`);
 
     
     console.log('\n[3] 场次结算与差价匹配');
     const at = (await api('/admin/api/login', { method: 'POST', body: { user_name: 'admin1', password: '123456' } })).data.token;
+    // 防御性回归：万一库里还留着历史 type=2 挂单（这里故意造一条 status=30 的），
+    // 也不能被算进「卖出」，否则同一笔卖会被挂单+成交重复计一次收益
+    const fakeSeller = db.prepare('SELECT member_id FROM member ORDER BY member_id LIMIT 1').get().member_id;
+    const fakeInfo = db.prepare(
+      `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, type, price, num, total_price, status, pay_status, create_time)
+       VALUES ('C-FAKE-REGRESSION', 0, ?, 1, '历史寄卖挂单', 2, 99999, 1, 99999, 30, 0, datetime('now','localtime'))`,
+    ).run(fakeSeller);
+
     const settleRun = await api('/admin/api/settle/run', {
       method: 'POST', token: at, body: { specialarea_id: 0 },
     });
     ok(settleRun.code === 1, '触发场次结算', settleRun.msg);
     const batchId = settleRun.data?.batch_id;
+    db.prepare('DELETE FROM orders WHERE order_id = ?').run(Number(fakeInfo.lastInsertRowid));
 
     const accs = (await api(`/admin/api/settle/accounts?batch_id=${batchId}`, { token: at })).data || [];
     ok(accs.length >= 2, '中账记录已生成', `${accs.length} 条`);
@@ -179,6 +203,8 @@ async function main() {
     }
     ok(balanceOk, '每条中账：差额 = 卖出 − 买入');
     eq(money(sumBuy), money(sumSell), '全场买入总额 == 卖出总额（买卖配平）');
+    const maxSell = Math.max(0, ...accs.map((a) => Number(a.consignment_amount)));
+    ok(maxSell < 99999, '结算把 type=2 寄卖挂单排除在卖出之外', `最大卖出 ${maxSell}`);
 
     const matches = (await api(`/admin/api/settle/matches?batch_id=${batchId}`, { token: at })).data || [];
     ok(matches.length >= 1, '生成差价匹配付款单', `${matches.length} 笔`);
@@ -333,29 +359,55 @@ async function main() {
       ok(over.code === 0 && /库存不足/.test(over.msg), '超过库存被拒单', over.msg);
     }
 
-    console.log('\n[9] 流拍');
-    const pending = db.prepare(
-      "SELECT * FROM orders WHERE type = 2 AND status = 0 AND seller_id = ? LIMIT 1",
-    ).get(bid);
-    if (pending) {
-      db.prepare("UPDATE orders SET create_time = '2026-10-28 10:00:00' WHERE order_id = ?").run(pending.order_id);
+    console.log('\n[9] 流拍（按原订单推导，不再依赖寄卖挂单）');
+    // 造一个「已转拍挂着但没卖掉」的状态：任一持有人 + 其订单标记已转拍 + 商品仍在架
+    const pendListing = db.prepare(
+      `SELECT o.order_id, o.goods_id, o.member_id FROM orders o JOIN goods g ON g.goods_id = o.goods_id
+       WHERE o.type = 1 AND o.status IN (10, 30) AND g.member_id = o.member_id AND g.goods_status = 10
+       ORDER BY o.order_id DESC LIMIT 1`,
+    ).get();
+    ok(!!pendListing, '找到可构造流拍的挂单');
+    if (pendListing) {
+      db.prepare("UPDATE orders SET consignment_status = 10, transposition_time = '2026-10-28 10:00:00' WHERE order_id = ?")
+        .run(pendListing.order_id);
+      // 此时库里不应存在 type=2 挂单，流拍必须靠原订单推出来
+      eq(
+        db.prepare('SELECT COUNT(*) c FROM orders WHERE goods_id = ? AND type = 2 AND status = 0').get(pendListing.goods_id).c,
+        0, '无寄卖挂单也能识别待流拍',
+      );
+
       const scan = await api('/admin/api/streambeat/scan', {
         method: 'POST', token: at, body: { date: '2026-10-28' },
       });
       ok(scan.code === 1, '执行流拍扫描', scan.msg);
       ok((scan.data?.count || 0) >= 1, '标记了流拍商品', `${scan.data?.count} 件`);
 
-      const gA = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(pending.goods_id);
+      const gA = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(pendListing.goods_id);
       eq(gA.goods_status, 30, '商品状态变为流拍(30)');
 
-      const lOrder = db.prepare("SELECT * FROM orders WHERE type = 5 AND status = 50 ORDER BY order_id DESC LIMIT 1").get();
+      const lOrder = db.prepare('SELECT * FROM orders WHERE type = 5 AND status = 50 ORDER BY order_id DESC LIMIT 1').get();
       ok(!!lOrder, '生成流拍记录(type=5)');
+
+      eq(
+        db.prepare('SELECT consignment_status c FROM orders WHERE order_id = ?').get(pendListing.order_id).c,
+        0, '流拍后原订单挂单标记已关闭',
+      );
+
+      // 幂等：再扫一次不应重复生成
+      const scan2 = await api('/admin/api/streambeat/scan', {
+        method: 'POST', token: at, body: { date: '2026-10-29' },
+      });
+      eq(
+        db.prepare('SELECT COUNT(*) c FROM orders WHERE type = 5 AND goods_id = ?').get(pendListing.goods_id).c,
+        1, '同一挂单不会重复判流拍',
+      );
+      ok(scan2.code === 1, '重复扫描不报错', scan2.msg);
 
       const rel = await api('/admin/api/streambeat/release', {
         method: 'POST', token: at, body: { order_id: lOrder.order_id },
       });
       ok(rel.code === 1, '释放流拍', rel.msg);
-      const gR = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(pending.goods_id);
+      const gR = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(pendListing.goods_id);
       eq(gR.goods_status, 10, '释放后商品恢复上架(10)');
     }
 
@@ -674,7 +726,12 @@ async function main() {
     // 后台必须有这个入口，否则「功能接进去了但没地方配」
     const tradeItems = (await api('/admin/api/setting/trade', { token: at })).data?.items || [];
     ok(tradeItems.some((i) => i.k === 'service_charge'), '后台交易设置含抢单服务费入口');
-    eq(await scGet(), 0, '抢单服务费默认 0（与原站实证一致：抢购环节平台不收费）');
+    const defaultSvc = await scGet();
+    ok(defaultSvc >= 0, '抢单服务费默认值可读', `${defaultSvc}%`);
+
+    // 下面这段要验证「费率 0 时不收费」，先显式置 0，不依赖 seed 默认值
+    await scSet(0);
+    eq(await scGet(), 0, '抢单服务费可置 0');
 
     // 找一个买家不是持有人的可抢购商品
     const buyerId2 = db.prepare("SELECT member_id id FROM member WHERE mobile='13822367845'").get().id;
@@ -741,6 +798,215 @@ async function main() {
       ok(b3.code === 1, '恢复 0 后仍可下单', b3.msg);
       eq(b3.data?.service_charge, 0, '恢复 0 后下单不再收服务费');
     }
+
+    console.log('\n[14] 转拍自动涨价（逐轮复利，卖家收回全额）');
+    const incOf = () => Number(
+      db.prepare("SELECT `value` v FROM setting_config WHERE `key`='price_increase_rate'").get()?.v ?? 0,
+    );
+    const setInc = async (v) => api('/admin/api/setting/save', {
+      method: 'POST', token: at, body: { group: 'trade', values: { price_increase_rate: String(v) } },
+    });
+    ok(incOf() > 0, '转拍涨价率已配置', `${incOf()}%`);
+    const tradeItems3 = (await api('/admin/api/setting/trade', { token: at })).data?.items || [];
+    ok(tradeItems3.some((i) => i.k === 'price_increase_rate'), '后台交易设置含转拍涨价率入口');
+
+    const inc = incOf() / 100;
+    const A = await login('13800000001');
+    const B = await login('13800000004');
+    const idA = db.prepare("SELECT member_id id FROM member WHERE mobile='13800000001'").get().id;
+    const idB = db.prepare("SELECT member_id id FROM member WHERE mobile='13800000004'").get().id;
+    for (const id of [idA, idB]) {
+      await api('/admin/api/member/adjust', {
+        method: 'POST', token: at, body: { member_id: id, field: 'amount', value: 500000, remark: '涨价测试注资' },
+      });
+    }
+
+    const gw = db.prepare(
+      `SELECT goods_id, goods_min_price FROM goods
+       WHERE goods_status = 10 AND type = 1 AND IFNULL(is_split, 0) = 0 AND member_id NOT IN (?, ?)
+       ORDER BY goods_id LIMIT 1`,
+    ).get(idA, idB);
+    ok(!!gw, '找到可用商品（持有人既非 A 也非 B）');
+    const P0 = Number(gw.goods_min_price);
+    const P1 = money(P0 * (1 + inc));
+    const P2 = money(P1 * (1 + inc));
+
+    // 第 1 轮：A 抢下
+    const oA = await api('/api/order/toAddOrder', {
+      method: 'POST', token: A, body: { goods_id: gw.goods_id, num: 1, pay_type: 1 },
+    });
+    ok(oA.code === 1, 'A 抢下商品', oA.msg);
+    eq(oA.data.total_price, P0, `A 成交价 = 当前标价 ${P0}`);
+    await api('/api/order/toPay', { method: 'POST', token: A, body: { order_id: oA.data.order_id, pay_type: 1 } });
+
+    // 报价即自动涨价
+    const qA = await api(`/api/order/getConsignmentQuote?order_id=${oA.data.order_id}`, { token: A });
+    ok(qA.code === 1, '转拍报价可读', qA.msg);
+    eq(qA.data?.prev_price, P0, '报价带出上一手成交价');
+    eq(qA.data?.next_price, P1, `自动涨价：${P0} → ${P1}`);
+    eq(qA.data?.increase_amount, money(P1 - P0), '报价给出涨价金额');
+
+    const cA = await api('/api/order/consignment', { method: 'POST', token: A, body: { order_id: oA.data.order_id } });
+    ok(cA.code === 1, 'A 转拍成功（无需手填价格）', cA.msg);
+    eq(cA.data?.next_price, P1, '转拍返回下一轮标价');
+    eq(
+      db.prepare('SELECT goods_min_price p FROM goods WHERE goods_id = ?').get(gw.goods_id).p,
+      P1, '商品标价已自动更新为下一轮价格',
+    );
+
+    // 第 2 轮：B 拍走涨价商品 → A 收回「原价 + 涨价」全额
+    const aBefore = Number((await detail(A)).amount);
+    const oB = await api('/api/order/toAddOrder', {
+      method: 'POST', token: B, body: { goods_id: gw.goods_id, num: 1, pay_type: 1 },
+    });
+    ok(oB.code === 1, 'B 拍下涨价后的商品', oB.msg);
+    eq(oB.data.total_price, P1, `B 成交价 = ${P1}`);
+    await api('/api/order/toPay', { method: 'POST', token: B, body: { order_id: oB.data.order_id, pay_type: 1 } });
+    const aAfter = Number((await detail(A)).amount);
+    eq(money(aAfter - aBefore), P1, `A 收回 ${P1} 全额（原价 ${P0} + 涨价 ${money(P1 - P0)}）`);
+
+    // A 的订单已转拍，商品与 A 再无关系
+    const holderNow = db.prepare('SELECT member_id m FROM goods WHERE goods_id = ?').get(gw.goods_id).m;
+    eq(holderNow, idB, '转拍成交后持有人变为 B，与 A 无关');
+
+    // 第 3 轮：B 转拍，逐轮复利；前端篡改价格应被忽略
+    const cB = await api('/api/order/consignment', {
+      method: 'POST', token: B, body: { order_id: oB.data.order_id, price: 1 },
+    });
+    ok(cB.code === 1, 'B 转拍成功（前端故意传 1 元）', cB.msg);
+    eq(cB.data?.next_price, P2, `逐轮复利：${P1} → ${P2}，前端传价被忽略`);
+    eq(
+      db.prepare('SELECT goods_min_price p FROM goods WHERE goods_id = ?').get(gw.goods_id).p,
+      P2, '商品标价按复利更新',
+    );
+
+    // 涨价率置 0 → 退回原价挂牌
+    const oA2 = await api('/api/order/toAddOrder', {
+      method: 'POST', token: A, body: { goods_id: gw.goods_id, num: 1, pay_type: 1 },
+    });
+    ok(oA2.code === 1, 'A 再次买入进入下一轮', oA2.msg);
+    await setInc(0);
+    eq(incOf(), 0, '涨价率可关闭');
+    const qZero = await api(`/api/order/getConsignmentQuote?order_id=${oA2.data.order_id}`, { token: A });
+    eq(qZero.data?.next_price, P2, '关闭涨价后按原价挂牌');
+    eq(qZero.data?.increase_amount, 0, '关闭涨价后无涨价金额');
+    await setInc(3);
+    eq(incOf(), 3, '涨价率恢复 3%');
+
+    console.log('\n[15] 我的店铺 + 平台回收');
+
+    // ---------- 我的店铺：预计收益口径 ----------
+    // 造一个明确的状态：会员 A 持有一件在售商品，且有一笔买入订单
+    const shopOwner = db.prepare("SELECT member_id id, mobile FROM member WHERE mobile='13800000001'").get();
+    await api('/admin/api/member/adjust', {
+      method: 'POST', token: at, body: { member_id: shopOwner.id, field: 'amount', value: 300000, remark: '店铺测试注资' },
+    });
+    const shopGoods = db.prepare(
+      `SELECT g.goods_id, g.goods_min_price FROM goods g
+       WHERE g.goods_status = 10 AND g.type = 1 AND IFNULL(g.is_split,0) = 0 AND g.member_id <> ?
+       ORDER BY g.goods_id DESC LIMIT 1`,
+    ).get(shopOwner.id);
+    ok(!!shopGoods, '找到可用于店铺测试的商品');
+
+    const shopBuy = await api('/api/order/toAddOrder', {
+      method: 'POST', token: A, body: { goods_id: shopGoods.goods_id, num: 1, pay_type: 1 },
+    });
+    ok(shopBuy.code === 1, '店铺测试：买入商品', shopBuy.msg);
+    await api('/api/order/toPay', { method: 'POST', token: A, body: { order_id: shopBuy.data.order_id, pay_type: 1 } });
+
+    // 此时 A 持有、未挂牌
+    const shop1 = await api('/api/member/myShop', { token: A });
+    ok(shop1.code === 1, '我的店铺接口可读', shop1.msg);
+    const shopRow1 = (shop1.data?.list || []).find((x) => x.goods_id === shopGoods.goods_id);
+    ok(!!shopRow1, '店铺里能看到自己持有的在售商品');
+    eq(shopRow1?.listed, false, '未转拍时标记为待上架');
+    const myPrice = Number(shopRow1?.my_price || 0);
+    const next1 = Number(shopRow1?.next_price || 0);
+    eq(myPrice, shopBuy.data.total_price, '我的买入价取订单成交价');
+    eq(next1, money(myPrice * (1 + inc)), '未挂牌时下一轮标价按涨价率预估');
+    eq(shopRow1?.est_net, money(next1 - myPrice - Number(shopRow1?.listing_fee || 0)), '预计净收益 = 下一轮价 − 买入价 − 上架费');
+
+    // 转拍后应为「已挂牌」，且下一轮标价取商品现标价
+    await api('/api/order/consignment', { method: 'POST', token: A, body: { order_id: shopBuy.data.order_id } });
+    const shop2 = await api('/api/member/myShop', { token: A });
+    const shopRow2 = (shop2.data?.list || []).find((x) => x.goods_id === shopGoods.goods_id);
+    eq(shopRow2?.listed, true, '转拍后标记为已挂牌');
+    eq(shopRow2?.next_price, money(myPrice * (1 + inc)), '已挂牌时下一轮标价 = 商品现标价');
+
+    // 别人买走 → 从我的店铺消失
+    const shopBuyer2 = await api('/api/member/accountLogin', {
+      method: 'POST', body: { phone: '13800000004', password: '13800000004' },
+    });
+    const buyer2Token = shopBuyer2.data?.token;
+    await api('/admin/api/member/adjust', {
+      method: 'POST', token: at, body: { member_id: idB, field: 'amount', value: 300000, remark: '店铺测试注资' },
+    });
+    const takeIt = await api('/api/order/toAddOrder', {
+      method: 'POST', token: buyer2Token, body: { goods_id: shopGoods.goods_id, num: 1, pay_type: 1 },
+    });
+    ok(takeIt.code === 1, '他人买走店铺商品', takeIt.msg);
+    // 归属转移发生在支付结算时，不付款不算买走
+    await api('/api/order/toPay', { method: 'POST', token: buyer2Token, body: { order_id: takeIt.data.order_id, pay_type: 1 } });
+    eq(
+      db.prepare('SELECT member_id m FROM goods WHERE goods_id = ?').get(shopGoods.goods_id).m,
+      idB, '支付后商品持有人变为买家',
+    );
+    const shop3 = await api('/api/member/myShop', { token: A });
+    ok(
+      !(shop3.data?.list || []).some((x) => x.goods_id === shopGoods.goods_id),
+      '商品被抢走后从我的店铺消失',
+    );
+
+    // ---------- 平台回收 ----------
+    // 先制造一条流拍单：找一个挂在架上没卖掉的，回填时间后扫描
+    const rec = db.prepare(
+      `SELECT o.order_id, o.goods_id, o.member_id FROM orders o JOIN goods g ON g.goods_id = o.goods_id
+       WHERE o.type = 1 AND o.status IN (10,30) AND g.member_id = o.member_id AND g.goods_status = 10
+       ORDER BY o.order_id DESC LIMIT 1`,
+    ).get();
+    ok(!!rec, '找到可构造流拍的商品');
+    db.prepare("UPDATE orders SET consignment_status = 10, transposition_time = '2026-10-27 10:00:00' WHERE order_id = ?")
+      .run(rec.order_id);
+    const recScan = await api('/admin/api/streambeat/scan', {
+      method: 'POST', token: at, body: { date: '2026-10-27' },
+    });
+    ok(recScan.code === 1, '回收测试：先造出流拍单', recScan.msg);
+    const lOrder2 = db.prepare('SELECT * FROM orders WHERE type = 5 AND goods_id = ? ORDER BY order_id DESC LIMIT 1')
+      .get(rec.goods_id);
+    ok(!!lOrder2 && Number(lOrder2.status) === 50, '流拍单已生成待回收');
+
+    const listPrice = Number(db.prepare('SELECT goods_min_price p FROM goods WHERE goods_id = ?').get(rec.goods_id).p);
+    const ownerRow0 = Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(rec.member_id).amount);
+    const recycl = await api('/admin/api/streambeat/recycle', {
+      method: 'POST', token: at, body: { order_id: lOrder2.order_id },
+    });
+    ok(recycl.code === 1, '平台回收成功', recycl.msg);
+    eq(recycl.data?.price, listPrice, `回收价 = 挂牌价 ${listPrice}`);
+
+    const ownerRow1 = Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(rec.member_id).amount);
+    eq(money(ownerRow1 - ownerRow0), listPrice, '回收款已打给原持有人');
+
+    const recGoods = db.prepare('SELECT member_id, goods_status FROM goods WHERE goods_id = ?').get(rec.goods_id);
+    eq(recGoods.member_id, 0, '商品转为平台持仓（持有人置空）');
+    eq(recGoods.goods_status, 20, '回收后商品下架');
+    eq(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(lOrder2.order_id).status, 70, '流拍单置为已回收');
+
+    const flow = db.prepare(
+      "SELECT face_value FROM finance_energy WHERE member_id = ? AND type_name = '平台回收' ORDER BY energy_id DESC LIMIT 1",
+    ).get(rec.member_id);
+    eq(flow?.face_value, listPrice, '生成平台回收资金流水');
+
+    const recycl2 = await api('/admin/api/streambeat/recycle', {
+      method: 'POST', token: at, body: { order_id: lOrder2.order_id },
+    });
+    ok(recycl2.code === 0, '同一流拍单不可重复回收', recycl2.msg);
+
+    // 平台持仓商品可重新上架并被会员买走（无人收款）
+    db.prepare('UPDATE goods SET goods_status = 10 WHERE goods_id = ?').run(rec.goods_id);
+    const relist = await api('/api/order/toAddOrder', {
+      method: 'POST', token: buyer2Token, body: { goods_id: rec.goods_id, num: 1, pay_type: 1 },
+    });
+    ok(relist.code === 1, '平台持仓商品可重新上架并被购买', relist.msg);
 
   } finally {
     srv.kill();

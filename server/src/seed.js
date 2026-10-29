@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 db.exec(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'schema.sql'), 'utf8'));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const UP = join(__dirname, '..', 'data', 'uploads');
+// 与运行时一致：可用 UPLOAD_DIR 覆盖（Docker 数据卷）
+const UP = process.env.UPLOAD_DIR || join(__dirname, '..', 'data', 'uploads');
 mkdirSync(UP, { recursive: true });
 
 /** 生成一张带文字的商品占位图（SVG，离线可用） */
@@ -82,19 +83,18 @@ tx(() => {
     ['copyright', '版权所有 © 锦云商贸 2026', 'store'],
     ['icp_number', 'ICP备00000000号', 'store'],
     ['customer_link', '#', 'store'],
-    ['listing_fee_rate', '2.8', 'trade'],
+    // 演示默认口径：抢单服务费 2%、上架费 0、提现手续费 0、转拍涨价 3%
+    // （原站实证为 上架费 2.8% / 服务费 0，此处按业务决策改为以服务费为主要收入）
+    ['listing_fee_rate', '0', 'trade'],
     ['drive_award_rate', '0.5', 'trade'],
     ['same_level_award_rate', '0', 'trade'],
-    ['service_charge', '0', 'trade'],
-    ['commission_l1', '0', 'trade'],
-    ['commission_l2', '0', 'trade'],
-    ['commission_l3', '0', 'trade'],
+    ['service_charge', '2', 'trade'],
     ['consignment_open', '10', 'trade'],
     ['require_receiving_account', '20', 'trade'],
-    ['consignment_rule', '提现规则：可提现至已绑定的收款账户，T+1 到账；寄卖商品由平台统一撮合。', 'trade'],
-    ['commission_base', 'service_charge', 'trade'],
+    ['price_increase_rate', '3', 'trade'],
+    ['consignment_rule', '转拍免上架费；商品按后台涨价率自动加价进入下一轮，成交后货款全额结算给上一手持有人。', 'trade'],
     ['withdraw_min', '10', 'trade'],
-    ['withdraw_fee', '1', 'trade'],
+    ['withdraw_fee', '0', 'trade'],
     ['pay_wx', '1', 'pay'],
     ['pay_zfb', '1', 'pay'],
     ['pay_bank', '0', 'pay'],

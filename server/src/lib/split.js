@@ -72,14 +72,25 @@ export function deductStock(goodsId, num) {
  */
 export function scanStreambeat(specialareaId = 0, date = '') {
   const day = date || now().slice(0, 10);
-  const where = ["o.type = 2", "o.status = 0"];
+  // 挂单台账不再单独成单，改为从「原抢购订单 + 商品」推导：
+  //   consignment_status = 10  该订单已转拍挂出
+  //   g.member_id = o.member_id 商品仍归转拍人（没被下一位买走）
+  //   g.goods_status = 10       商品仍在架（没被标记过流拍/下架）
+  const where = [
+    'o.consignment_status = 10',
+    'o.type = 1',
+    'o.status IN (10, 30)',
+    'g.member_id = o.member_id',
+    'g.goods_status = 10',
+  ];
   const args = [];
   if (specialareaId) {
     where.push('o.specialarea_id = ?');
     args.push(Number(specialareaId));
   }
   const pending = all(
-    `SELECT o.* FROM orders o WHERE ${where.join(' AND ')} AND o.create_time <= ?`,
+    `SELECT o.*, g.goods_min_price AS list_price FROM orders o JOIN goods g ON g.goods_id = o.goods_id
+     WHERE ${where.join(' AND ')} AND IFNULL(o.transposition_time, o.create_time) <= ?`,
     ...args, `${day} 23:59:59`,
   );
 
@@ -87,25 +98,22 @@ export function scanStreambeat(specialareaId = 0, date = '') {
   const details = [];
   tx(() => {
     for (const o of pending) {
-      const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
-      // 商品仍归卖家（未被买走）才算流拍
-      if (!g || g.member_id !== o.seller_id) continue;
-
-      // 原挂单标记流拍
-      run('UPDATE orders SET status = 50 WHERE order_id = ?', o.order_id);
-      // 生成流拍记录
+      // 流拍记录里的金额记「流拍时的挂牌价」——平台回收就按这个价收回
+      const listPrice = money2(Number(o.list_price) || Number(o.total_price) || 0);
+      // 生成流拍记录（type=5 是流拍台账，不动原订单的履约状态）
       run(
         `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
           type, price, num, total_price, status, pay_status, remark, create_time)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        `L${o.order_no}`, o.seller_id, o.seller_id, o.goods_id, o.goods_name, o.goods_thumb,
-        o.specialarea_id, 5, o.price, 1, o.total_price, 50, 0,
-        `流拍：${day} 场次结束未成交（原挂单 ${o.order_no}）`, now(),
+        `L${o.order_no}`, o.member_id, o.member_id, o.goods_id, o.goods_name, o.goods_thumb,
+        o.specialarea_id, 5, listPrice, 1, listPrice, 50, 0,
+        `流拍：${day} 场次结束未成交（原订单 ${o.order_no}，挂牌价 ${listPrice}）`, now(),
       );
-      // 商品下架为流拍态
+      // 关闭该次挂单，避免重复扫描；同时商品下架为流拍态
+      run('UPDATE orders SET consignment_status = 0 WHERE order_id = ?', o.order_id);
       run('UPDATE goods SET goods_status = 30, update_time = ? WHERE goods_id = ?', now(), o.goods_id);
       count++;
-      details.push({ goods_id: o.goods_id, goods_name: o.goods_name, owner: o.seller_id });
+      details.push({ goods_id: o.goods_id, goods_name: o.goods_name, owner: o.member_id });
     }
   });
 
@@ -120,14 +128,47 @@ export function releaseStreambeat(orderId) {
 
   tx(() => {
     run('UPDATE orders SET status = 60 WHERE order_id = ?', o.order_id);
+    // 商品恢复可售即可；挂单状态在流拍时已归零，持有人可重新转拍
     run('UPDATE goods SET goods_status = 10, update_time = ? WHERE goods_id = ?', now(), o.goods_id);
-    // 原寄卖挂单恢复为待售
-    const orig = get(
-      "SELECT * FROM orders WHERE goods_id = ? AND type = 2 AND status = 50 ORDER BY order_id DESC LIMIT 1",
-      o.goods_id,
-    );
-    if (orig) run('UPDATE orders SET status = 0 WHERE order_id = ?', orig.order_id);
   });
 
   return { ok: true, goods_id: o.goods_id };
+}
+
+/**
+ * 平台回收：流拍商品由平台按「当前挂牌价」收回
+ * - 按挂牌价给持有人打款，记一条资金流水
+ * - 商品转为平台持仓（member_id = 0），下架；后台可再改回上架进入下一轮
+ * - 流拍单置 70（已回收），防止重复回收
+ * @returns {{ok:boolean, reason?:string, price?:number, goods_id?:number}}
+ */
+export function recycleStreambeat(orderId) {
+  const o = get('SELECT * FROM orders WHERE order_id = ? AND type = 5', Number(orderId));
+  if (!o) return { ok: false, reason: '流拍记录不存在' };
+  if (o.status === 60) return { ok: false, reason: '该流拍记录已释放，无需回收' };
+  if (o.status === 70) return { ok: false, reason: '该流拍商品已被平台回收' };
+
+  const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
+  if (!g) return { ok: false, reason: '商品不存在' };
+  if (g.member_id !== o.member_id) return { ok: false, reason: '商品已不在原持有人名下，无法回收' };
+
+  // 按当前挂牌价回收（含历次涨价）
+  const price = money2(Number(g.goods_min_price) || 0);
+  if (price <= 0) return { ok: false, reason: '商品挂牌价无效，无法回收' };
+
+  tx(() => {
+    run('UPDATE member SET amount = amount + ? WHERE member_id = ?', price, o.member_id);
+    run(
+      'INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
+      o.member_id, price, 2, '平台回收', `流拍商品 ${g.goods_name} 由平台按挂牌价回收`, now(),
+    );
+    // 商品转平台持仓：持有人置 0、下架。后台把状态改回上架即可重新进入场次
+    run(
+      'UPDATE goods SET member_id = 0, goods_status = 20, is_sell = 0, update_time = ? WHERE goods_id = ?',
+      now(), g.goods_id,
+    );
+    run('UPDATE orders SET status = 70 WHERE order_id = ?', o.order_id);
+  });
+
+  return { ok: true, goods_id: g.goods_id, price, owner: o.member_id };
 }

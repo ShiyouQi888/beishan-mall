@@ -10,7 +10,7 @@
 
     <div class="panel" v-loading="loading">
       <PosterDesigner v-if="route.params.group === 'poster'" :values="values" :upload="uploadImage" />
-      <el-form v-else label-width="150px" label-position="right" class="setting-form">
+      <el-form v-else label-width="174px" label-position="right" class="setting-form">
         <el-form-item v-for="it in items" :key="it.k" :label="it.t">
           <el-switch
             v-if="it.type === 'switch'"
@@ -159,6 +159,8 @@ onMounted(load);
 <style scoped>
 .setting-form { max-width: 860px; padding: 8px 0 4px; }
 .setting-form :deep(.el-form-item) { margin-bottom: 20px; }
+/* 说明文字必须独占一行：否则 switch 行会把它挤在开关右侧 */
+.setting-form :deep(.el-form-item__content) { flex-wrap: wrap; }
 .thumb-lg { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; background: #f4f6f9; }
 .upload-inline { display: flex; align-items: center; gap: 12px; }
 .image-field { display:flex;flex-direction:column;align-items:flex-start;gap:7px;max-width:100%; }
@@ -173,5 +175,5 @@ onMounted(load);
   margin-top: 12px;
 }
 .tip .dot { width: 6px; height: 6px; border-radius: 50%; background: #ff513a; opacity: 0.6; }
-.field-tip { max-width: 520px; color: #9299a3; font-size: 11.5px; line-height: 1.55; margin-top: 4px; }
+.field-tip { flex: 0 0 100%; max-width: 620px; color: #9299a3; font-size: 11.5px; line-height: 1.55; margin-top: 4px; }
 </style>

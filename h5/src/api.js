@@ -56,6 +56,7 @@ export const api = {
   searchShop: (p) => http.get('/goods/searchShop', { params: p }),
   shopDetail: (id) => http.get('/goods/shopgoods/getDetails', { params: { goods_id: id } }),
   scoreShop: (p) => http.get('/score/getScoreShopList', { params: p }),
+  myShop: () => http.get('/member/myShop'),
 
   // 会员
   login: (d) => http.post('/member/accountLogin', d),
@@ -80,6 +81,7 @@ export const api = {
   receipt: (d) => http.post('/order/receipt', d),
   express: (id) => http.get('/order/express', { params: { order_id: id } }),
   consignment: (d) => http.post('/order/consignment', d),
+  consignmentQuote: (order_id) => http.get('/order/getConsignmentQuote', { params: { order_id } }),
   serviceCharge: (id) => http.get('/order/getServiceCharge', { params: { goods_id: id } }),
   mySettle: () => http.get('/order/mySettle'),
   settleVoucher: (d) => http.post('/order/settleVoucher', d),

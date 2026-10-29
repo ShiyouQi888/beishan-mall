@@ -73,6 +73,27 @@
       </div>
     </div>
 
+    <!-- 我的店铺 -->
+    <div class="card mine__block shop-entry" @click="router.push('/my-shop')">
+      <div class="shop-entry__ico">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4 9.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19V9.5" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round"/><path d="M3 9.5 5.2 4.5h13.6L21 9.5M3 9.5h18M9 13v3M15 13v3" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="shop-entry__main">
+        <div class="shop-entry__title">
+          我的店铺
+          <span v-if="shop.count" class="shop-entry__badge">{{ shop.count }} 件在售</span>
+        </div>
+        <div class="shop-entry__meta">
+          <template v-if="shop.count">
+            预计收益 <b>¥{{ Number(shop.totalNet).toFixed(2) }}</b>
+            <span v-if="shop.listedCount">（{{ shop.listedCount }} 件已挂牌等抢）</span>
+          </template>
+          <template v-else>抢到商品即可开店，转拍后等下一轮被抢走</template>
+        </div>
+      </div>
+      <span class="more">查看 ›</span>
+    </div>
+
     <!-- 功能宫格 -->
     <div class="card mine__block">
       <div class="block-head"><span>常用功能</span></div>
@@ -98,6 +119,7 @@ const router = useRouter();
 const me = ref({});
 const logged = computed(() => !!localStorage.getItem('TOKEN'));
 const stats = reactive({ orders: 0, team: 0, teamOrders: 0 });
+const shop = reactive({ count: 0, listedCount: 0, totalNet: 0 });
 
 const orderQuick = [
   { status: 0, label: '待付款', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="#ff513a" stroke-width="1.7"/><path d="M3 10h18" stroke="#ff513a" stroke-width="1.7"/></svg>` },
@@ -132,6 +154,15 @@ async function load() {
       stats.orders = list.filter((x) => x.create_time?.startsWith(new Date().toISOString().slice(0, 10))).length;
     }
     if (t.status === 'fulfilled') stats.team = (t.value.data || []).length;
+    // 我的店铺摘要：在售件数 + 预计收益
+    if (logged.value) {
+      try {
+        const s = await api.myShop();
+        shop.count = s.data?.summary?.count || 0;
+        shop.totalNet = s.data?.summary?.total_net || 0;
+        shop.listedCount = s.data?.summary?.listed_count || 0;
+      } catch {}
+    }
   } catch {}
 }
 
@@ -243,6 +274,26 @@ onMounted(load);
   margin-bottom: 12px;
 }
 .block-head .more { font-size: 11.5px; color: var(--text-3); font-weight: 450; }
+
+.shop-entry { display: flex; align-items: center; gap: 12px; padding: 14px 14px; }
+.shop-entry__ico {
+  flex: none; width: 40px; height: 40px; border-radius: 11px;
+  background: #fff2f0; display: grid; place-items: center;
+}
+.shop-entry__main { flex: 1; min-width: 0; }
+.shop-entry__title {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 14.5px; font-weight: 600; color: var(--text-1);
+}
+.shop-entry__badge {
+  padding: 1px 6px; border-radius: 20px; background: #fff2f0;
+  color: var(--brand); font-size: 10.5px; font-weight: 500;
+}
+.shop-entry__meta {
+  margin-top: 3px; font-size: 11.5px; color: var(--text-3); line-height: 1.5;
+}
+.shop-entry__meta b { color: var(--brand); font-size: 13px; font-variant-numeric: tabular-nums; }
+.shop-entry .more { flex: none; font-size: 11.5px; color: var(--text-3); }
 
 .order-quick { display: flex; }
 .order-quick .q {

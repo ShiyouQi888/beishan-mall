@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { all, get, run, tx, now } from '../db.js';
-import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, ORDER_STATUS, ORDER_TYPE, PAY_TYPE } from '../lib/helper.js';
+import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, priceIncreaseRate, calcNextPrice, assetUrl, ORDER_STATUS, ORDER_TYPE, PAY_TYPE } from '../lib/helper.js';
 import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate } from '../lib/settle.js';
 import { deductStock } from '../lib/split.js';
@@ -19,7 +19,7 @@ function fmtOrder(o) {
     order_type_text: ORDER_TYPE[o.type] || '',
     goods_id: o.goods_id,
     goods_name: o.goods_name,
-    goods_thumb: thumb ? (/^https?:\/\//.test(thumb) ? thumb : `http://127.0.0.1:3300${thumb}`) : '',
+    goods_thumb: assetUrl(thumb),
     price: Number(o.price).toFixed(2),
     num: o.num,
     total_price: Number(o.total_price).toFixed(2),
@@ -293,6 +293,42 @@ r.get('/express', authMember, (req, res) => {
   );
 });
 
+/**
+ * 转拍定价（单一口径）：
+ *   下一轮标价 = 上一手成交价 × (1 + 涨价率)，逐轮复利 10000 → 10300 → 10609
+ *   下一轮买家付 10300，上一手持有人收回 10300 全额（原价 + 涨价），此后与原持有人再无关系
+ * 涨价率 > 0 时完全由服务端定价，忽略前端传入的价格（防止篡改）。
+ */
+function quoteConsignment(o, g, clientPrice) {
+  const prevPrice = money2(o.total_price);
+  const rate = priceIncreaseRate();
+  const nextPrice = rate > 0
+    ? calcNextPrice(prevPrice)
+    : (Number(clientPrice) > 0 ? money2(clientPrice) : money2(g.goods_min_price));
+  const listingFee = calcListingFee(prevPrice);
+  return {
+    prev_price: prevPrice,
+    increase_rate: rate,
+    increase_amount: money2(nextPrice - prevPrice),
+    next_price: nextPrice,
+    listing_fee: listingFee,
+    // 持有人的实际套利 = 下一轮收回价 − 上一手成本 − 上架费
+    net_income: money2(nextPrice - prevPrice - listingFee),
+  };
+}
+
+/** 转拍报价（H5 展示用，不落库） */
+r.get('/getConsignmentQuote', authMember, (req, res) => {
+  const { order_id } = req.query;
+  if (!order_id) return res.json(fail('method param miss:order_id'));
+  const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), req.member.member_id);
+  if (!o) return res.json(fail('订单不存在'));
+  if (o.consignment_status === 10) return res.json(fail('该订单已转拍上架'));
+  const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
+  if (!g) return res.json(fail('商品不存在'));
+  res.json(ok(quoteConsignment(o, g, req.query.price)));
+});
+
 // 转拍（寄卖上架）：按本轮抢购金额收取上架费，商品重新上架到原场次
 r.post('/consignment', authMember, (req, res) => {
   const { order_id, price } = req.body;
@@ -319,21 +355,23 @@ r.post('/consignment', authMember, (req, res) => {
   }
 
   // 上架费 = 本轮抢购金额 × 上架费率
-  const fee = calcListingFee(o.total_price);
-  const sellPrice = Number(price) > 0 ? Number(price) : Number(g.goods_min_price);
-  if (sellPrice <= 0) return res.json(fail('请填写寄卖价格'));
+  const q = quoteConsignment(o, g, price);
+  const fee = q.listing_fee;
+  const sellPrice = q.next_price;
+  if (sellPrice <= 0) return res.json(fail('标价必须大于 0'));
 
   try {
     tx(() => {
-      // 原子扣上架费
-      const r1 = run(
-        'UPDATE member SET amount = amount - ? WHERE member_id = ? AND amount >= ?',
-        fee, m.member_id, fee,
-      );
-      if (Number(r1.changes) !== 1) throw biz(`余额不足以支付上架费 ¥${fee.toFixed(2)}`);
-
-      run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-        m.member_id, -fee, 2, '转拍上架费', `订单 ${o.order_no} 上架费 ${fee.toFixed(2)}`, now());
+      // 上架费（费率为 0 时不扣款、不写 0 元流水，否则会员流水里会出现无意义的 ¥0.00 记录）
+      if (fee > 0) {
+        const r1 = run(
+          'UPDATE member SET amount = amount - ? WHERE member_id = ? AND amount >= ?',
+          fee, m.member_id, fee,
+        );
+        if (Number(r1.changes) !== 1) throw biz(`余额不足以支付上架费 ¥${fee.toFixed(2)}`);
+        run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
+          m.member_id, -fee, 2, '转拍上架费', `订单 ${o.order_no} 上架费 ${fee.toFixed(2)}`, now());
+      }
 
       // 原订单标记已寄卖
       run('UPDATE orders SET consignment_status = 10, listing_fee = ?, transposition_time = ? WHERE order_id = ?',
@@ -345,22 +383,19 @@ r.post('/consignment', authMember, (req, res) => {
       run('UPDATE goods SET goods_min_price = ?, line_price = ?, goods_status = 10, is_sell = 10, update_time = ? WHERE goods_id = ?',
         sellPrice, newLine, now(), g.goods_id);
 
-      // 生成寄卖挂单（买家为空，成交后回写）
-      const no = orderNo('C');
-      run(
-        `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
-          type, price, selling_price, num, total_price, listing_fee, status, pay_status, transposition_time, create_time)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        no, 0, m.member_id, g.goods_id, g.goods_name, g.good_thumb, g.specialarea_id,
-        2, sellPrice, sellPrice, 1, sellPrice, fee, 0, 0, now(), now(),
-      );
-      log(o.order_id, '转拍上架', 'member', `标价 ${sellPrice}，上架费 ${fee.toFixed(2)}`);
+      // 不再生成寄卖挂单：挂单信息已完整存在于「本订单的 consignment_status/listing_fee/transposition_time」
+      // 与「goods 的持有人/标价/上下架」两处，另开一张 type=2 订单属于纯冗余（曾留下永不结清的僵尸单）
+      log(o.order_id, '转拍上架', 'member',
+        `标价 ${sellPrice}（上一手 ${q.prev_price}，涨价 ${q.increase_rate}% = ${q.increase_amount}），上架费 ${fee.toFixed(2)}`);
     });
   } catch (e) {
     if (e.biz) return res.json(fail(e.message));
     throw e;
   }
-  res.json(ok({ listing_fee: fee.toFixed(2), selling_price: sellPrice }, '转拍成功，商品已重新上架'));
+  res.json(ok(
+    { ...q, listing_fee: fee.toFixed(2), selling_price: sellPrice },
+    `转拍成功，下一轮标价 ¥${sellPrice.toFixed(2)}（涨价 ${q.increase_rate}%）`,
+  ));
 });
 
 // 拆分订单（把一单拆成多单）

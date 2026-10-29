@@ -9,6 +9,7 @@ export default [
   { path: '/order', name: 'order', component: () => import('./views/OrderList.vue'), meta: { hideTab: true } },
   { path: '/order/detail/:id', name: 'orderDetail', component: () => import('./views/OrderDetail.vue'), meta: { hideTab: true } },
   { path: '/mine', name: 'mine', component: () => import('./views/Mine.vue'), meta: { auth: false, tab: true } },
+  { path: '/my-shop', name: 'myShop', component: () => import('./views/MyShop.vue'), meta: { hideTab: true } },
   { path: '/login', name: 'login', component: () => import('./views/Login.vue'), meta: { auth: false, hideTab: true } },
   { path: '/register', name: 'register', component: () => import('./views/Register.vue'), meta: { auth: false, hideTab: true } },
   { path: '/invite', name: 'invite', component: () => import('./views/Invite.vue'), meta: { auth: false, tab: true } },

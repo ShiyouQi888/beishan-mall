@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
 export default defineConfig({
+  // 一体化部署时后台挂在 /admin/ 下，用 VITE_BASE=/admin/ 构建；开发模式保持 '/'
+  base: process.env.VITE_BASE || '/',
   plugins: [vue()],
   server: {
     host: '127.0.0.1',

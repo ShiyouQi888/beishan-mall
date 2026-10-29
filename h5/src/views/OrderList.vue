@@ -62,14 +62,30 @@
         </div>
       </div>
 
-      <div class="tr-field">
-        <label>寄卖标价（元）</label>
-        <input v-model="transferPrice" type="number" placeholder="请输入寄卖价格" />
+      <div class="tr-price">
+        <div class="tr-price__label">下一轮自动标价</div>
+        <div class="tr-price__value">¥{{ Number(quote.next_price || 0).toFixed(2) }}</div>
+        <div class="tr-price__up" v-if="Number(quote.increase_rate) > 0">
+          较您买入价 +{{ quote.increase_rate }}%（+¥{{ Number(quote.increase_amount || 0).toFixed(2) }}）
+        </div>
+        <div class="tr-price__up tr-price__up--off" v-else>未开启自动涨价，按原价挂牌</div>
       </div>
 
       <div class="tr-fee">
-        <div class="tr-row"><span>上架费（{{ listingRate }}%）</span><b>¥{{ transferFee.toFixed(2) }}</b></div>
-        <div class="tr-tip">上架费按原成交价计算，从账户余额中扣除</div>
+        <div class="tr-row"><span>上架费（{{ listingRate }}%）</span><b>-¥{{ Number(quote.listing_fee || 0).toFixed(2) }}</b></div>
+        <div class="tr-row tr-row--sum">
+          <span>下一轮成交后您可收回</span>
+          <b>¥{{ Number(quote.next_price || 0).toFixed(2) }}</b>
+        </div>
+        <div class="tr-row">
+          <span>扣除上架费后净收益</span>
+          <b :class="{ 'tr-loss': Number(quote.net_income) < 0 }">
+            {{ Number(quote.net_income) >= 0 ? '+' : '' }}¥{{ Number(quote.net_income || 0).toFixed(2) }}
+          </b>
+        </div>
+        <div class="tr-tip">
+          {{ Number(quote.listing_fee) > 0 ? '上架费按您本轮成交价计算，从余额扣除；' : '本次转拍免上架费；' }}商品转拍后即与您无关，后续涨跌由下一手持有人承担。
+        </div>
       </div>
 
       <button class="btn-main" :disabled="submitting" @click="submitTransfer">
@@ -80,7 +96,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { showToast, showConfirmDialog, showDialog } from 'vant';
 import { api } from '../api.js';
@@ -154,30 +170,30 @@ async function consign(o) {
   openTransfer(o);
 }
 
-// ---------- 转拍（寄卖上架） ----------
+// ---------- 转拍（重新挂出到下一轮场次） ----------
 const showTransfer = ref(false);
 const curOrder = ref({});
-const transferPrice = ref('');
+const quote = ref({});
 const listingRate = ref(2.8);
 const submitting = ref(false);
 
-const transferFee = computed(() => {
-  const base = Number(curOrder.value.total_price || 0);
-  return Math.round(base * listingRate.value) / 100;
-});
-
-function openTransfer(o) {
+// 标价与上架费全部由服务端按「上一手成交价 × (1+涨价率)」算出，前端只展示，不可改
+async function openTransfer(o) {
   curOrder.value = o;
-  transferPrice.value = String(Number(o.total_price).toFixed(0));
   showTransfer.value = true;
+  try {
+    const r = await api.consignmentQuote(o.order_id);
+    quote.value = r.data || {};
+  } catch {
+    quote.value = { prev_price: Number(o.total_price || 0), next_price: Number(o.total_price || 0) };
+  }
 }
 
 async function submitTransfer() {
-  const p = Number(transferPrice.value);
-  if (!p || p <= 0) return showToast('请输入寄卖标价');
+  if (!Number(quote.value.next_price || 0)) return showToast('标价获取失败，请重试');
   submitting.value = true;
   try {
-    const r = await api.consignment({ order_id: curOrder.value.order_id, price: p });
+    const r = await api.consignment({ order_id: curOrder.value.order_id });
     showToast(r.msg || '转拍成功');
     showTransfer.value = false;
     load();
@@ -296,15 +312,22 @@ onMounted(async () => {
 .tr-goods { display: flex; align-items: center; gap: 11px; margin-bottom: 16px; }
 .tr-goods img { width: 54px; height: 54px; border-radius: 9px; object-fit: cover; background: #f6f7f9; }
 .tr-name { font-size: 14px; font-weight: 550; margin-bottom: 3px; }
-.tr-field { margin-bottom: 14px; }
-.tr-field label { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
-.tr-field input {
-  width: 100%; height: 46px; border: 1px solid #ebedf1; background: #fafbfc;
-  border-radius: 12px; padding: 0 14px; font-size: 16px; font-family: var(--font);
-  font-weight: 600; outline: none;
+.tr-price {
+  background: #fff6f5; border: 1px solid #ffe2dd; border-radius: 12px;
+  padding: 14px 16px; margin-bottom: 14px;
 }
+.tr-price__label { font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
+.tr-price__value {
+  font-size: 26px; font-weight: 700; color: var(--brand);
+  font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.tr-price__up { font-size: 12px; color: #d4380d; margin-top: 4px; }
+.tr-price__up--off { color: var(--text-3); }
 .tr-fee { background: #fafbfc; border-radius: 11px; padding: 12px 14px; margin-bottom: 18px; }
 .tr-row { display: flex; justify-content: space-between; font-size: 13.5px; color: var(--text-2); }
+.tr-row + .tr-row { margin-top: 7px; }
 .tr-row b { color: var(--brand); font-size: 15px; font-variant-numeric: tabular-nums; }
-.tr-tip { font-size: 11.5px; color: var(--text-3); margin-top: 6px; }
+.tr-row--sum { padding-top: 7px; border-top: 1px dashed #e6e8ec; }
+.tr-row b.tr-loss { color: #d4380d; }
+.tr-tip { font-size: 11.5px; color: var(--text-3); margin-top: 8px; line-height: 1.55; }
 </style>

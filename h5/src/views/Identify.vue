@@ -20,7 +20,8 @@
         </div>
       </div>
 
-      <template v-if="status !== 1">
+      <!-- 只有「未提交」才显示表单；审核中再提交会产生重复待审记录 -->
+      <template v-if="status === 0">
         <div class="form-card" style="margin-top: 14px">
           <div class="form-row">
             <div class="form-row__label">真实姓名<span class="req">*</span></div>

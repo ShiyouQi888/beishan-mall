@@ -1,0 +1,32 @@
+services:
+  mall:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mall-replica:latest
+    container_name: mall-replica
+    restart: unless-stopped
+    ports:
+      - "3300:3300"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3300
+      MALL_DB: /app/data/mall.db
+      UPLOAD_DIR: /app/data/uploads
+      PUBLIC_DIR: /app/public
+      # 反向代理/CDN 场景想让图片返回绝对地址时填这里，例如 https://mall.example.com
+      # 留空则返回相对路径（同源部署最稳）
+      PUBLIC_BASE_URL: ""
+      # 生产环境务必改成自己的密钥
+      JWT_SECRET: "please-change-this-secret"
+      TZ: Asia/Shanghai
+    volumes:
+      # SQLite 数据库 + 上传文件，删容器不丢数据
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3300/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3

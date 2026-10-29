@@ -47,6 +47,17 @@
         <div class="rule-text">{{ sys.prompt_withdraw || '提现申请提交后由平台审核，审核通过后 T+1 个工作日到账。' }}</div>
       </div>
 
+      <div class="card" v-if="records.length" style="margin-top: 12px">
+        <div class="sec-title" style="padding: 14px 0 6px"><span>申请记录</span></div>
+        <div class="wrec" v-for="r in records" :key="r.withdraw_id">
+          <div class="wrec__main">
+            <div class="wrec__amt">¥{{ Number(r.amount).toFixed(2) }}</div>
+            <div class="wrec__time">{{ (r.create_time || '').slice(0, 16) }}</div>
+          </div>
+          <span class="wrec__st" :class="`st-${r.status}`">{{ statusText(r.status) }}</span>
+        </div>
+      </div>
+
       <button class="btn-main" style="margin-top: 18px" :disabled="loading" @click="submit">
         {{ loading ? '提交中…' : '提交申请' }}
       </button>
@@ -67,7 +78,16 @@ const sys = ref({});
 const cards = ref([]);
 const selected = ref(0);
 const loading = ref(false);
+const records = ref([]);
 const typeText = (t) => ({ 1: '微信', 2: '支付宝', 3: '银行卡' }[t] || '账户');
+const statusText = (s) => ({ 0: '待审核', 10: '已通过', 20: '已驳回' }[Number(s)] || '—');
+
+async function loadRecords() {
+  try {
+    const r = await api.withdrawList();
+    records.value = (r.data || []).slice(0, 10);
+  } catch {}
+}
 
 onMounted(async () => {
   try {
@@ -79,6 +99,7 @@ onMounted(async () => {
       if (cards.value.length) selected.value = cards.value[0].card_id;
     }
   } catch {}
+  loadRecords();
 });
 
 async function submit() {
@@ -147,4 +168,13 @@ async function submit() {
 .acct__empty { font-size: 13px; color: var(--text-3); padding: 10px 0 6px; }
 .acct__empty .link { color: var(--brand); margin-left: 6px; }
 .rule-text { font-size: 12.5px; color: var(--text-3); line-height: 1.7; }
+
+.wrec { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.wrec:last-child { border-bottom: none; }
+.wrec__amt { font-size: 14px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.wrec__time { font-size: 11px; color: var(--text-4); margin-top: 2px; }
+.wrec__st { font-size: 11.5px; padding: 2px 8px; border-radius: 20px; }
+.wrec__st.st-0 { background: #fff6e8; color: #c47a16; }
+.wrec__st.st-10 { background: #eaf7ef; color: #1a9c56; }
+.wrec__st.st-20 { background: #f2f4f7; color: var(--text-3); }
 </style>

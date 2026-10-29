@@ -151,6 +151,7 @@
                 <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认收款</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
                 <el-button v-if="row.type === 5 && row.status === 50" size="small" type="warning" @click="releaseStream(row)">释放</el-button>
+                <el-button v-if="row.type === 5 && row.status === 50" size="small" type="danger" plain @click="recycleStream(row)">平台回收</el-button>
                 <el-button v-if="row.type === 5" size="small" @click="openAssignStream(row)">指派会员</el-button>
                 <el-button v-if="Number(row.pay_status) === 10" size="small" type="success" plain @click="grantAward(row)">补发直推奖</el-button>
                 <el-button v-if="Number(row.num) > 1" size="small" @click="openSplitOrder(row)">拆分订单</el-button>
@@ -924,8 +925,26 @@ async function releaseStream(row) {
   } else ElMessage.warning(r.msg);
 }
 
-async function scanStreambeat() {
+// ---------- 平台回收 ----------
+async function recycleStream(row) {
+  const price = Number(row.total_price || 0);
   try {
+    await ElMessageBox.confirm(
+      `平台将按商品当前挂牌价 ¥${price.toFixed(2)} 回收，款项直接打给持有人，商品转为平台持仓并下架。确定回收？`,
+      '平台回收',
+      { type: 'warning', confirmButtonText: '确认回收' },
+    );
+  } catch {
+    return;
+  }
+  const r = await adminApiPost('/streambeat/recycle', { order_id: row.order_id });
+  if (r.code === 1) {
+    ElMessage.success(r.msg || '已回收');
+    load();
+  } else ElMessage.warning(r.msg);
+}
+
+async function scanStreambeat() {  try {
     await ElMessageBox.confirm('将扫描全部场次中已超过转拍期限的商品，并按规则标记流拍。确定继续？', '扫描流拍', { type: 'warning' });
   } catch { return; }
   const r = await adminApi.scanStreambeat();

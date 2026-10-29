@@ -4,7 +4,7 @@ import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYP
 import { hashPwd, verifyPwd, signAdmin, randomCode } from '../../lib/auth.js';
 import { settleOrder } from '../../lib/settle.js';
 import { runSettlement } from '../../lib/settlement.js';
-import { splitGoods, scanStreambeat, releaseStreambeat } from '../../lib/split.js';
+import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat } from '../../lib/split.js';
 import extraRouter from './extra.js';
 
 const r = Router();
@@ -407,6 +407,7 @@ const SETTING_GROUPS = {
   trade: [
     { k: 'service_charge', t: '抢单服务费(%)', type: 'number', tip: '买家在商品金额之外额外支付；填 0 则不收（平台收入来自转拍上架费）' },
     { k: 'require_receiving_account', t: '抢购前必须绑定收款账户', type: 'switch', tip: '关闭时允许未绑定收款账户的会员直接下单；开启后，会员需先设置收款方式。默认关闭。' },
+    { k: 'price_increase_rate', t: '转拍涨价率(%)', type: 'number', tip: '每转拍一次，在上一手成交价基础上自动加价该比例，逐轮复利：10000 → 10300 → 10609。下一轮买家付 10300 时，上一手持有人收回 10300 全额（原价 + 涨价），此后与该持有人无关。注意：涨价率需高于上架费率才有净收益。' },
     { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number' },
     { k: 'drive_award_rate', t: '直推奖(%)', type: 'number' },
     { k: 'same_level_award_rate', t: '平级奖(%)', type: 'number' },
@@ -580,6 +581,13 @@ r.post('/streambeat/release', authAdmin, (req, res) => {
   const out = releaseStreambeat(req.body?.order_id);
   if (!out.ok) return res.json(fail(out.reason));
   res.json(ok(out, '已释放，商品恢复可售'));
+});
+
+// 平台回收：按当前挂牌价把流拍商品收归平台，给持有人打款
+r.post('/streambeat/recycle', authAdmin, (req, res) => {
+  const out = recycleStreambeat(req.body?.order_id);
+  if (!out.ok) return res.json(fail(out.reason));
+  res.json(ok(out, `已按挂牌价 ¥${Number(out.price).toFixed(2)} 回收，商品转平台持仓`));
 });
 
 // ---------------- 通用列表 ----------------

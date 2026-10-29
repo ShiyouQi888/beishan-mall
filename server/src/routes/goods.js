@@ -1,15 +1,12 @@
 import { Router } from 'express';
 import { all, get, run, now } from '../db.js';
-import { ok, fail, authMember, page, money, serviceChargeRate } from '../lib/helper.js';
+import { ok, fail, authMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
 import { splitGoods } from '../lib/split.js';
 
 const r = Router();
 
-const img = (u) => {
-  if (!u) return '';
-  if (/^https?:\/\//.test(u)) return u;
-  return `http://127.0.0.1:3300${u.startsWith('/') ? '' : '/'}${u}`;
-};
+// 资源地址统一走 helper.assetUrl：默认相对路径，PUBLIC_BASE_URL 可切绝对地址
+const img = (u) => assetUrl(u);
 
 // 商品统一出参格式（积分商城路由 score.js 也复用）
 export const fmtGoods = (g) => ({

@@ -20,7 +20,6 @@ export default [
       list('/specialarea', 'specialarea', 'specialarea', '抢购场次'),
       { path: '/specialarea/:id', name: 'specialareaConfig', component: () => import('./views/SpecialareaConfig.vue'), meta: { title: '抢购专场配置', permissionPath: '/specialarea' } },
       list('/orders', 'orders', 'orders', '全部订单'),
-      list('/orders/consign', 'ordersConsign', 'orders', '寄卖订单', { fixed: { type: 2 }, title: '寄卖订单' }),
       list('/orders/shop', 'ordersShop', 'orders', '商城订单', { fixed: { type: 3 }, title: '商城订单' }),
       list('/streambeat', 'streambeat', 'orders', '流拍订单', { fixed: { type: 5 }, title: '流拍订单' }),
       list('/report', 'report', 'report', '举报处理'),

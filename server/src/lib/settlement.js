@@ -22,7 +22,9 @@ export function runSettlement(specialareaId = 0, date = '') {
   const to = `${day} 23:59:59`;
 
   // 取该场次当日的已支付订单（含买卖双方）
-  const where = ["status >= 10", "status <> 40", "create_time >= ?", "create_time <= ?"];
+  // type=2 是早期「寄卖挂单」的历史数据，只作台账、不代表真实成交，
+  // 显式排除以免同一笔卖出被「挂单 + 成交单」重复计入
+  const where = ['type <> 2', 'status >= 10', 'status <> 40', 'create_time >= ?', 'create_time <= ?'];
   const args = [from, to];
   if (specialareaId) {
     where.push('specialarea_id = ?');

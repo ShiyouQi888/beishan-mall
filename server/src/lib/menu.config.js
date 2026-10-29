@@ -46,11 +46,6 @@ export const MENU = [
         icon: `<rect x="4" y="3.5" width="16" height="17" rx="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M8 9h8M8 13h8M8 17h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
       },
       {
-        path: '/orders/consign',
-        title: '寄卖订单',
-        icon: `<path d="M3.5 8.5h17M6 8.5V19a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V8.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M9 8.5V6a3 3 0 0 1 6 0v2.5" stroke="currentColor" stroke-width="1.7"/>`,
-      },
-      {
         path: '/streambeat',
         title: '流拍订单',
         icon: `<path d="M12 3.5 3.5 8.5 12 13.5l8.5-5L12 3.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M4 15.5 12 20l8-4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`,
@@ -209,5 +204,3 @@ export const MENU = [
   },
 ];
 
-/** 扁平化路径集合（供路由校验/权限比对） */
-export const MENU_PATHS = MENU.flatMap((g) => g.items.map((i) => i.path));

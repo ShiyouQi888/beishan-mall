@@ -52,8 +52,9 @@ function adminRequestAllowed(req, allowedPaths) {
   const path = String(req.path || '').replace(/\/$/, '') || '/';
   const has = (...paths) => paths.some((p) => allowedPaths.includes(p));
   const orderTypeForId = (id) => Number(get('SELECT type FROM orders WHERE order_id = ?', Number(id))?.type || 0);
+  // type=2（历史寄卖挂单）已不再产生，统一按「全部订单」校验权限
   const orderPath = (type) => ({
-    1: '/orders', 2: '/orders/consign', 3: '/orders/shop', 4: '/orders/shop', 5: '/streambeat',
+    1: '/orders', 2: '/orders', 3: '/orders/shop', 4: '/orders/shop', 5: '/streambeat',
   }[Number(type)] || null);
 
   // 身份信息与当前权限菜单可读，但不会授予任何业务操作权限。
@@ -114,7 +115,7 @@ function adminRequestAllowed(req, allowedPaths) {
       const pagePath = orderPath(orderTypeForId(id));
       if (!pagePath || !has('/orders', pagePath)) return false;
     }
-    return has('/orders', '/orders/consign', '/orders/shop', '/streambeat');
+    return has('/orders', '/orders/shop', '/streambeat');
   }
   if (path.startsWith('/streambeat/')) return has('/streambeat');
   if (path.startsWith('/member/')) return has('/member');
@@ -151,12 +152,31 @@ function adminRequestAllowed(req, allowedPaths) {
 
 /** 状态文本映射 */
 export const GOODS_STATUS = { 10: '上架', 20: '下架', 30: '流拍' };
-export const ORDER_STATUS = { 0: '待付款', 10: '待发货', 20: '待收货', 30: '已完成', 40: '已取消', 50: '已流拍', 60: '已释放' };
+export const ORDER_STATUS = { 0: '待付款', 10: '待发货', 20: '待收货', 30: '已完成', 40: '已取消', 50: '已流拍', 60: '已释放', 70: '平台已回收' };
 export const ORDER_TYPE = { 1: '抢购订单', 2: '寄卖订单', 3: '商城订单', 4: '寄买订单', 5: '流拍订单' };
 export const PAY_TYPE = { 1: '余额支付', 2: '微信支付', 3: '支付宝', 4: '线下凭证' };
 
 /** 金额两位小数 */
 export const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/**
+ * 静态资源地址（上传图片等）
+ * - 默认返回相对路径（同源部署最稳，开发代理与 Docker 都适用）
+ * - PUBLIC_BASE_URL 非空时拼成绝对地址（分离部署 / CDN 场景）
+ * - 历史数据里可能存了 http://127.0.0.1:3300/... 的绝对地址，这里统一剥成相对路径再处理，
+ *   避免换域名或上 Docker 后图片全部裂开
+ */
+const PUBLIC_BASE = String(process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+
+export function assetUrl(p) {
+  if (!p) return '';
+  let path = String(p);
+  const localAbs = path.match(/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(\/.*)$/i);
+  if (localAbs) path = localAbs[1];
+  else if (/^https?:\/\//i.test(path)) return path;
+  if (!path.startsWith('/')) path = `/${path}`;
+  return PUBLIC_BASE ? `${PUBLIC_BASE}${path}` : path;
+}
 
 /** 读取配置（setting_config） */
 export const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;
@@ -178,4 +198,25 @@ export function calcServiceCharge(amount) {
   const rate = serviceChargeRate();
   if (rate <= 0) return 0;
   return money((Number(amount) * rate) / 100);
+}
+
+/**
+ * 转拍涨价率（%）。
+ * 每转拍一次，在「上一手成交价」基础上自动加价该比例，逐轮复利：
+ *   10000 → 10300 → 10609 → …
+ * 下一轮买家付 10300，上一手持有人收回 10300 全额（原价 + 涨价），之后与原持有人再无关系。
+ * 设为 0 时退化为按原价挂牌（允许前端指定价格）。
+ */
+export function priceIncreaseRate() {
+  const v = Number(cfg('price_increase_rate', '0'));
+  if (!Number.isFinite(v) || v < 0) return 0;
+  return v;
+}
+
+/** 按上一手成交价算下一轮标价 */
+export function calcNextPrice(prevPrice) {
+  const base = Number(prevPrice) || 0;
+  const rate = priceIncreaseRate();
+  if (rate <= 0) return money(base);
+  return money(base * (1 + rate / 100));
 }

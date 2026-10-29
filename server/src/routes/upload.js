@@ -3,10 +3,11 @@ import multer from 'multer';
 import { mkdirSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ok, fail } from '../lib/helper.js';
+import { ok, fail, assetUrl } from '../lib/helper.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const UPLOAD_DIR = join(__dirname, '..', '..', 'data', 'uploads');
+// 上传目录可用 UPLOAD_DIR 覆盖（Docker 里指向数据卷 /app/data/uploads）
+const UPLOAD_DIR = process.env.UPLOAD_DIR || join(__dirname, '..', '..', 'data', 'uploads');
 mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
@@ -28,7 +29,7 @@ const upload = multer({
 
 const r = Router();
 
-const publicUrl = (f) => `http://127.0.0.1:3300/uploads/${f.filename}`;
+const publicUrl = (f) => assetUrl(`/uploads/${f.filename}`);
 
 r.post('/image', upload.single('file'), (req, res) => {
   if (!req.file) return res.json(fail('请选择要上传的图片'));
