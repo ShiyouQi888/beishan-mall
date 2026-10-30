@@ -41,8 +41,11 @@ export function settleOrder(o) {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
   if (!g) return { ok: false, reason: '商品不存在' };
 
+  // 成交即下架：商品仍留在原场次里的话，别人能按原价再抢一次（等于白送一轮）。
+  // 归买家后先下架，等他「转拍」上架时再置回上架并落到下一场（见 routes/order.js 的 consignment）。
   run(
-    `UPDATE goods SET member_id = ?, turn_beat_num = turn_beat_num + ?, sales_actual = sales_actual + ?, update_time = ?
+    `UPDATE goods SET member_id = ?, turn_beat_num = turn_beat_num + ?, sales_actual = sales_actual + ?,
+       goods_status = 20, is_sell = 0, update_time = ?
      WHERE goods_id = ?`,
     o.member_id, o.num, o.num, now(), g.goods_id,
   );

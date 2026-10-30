@@ -234,7 +234,8 @@ async function main() {
     const again = await api('/api/order/toAddOrder', {
       method: 'POST', token: newToken, body: { goods_id: lootTarget.goods_id, num: 1, pay_type: 1 },
     });
-    ok(again.code === 0 && /自己持有/.test(again.msg), '不能购买自己持有的商品', again.msg);
+    // 成交即下架：商品已经不在场次里可售，先撞上「已下架」这道闸
+    ok(again.code === 0 && /已下架/.test(again.msg), '成交后商品立即下架，无法再被抢', again.msg);
     void selfBuy;
 
     const dupPay = await api('/api/order/toPay', { method: 'POST', token: newToken, body: { order_id: firstOid, pay_type: 1 } });
@@ -308,6 +309,11 @@ async function main() {
       money(prevPrice * (1 + inc)), '商品标价已按涨价率更新');
     const consignAgain = await api('/api/order/consignment', { method: 'POST', token: newToken, body: { order_id: firstOid } });
     ok(consignAgain.code === 0, '同一订单不可重复转拍', consignAgain.msg);
+    // 转拍后已重新上架，此时才轮到「不能买自己持有」这道校验
+    const selfBuyAfterList = await api('/api/order/toAddOrder', {
+      method: 'POST', token: newToken, body: { goods_id: lootTarget.goods_id, num: 1, pay_type: 1 },
+    });
+    ok(selfBuyAfterList.code === 0 && /自己持有/.test(selfBuyAfterList.msg), '不能购买自己持有的商品', selfBuyAfterList.msg);
 
     // ========== 我的店铺 ==========
     section('[8] 我的店铺');

@@ -64,7 +64,9 @@ const M = {
   },
   specialarea: {
     table: 'specialarea', pk: 'specialarea_id', label: '抢购场次',
-    search: ['title_main'], orderBy: 'sort ASC',
+    search: ['title_main'],
+    // 与 H5 抢购页同一套顺序：开始时间 → 上午/下午/晚上 → 排序值
+    orderBy: "start_time ASC, CASE name WHEN 'forenoon' THEN 1 WHEN 'afternoon' THEN 2 WHEN 'evening' THEN 3 ELSE 9 END ASC, sort ASC, specialarea_id ASC",
     fields: [
       { k: 'specialarea_id', t: 'ID', type: 'text', readonly: true, w: 60 },
       { k: 'name', t: '场次标识', type: 'text', w: 100, hide: true },

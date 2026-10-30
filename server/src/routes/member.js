@@ -427,9 +427,10 @@ r.get('/certification/getIsRealName', authMember, (req, res) => {
  */
 r.get('/myShop', authMember, (req, res) => {
   const me = req.member.member_id;
+  // 含 20（已下架待转拍）：成交后商品会立刻下架，但持有人仍要能在「我的店铺」里看到它去转拍
   const goodsList = all(
     `SELECT goods_id, goods_name, good_thumb, goods_min_price, goods_status, turn_beat_num, update_time
-     FROM goods WHERE member_id = ? AND goods_status = 10
+     FROM goods WHERE member_id = ? AND goods_status IN (10, 20)
      ORDER BY update_time DESC, goods_id DESC`,
     me,
   );

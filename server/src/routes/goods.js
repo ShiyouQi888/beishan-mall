@@ -3,6 +3,7 @@ import { all, get, run, now } from '../db.js';
 import { ok, fail, authMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
 import { splitGoods } from '../lib/split.js';
 import { buyWindow } from '../lib/buyWindow.js';
+import { activeSessions } from '../lib/sessions.js';
 
 const r = Router();
 
@@ -81,7 +82,8 @@ r.get('/category/getCategoryGoodsList', (req, res) => {
 function areaPayload() {
   // 时间统一取「抢购总时间」（交易设置），场次里各自的 start_time / end_time / open_days 已停用
   const w = buyWindow();
-  const list = all('SELECT * FROM specialarea WHERE is_open = 10 ORDER BY sort ASC, specialarea_id ASC');
+  // 场次顺序统一走 lib/sessions.js：开放中的在前，再按时间/上午-下午-晚上的语义排
+  const list = activeSessions(() => w.open);
   return list.map((a) => {
     const start = w.dayStart + w.start;
     const end = w.end ? w.dayStart + w.end : w.dayStart + 86399;

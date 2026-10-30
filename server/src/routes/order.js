@@ -5,6 +5,7 @@ import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate } from '../lib/settle.js';
 import { deductStock } from '../lib/split.js';
 import { buyWindow } from '../lib/buyWindow.js';
+import { nextSessionId } from '../lib/sessions.js';
 
 const r = Router();
 
@@ -366,13 +367,19 @@ r.post('/consignment', authMember, (req, res) => {
       // 商品重新上架，更新标价；划线价须高于现价，否则同步上调
       const curLine = Number(g.line_price || 0);
       const newLine = curLine > 0 && curLine <= sellPrice ? money2(sellPrice * 1.1) : curLine;
-      run('UPDATE goods SET goods_min_price = ?, line_price = ?, goods_status = 10, is_sell = 10, update_time = ? WHERE goods_id = ?',
-        sellPrice, newLine, now(), g.goods_id);
+      // 转拍上架要落到「下一场」，而不是原地留在上一场（否则同一件商品永远只在前一场流转）
+      const nextArea = nextSessionId(g.specialarea_id);
+      run(
+        `UPDATE goods SET goods_min_price = ?, line_price = ?, goods_status = 10, is_sell = 10,
+           specialarea_id = ?, update_time = ?
+         WHERE goods_id = ?`,
+        sellPrice, newLine, nextArea || g.specialarea_id, now(), g.goods_id,
+      );
 
       // 不再生成寄卖挂单：挂单信息已完整存在于「本订单的 consignment_status/listing_fee/transposition_time」
       // 与「goods 的持有人/标价/上下架」两处，另开一张 type=2 订单属于纯冗余（曾留下永不结清的僵尸单）
       log(o.order_id, '转拍上架', 'member',
-        `标价 ${sellPrice}（上一手 ${q.prev_price}，涨价 ${q.increase_rate}% = ${q.increase_amount}），上架费 ${fee.toFixed(2)}`);
+        `标价 ${sellPrice}（上一手 ${q.prev_price}，涨价 ${q.increase_rate}% = ${q.increase_amount}），上架费 ${fee.toFixed(2)}，进入场次 #${nextArea || g.specialarea_id}`);
     });
   } catch (e) {
     if (e.biz) return res.json(fail(e.message));
