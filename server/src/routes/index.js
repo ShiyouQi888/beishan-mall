@@ -96,20 +96,33 @@ r.get('/index/getInvitePoster', (req, res) => {
     logo_y: cfgNumber('poster_logo_y', 60),
     logo_size: cfgNumber('poster_logo_size', 116),
     title: cfg('poster_title', '邀请好友加入'),
+    title_show: cfg('poster_title_show', '10'),
     title_x: cfgNumber('poster_title_x', 60),
     title_y: cfgNumber('poster_title_y', 240),
     title_size: cfgNumber('poster_title_size', 54),
+    title_color: cfg('poster_title_color', '#ffffff'),
+    title_align: cfg('poster_title_align', 'left'),
     subtitle: cfg('poster_subtitle', '一起分享好物与收益'),
+    subtitle_show: cfg('poster_subtitle_show', '10'),
     subtitle_x: cfgNumber('poster_subtitle_x', 60),
     subtitle_y: cfgNumber('poster_subtitle_y', 315),
     subtitle_size: cfgNumber('poster_subtitle_size', 30),
+    subtitle_color: cfg('poster_subtitle_color', '#ffffff'),
+    subtitle_align: cfg('poster_subtitle_align', 'left'),
     content: cfg('poster_content', '长按识别二维码，立即加入'),
+    content_show: cfg('poster_content_show', '10'),
     content_x: cfgNumber('poster_content_x', 60),
     content_y: cfgNumber('poster_content_y', 1190),
     content_size: cfgNumber('poster_content_size', 25),
+    content_color: cfg('poster_content_color', '#ffffff'),
+    content_align: cfg('poster_content_align', 'center'),
+    code_label: cfg('poster_code_label', '邀请码：'),
+    code_show: cfg('poster_code_show', '10'),
     code_x: cfgNumber('poster_code_x', 60),
     code_y: cfgNumber('poster_code_y', 1280),
     code_size: cfgNumber('poster_code_size', 22),
+    code_color: cfg('poster_code_color', '#ffffff'),
+    code_align: cfg('poster_code_align', 'center'),
   }));
 });
 
@@ -168,9 +181,12 @@ const switchOn = (key, def = '20') => (Number(cfg(key, def)) === 10 ? '1' : '0')
 r.get('/index/getPaySeeting', (req, res) => {
   res.json(
     ok({
+      balance_open: switchOn('pay_balance_open', '10'),
       wx_open: switchOn('pay_wx', '10'),
       zfb_open: switchOn('pay_zfb', '10'),
       bank_open: switchOn('pay_bank', '20'),
+      wx_qr_ready: cfg('wx_qr', '') ? '1' : '0',
+      zfb_qr_ready: cfg('zfb_qr', '') ? '1' : '0',
     }),
   );
 });

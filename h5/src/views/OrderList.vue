@@ -97,11 +97,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { showToast, showConfirmDialog, showDialog } from 'vant';
 import { api } from '../api.js';
 
 const route = useRoute();
+const router = useRouter();
 const tabs = [
   { v: 'all', label: '全部' },
   { v: 0, label: '待付款' },
@@ -132,12 +133,8 @@ function switchTab(v) {
   load();
 }
 
-async function pay(o) {
-  try {
-    await api.payOrder({ order_id: o.order_id, pay_type: 1 });
-    showToast('支付成功');
-    load();
-  } catch {}
+function pay(o) {
+  router.push(`/order/detail/${o.order_id}`);
 }
 
 async function cancel(o) {

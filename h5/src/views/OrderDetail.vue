@@ -55,6 +55,27 @@
         <div class="kv" v-if="o.express_no"><span>快递</span><span>{{ o.express_company }} {{ o.express_no }}</span></div>
       </div>
 
+      <div class="card payment" v-if="o.status === 0">
+        <div class="sec-title" style="padding: 14px 0 8px"><span>选择支付方式</span></div>
+        <div v-for="p in availablePayTypes" :key="p.v" class="payment__option" @click="selectedPayType = p.v">
+          <span class="radio" :class="{ on: selectedPayType === p.v }" />
+          <div>
+            <div class="payment__title">{{ p.t }}</div>
+            <div class="payment__desc">{{ p.d }}</div>
+          </div>
+        </div>
+        <div v-if="!availablePayTypes.length" class="payment__empty">当前暂无开放的支付方式，请联系平台处理。</div>
+        <div v-if="selectedPayType === 2 || selectedPayType === 3" class="payment__qr">
+          <div>{{ selectedPayType === 2 ? '请使用微信扫码转账' : '请使用支付宝扫码转账' }}</div>
+          <img v-if="paymentQr" :src="paymentQr" alt="收款二维码" @click="showImagePreview([paymentQr])" />
+          <div v-else class="payment__empty">暂未配置收款二维码，请联系平台处理。</div>
+        </div>
+        <div v-if="selectedPayType && selectedPayType !== 1" class="payment__voucher">
+          <div class="payment__hint">完成转账后，请上传付款凭证供平台核实。</div>
+          <ImageUploader :model-value="voucher" :upload="uploadVoucher" @update:model-value="voucher = $event" />
+        </div>
+      </div>
+
       <!-- 时间轴 -->
       <div class="card logs" v-if="o.logs?.length">
         <div class="sec-title" style="padding: 14px 0 10px"><span>订单动态</span></div>
@@ -70,7 +91,9 @@
     </div>
 
     <div class="odetail__bar" v-if="o.status === 0 || o.status === 20">
-      <button v-if="o.status === 0" class="btn-main" @click="pay">立即支付</button>
+      <button v-if="o.status === 0" class="btn-main" :disabled="!availablePayTypes.length || paying" @click="pay">
+        {{ paying ? '提交中…' : selectedPayType === 1 ? '立即支付' : '提交支付凭证' }}
+      </button>
       <button v-if="o.status === 20" class="btn-main" @click="receipt">确认收货</button>
     </div>
   </div>
@@ -79,13 +102,30 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { showToast } from 'vant';
+import { showToast, showImagePreview } from 'vant';
 import { api } from '../api.js';
+import ImageUploader from '../components/ImageUploader.vue';
 
 const route = useRoute();
 const router = useRouter();
 const o = ref({});
 const loading = ref(true);
+const sys = ref({});
+const paymentSettings = ref({});
+const selectedPayType = ref(0);
+const voucher = ref('');
+const paying = ref(false);
+const payOptions = [
+  { v: 1, key: 'balance_open', t: '余额支付', d: '使用账户可用余额直接支付' },
+  { v: 2, key: 'wx_open', ready: 'wx_qr_ready', t: '微信扫码', d: '扫码转账后上传凭证，等待平台确认' },
+  { v: 3, key: 'zfb_open', ready: 'zfb_qr_ready', t: '支付宝扫码', d: '扫码转账后上传凭证，等待平台确认' },
+  { v: 4, key: 'bank_open', t: '线下转账凭证', d: '转账后上传凭证，等待平台确认' },
+];
+const availablePayTypes = computed(() => payOptions.filter((item) =>
+  String(paymentSettings.value[item.key]) === '1'
+  && (!item.ready || String(paymentSettings.value[item.ready]) === '1'),
+));
+const paymentQr = computed(() => selectedPayType.value === 2 ? sys.value.wx_image : selectedPayType.value === 3 ? sys.value.zfb_image : '');
 
 const statusDesc = computed(() => {
   const m = { 0: '请尽快完成支付', 10: '商家正在备货', 20: '商品运输中，请注意查收', 30: '交易已完成', 40: '订单已关闭' };
@@ -104,6 +144,14 @@ async function load() {
       return;
     }
     o.value = r.data;
+    voucher.value = r.data.pay_voucher || '';
+    const [s, p] = await Promise.allSettled([api.systemInfo(), api.paymentSettings()]);
+    if (s.status === 'fulfilled') sys.value = s.value.data || {};
+    if (p.status === 'fulfilled') paymentSettings.value = p.value.data || {};
+    const original = Number(r.data.pay_type);
+    selectedPayType.value = availablePayTypes.value.some((item) => item.v === original)
+      ? original
+      : (availablePayTypes.value[0]?.v || 0);
   } catch {
     showToast('订单加载失败');
     o.value = {};
@@ -113,11 +161,24 @@ async function load() {
 }
 
 async function pay() {
+  if (!selectedPayType.value) return showToast('当前暂无开放的支付方式');
+  if (selectedPayType.value !== 1 && !voucher.value) return showToast('请先上传支付凭证');
+  paying.value = true;
   try {
-    await api.payOrder({ order_id: o.value.order_id, pay_type: 1 });
-    showToast('支付成功');
+    const result = await api.payOrder({
+      order_id: o.value.order_id,
+      pay_type: selectedPayType.value,
+      ...(selectedPayType.value === 1 ? {} : { voucher: voucher.value }),
+    });
+    showToast(selectedPayType.value === 1 ? '支付成功' : (result.msg || '凭证已提交，等待平台确认'));
     load();
-  } catch {}
+  } catch {} finally { paying.value = false; }
+}
+
+async function uploadVoucher(file) {
+  const result = await api.upload(file);
+  voucher.value = result.data.url;
+  return result.data.url;
 }
 
 async function receipt() {
@@ -171,6 +232,19 @@ onMounted(load);
 .kv .right { max-width: 62%; line-height: 1.5; }
 .kv--sum { font-size: 14px; }
 .kv--sum .price { font-size: 18px; }
+
+.payment { padding-bottom: 8px; }
+.payment__option { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.payment__option:first-of-type { border-top: none; }
+.payment .radio { width: 17px; height: 17px; border-radius: 50%; border: 1.6px solid #d3d7de; flex: none; position: relative; }
+.payment .radio.on { border-color: var(--brand); }
+.payment .radio.on::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--brand); }
+.payment__title { font-size: 13.5px; font-weight: 550; }
+.payment__desc, .payment__hint { color: var(--text-3); font-size: 11.5px; margin-top: 3px; }
+.payment__qr { text-align: center; color: var(--text-2); font-size: 12px; padding: 12px 0; }
+.payment__qr img { display: block; width: 170px; height: 170px; object-fit: contain; margin: 10px auto 0; border: 1px solid var(--line); border-radius: 10px; }
+.payment__voucher { padding: 10px 0; border-top: 1px solid var(--line); }
+.payment__empty { color: var(--text-3); font-size: 12px; padding: 12px 0; }
 
 .logs { padding-bottom: 14px; }
 .log {

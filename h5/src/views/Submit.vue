@@ -61,6 +61,7 @@
             <div class="payitem__d">{{ p.d }}</div>
           </div>
         </div>
+        <div v-if="!payTypes.length" class="payitem__empty">当前暂无开放的支付方式，请稍后再试。</div>
       </div>
 
       <!-- 备注 -->
@@ -89,7 +90,7 @@
       <div class="submit__bar-price">
         合计 <span class="price"><span class="sym">¥</span>{{ payTotal.toFixed(2) }}</span>
       </div>
-      <button class="btn-main submit__bar-btn" :disabled="loading || !g.goods_id" @click="doSubmit">
+      <button class="btn-main submit__bar-btn" :disabled="loading || !g.goods_id || !payTypes.length" @click="doSubmit">
         {{ loading ? '提交中…' : '提交订单' }}
       </button>
     </div>
@@ -112,16 +113,30 @@ const remark = ref('');
 const loading = ref(false);
 const feeRate = ref(0);
 
-const payTypes = [
-  { v: 1, t: '余额支付', d: '使用账户可用余额直接支付' },
-  { v: 4, t: '线下转账凭证', d: '转账后上传凭证，等待平台确认' },
+const paymentSettings = ref({});
+const allPayTypes = [
+  { v: 1, key: 'balance_open', t: '余额支付', d: '使用账户可用余额直接支付' },
+  { v: 2, key: 'wx_open', ready: 'wx_qr_ready', t: '微信扫码', d: '扫码转账后上传凭证，等待平台确认' },
+  { v: 3, key: 'zfb_open', ready: 'zfb_qr_ready', t: '支付宝扫码', d: '扫码转账后上传凭证，等待平台确认' },
+  { v: 4, key: 'bank_open', t: '线下转账凭证', d: '转账后上传凭证，等待平台确认' },
 ];
+const payTypes = computed(() => allPayTypes.filter((item) =>
+  String(paymentSettings.value[item.key]) === '1'
+  && (!item.ready || String(paymentSettings.value[item.ready]) === '1'),
+));
 
 const total = computed(() => Number(g.value.goods_min_price || 0) * num.value);
 const fee = computed(() => Math.round(total.value * feeRate.value) / 100);
 const payTotal = computed(() => Math.round((total.value + fee.value) * 100) / 100);
 
 onMounted(async () => {
+  try {
+    const p = await api.paymentSettings();
+    paymentSettings.value = p.data || {};
+    payType.value = payTypes.value[0]?.v || 0;
+  } catch {
+    paymentSettings.value = {};
+  }
   try {
     const r = await api.lootDetail(route.params.id);
     // 业务失败（商品不存在/已下架）不能静默留空，否则会渲染出 ¥0.00 的空订单页
@@ -147,6 +162,7 @@ onMounted(async () => {
 
 async function doSubmit() {
   if (!g.value.goods_id) return showToast('商品信息未加载');
+  if (!payTypes.value.some((item) => item.v === payType.value)) return showToast('当前暂无开放的支付方式');
   loading.value = true;
   try {
     const r = await api.addOrder({
@@ -158,10 +174,15 @@ async function doSubmit() {
     });
     const orderId = r.data.order_id;
     if (payType.value === 1) {
-      await api.payOrder({ order_id: orderId, pay_type: 1 });
-      showToast('支付成功');
+      try {
+        await api.payOrder({ order_id: orderId, pay_type: 1 });
+        showToast('支付成功');
+      } catch {
+        router.replace(`/order/detail/${orderId}`);
+        return;
+      }
     } else {
-      showToast('订单已提交，请上传支付凭证');
+      showToast('订单已创建，请完成转账并上传凭证');
     }
     setTimeout(() => router.replace(`/order/detail/${orderId}`), 500);
   } catch {
@@ -251,6 +272,7 @@ async function doSubmit() {
 }
 .payitem__t { font-size: 14px; font-weight: 500; }
 .payitem__d { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+.payitem__empty { padding: 14px; color: var(--text-3); font-size: 12.5px; border-top: 1px solid var(--line); }
 
 .remark {
   margin-top: 10px;

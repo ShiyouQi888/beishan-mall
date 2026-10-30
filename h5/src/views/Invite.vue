@@ -116,6 +116,33 @@ function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 2) {
   if (line && lines < maxLines) ctx.fillText(line, x, y + lines * lineHeight);
 }
 
+function drawPosterText(ctx, text, config, kind, defaults, weight = 500, maxLines = 2) {
+  const content = String(text ?? '').trim();
+  if (!content) return;
+  const posterWidth = 750;
+  const posterHeight = 1334;
+  const readNumber = (key) => {
+    const raw = config[`${kind}_${key}`];
+    const value = raw === '' || raw === null || raw === undefined ? defaults[key] : Number(raw);
+    return Number.isFinite(value) ? value : defaults[key];
+  };
+  const size = Math.max(14, Math.min(100, readNumber('size')));
+  const x = Math.max(0, Math.min(posterWidth - 30, readNumber('x')));
+  const y = Math.max(0, Math.min(posterHeight - size, readNumber('y')));
+  const maxWidth = Math.max(1, posterWidth - x - 30);
+  const alignValue = config[`${kind}_align`] || defaults.align;
+  const align = ['left', 'center', 'right'].includes(alignValue) ? alignValue : defaults.align;
+  const anchorX = x + (align === 'center' ? maxWidth / 2 : align === 'right' ? maxWidth : 0);
+  ctx.save();
+  ctx.fillStyle = config[`${kind}_color`] || '#ffffff';
+  ctx.shadowColor = 'rgba(0,0,0,.3)';
+  ctx.shadowBlur = 10;
+  ctx.textAlign = align;
+  ctx.font = `${weight} ${size}px sans-serif`;
+  drawWrappedText(ctx, content, anchorX, y + size, maxWidth, size * 1.35, maxLines);
+  ctx.restore();
+}
+
 async function makePoster() {
   const width = 750;
   const height = 1334;
@@ -141,26 +168,17 @@ async function makePoster() {
     const logoSize = Math.max(48, Math.min(260, Number(config.logo_size ?? 116)));
     const logoX = Math.max(0, Math.min(width - logoSize, Number(config.logo_x ?? 54)));
     const logoY = Math.max(0, Math.min(height - logoSize, Number(config.logo_y ?? 60)));
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,.94)';
-    ctx.beginPath(); ctx.roundRect(logoX, logoY, logoSize, logoSize, Math.min(24, logoSize / 5)); ctx.fill();
-    const padding = Math.max(4, logoSize * .1);
-    const scale = Math.min((logoSize - padding * 2) / logo.width, (logoSize - padding * 2) / logo.height);
+    const scale = Math.min(logoSize / logo.width, logoSize / logo.height);
     const lw = logo.width * scale; const lh = logo.height * scale;
     ctx.drawImage(logo, logoX + (logoSize - lw) / 2, logoY + (logoSize - lh) / 2, lw, lh);
-    ctx.restore();
   }
 
-  const titleSize = Math.max(14, Math.min(100, Number(config.title_size ?? 54)));
-  const titleX = Math.max(0, Math.min(width - 30, Number(config.title_x ?? 60)));
-  const titleY = Math.max(0, Math.min(height - titleSize, Number(config.title_y ?? 240)));
-  const subtitleSize = Math.max(14, Math.min(100, Number(config.subtitle_size ?? 30)));
-  const subtitleX = Math.max(0, Math.min(width - 30, Number(config.subtitle_x ?? 60)));
-  const subtitleY = Math.max(0, Math.min(height - subtitleSize, Number(config.subtitle_y ?? 315)));
-  ctx.save(); ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,.24)'; ctx.shadowBlur = 14; ctx.textAlign = 'left';
-  ctx.font = `700 ${titleSize}px sans-serif`; drawWrappedText(ctx, config.title || '邀请好友加入', titleX, titleY + titleSize, width - titleX - 30, titleSize * 1.3, 2);
-  ctx.font = `400 ${subtitleSize}px sans-serif`; ctx.globalAlpha = .92; drawWrappedText(ctx, config.subtitle || '一起分享好物与收益', subtitleX, subtitleY + subtitleSize, width - subtitleX - 30, subtitleSize * 1.4, 2);
-  ctx.restore();
+  if (Number(config.title_show ?? 10) === 10) {
+    drawPosterText(ctx, config.title, config, 'title', { x: 60, y: 240, size: 54, align: 'left' }, 700);
+  }
+  if (Number(config.subtitle_show ?? 10) === 10) {
+    drawPosterText(ctx, config.subtitle, config, 'subtitle', { x: 60, y: 315, size: 30, align: 'left' }, 400);
+  }
 
   const inviteUrl = `${location.origin}${location.pathname}#/register?code=${encodeURIComponent(me.value.invitation_code || '')}`;
   const qrDataUrl = await QRCode.toDataURL(inviteUrl, { width: 512, margin: 1, errorCorrectionLevel: 'H', color: { dark: '#15191f', light: '#ffffff' } });
@@ -172,16 +190,13 @@ async function makePoster() {
   ctx.beginPath(); ctx.roundRect(x - 14, y - 14, qrSize + 28, qrSize + 28, 20); ctx.fill(); ctx.restore();
   ctx.drawImage(qr, x, y, qrSize, qrSize);
 
-  const contentSize = Math.max(14, Math.min(100, Number(config.content_size ?? 25)));
-  const contentX = Math.max(0, Math.min(width - 30, Number(config.content_x ?? 60)));
-  const contentY = Math.max(0, Math.min(height - contentSize, Number(config.content_y ?? 1190)));
-  const codeSize = Math.max(14, Math.min(100, Number(config.code_size ?? 22)));
-  const codeX = Math.max(0, Math.min(width - 30, Number(config.code_x ?? 60)));
-  const codeY = Math.max(0, Math.min(height - codeSize, Number(config.code_y ?? 1280)));
-  ctx.save(); ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.shadowColor = 'rgba(0,0,0,.32)'; ctx.shadowBlur = 8;
-  ctx.font = `500 ${contentSize}px sans-serif`; drawWrappedText(ctx, config.content || '长按识别二维码，立即加入', contentX, contentY + contentSize, width - contentX - 30, contentSize * 1.4, 2);
-  if (me.value.invitation_code) { ctx.font = `500 ${codeSize}px sans-serif`; ctx.fillText(`邀请码：${me.value.invitation_code}`, codeX, codeY + codeSize, width - codeX - 30); }
-  ctx.restore();
+  if (Number(config.content_show ?? 10) === 10) {
+    drawPosterText(ctx, config.content, config, 'content', { x: 60, y: 1190, size: 25, align: 'center' }, 500);
+  }
+  if (Number(config.code_show ?? 10) === 10 && me.value.invitation_code) {
+    const label = config.code_label ?? '邀请码：';
+    drawPosterText(ctx, `${label}${me.value.invitation_code}`, config, 'code', { x: 60, y: 1280, size: 22, align: 'center' }, 600, 1);
+  }
   return canvas.toDataURL('image/png');
 }
 

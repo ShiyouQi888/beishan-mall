@@ -56,10 +56,27 @@ function serviceCharge(amount) {
   return calcServiceCharge(amount);
 }
 
+const PAY_SWITCHES = {
+  1: ['pay_balance_open', '10'],
+  2: ['pay_wx', '10'],
+  3: ['pay_zfb', '10'],
+  4: ['pay_bank', '20'],
+};
+
+function paymentEnabled(type) {
+  const config = PAY_SWITCHES[type];
+  if (!config || Number(cfg(config[0], config[1])) !== 10) return false;
+  if (type === 2 && !cfg('wx_qr', '')) return false;
+  if (type === 3 && !cfg('zfb_qr', '')) return false;
+  return true;
+}
+
 // ---------------- 下单（抢购） ----------------
 r.post('/toAddOrder', authMember, (req, res) => {
   const { goods_id, num = 1, address_id, remark, pay_type } = req.body;
   const m = req.member;
+  const requestedPayType = Number(pay_type) || 1;
+  if (!paymentEnabled(requestedPayType)) return res.json(fail('该支付方式暂未开放，请刷新后重新选择'));
   if (!goods_id) return res.json(fail('请选择商品'));
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
@@ -112,7 +129,7 @@ r.post('/toAddOrder', authMember, (req, res) => {
           type, price, num, total_price, service_charge, status, pay_status, pay_type, address_id, remark, create_time)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         no, m.member_id, g.member_id, g.goods_id, g.goods_name, g.good_thumb, g.specialarea_id,
-        1, price, Number(num), total, fee, 0, 0, Number(pay_type) || 0, Number(address_id) || 0, remark || '', now(),
+        1, price, Number(num), total, fee, 0, 0, requestedPayType, Number(address_id) || 0, remark || '', now(),
       );
       orderId = Number(info.lastInsertRowid);
     });
@@ -168,7 +185,9 @@ r.post('/toPay', authMember, (req, res) => {
   const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), m.member_id);
   if (!o) return res.json(fail('订单不存在'));
   if (o.pay_status === 10) return res.json(fail('订单已支付'));
-  const pt = Number(pay_type) || 1;
+  const pt = Number(pay_type) || Number(o.pay_type) || 1;
+  if (!paymentEnabled(pt)) return res.json(fail('该支付方式暂未开放，请选择其他方式'));
+  if (![1, 2, 3, 4].includes(pt)) return res.json(fail('请选择有效的支付方式'));
   if (pt === 1) {
     // 余额支付：事务内原子扣款 + 原子标记已支付，防止并发超扣/重复扣
     const cost = money2(o.total_price + o.service_charge);
@@ -181,8 +200,8 @@ r.post('/toPay', authMember, (req, res) => {
         if (Number(r1.changes) !== 1) throw biz('账户余额不足');
 
         const r2 = run(
-          'UPDATE orders SET status = 10, pay_status = 10, pay_time = ? WHERE order_id = ? AND pay_status = 0',
-          now(), o.order_id,
+          'UPDATE orders SET pay_type = 1, pay_voucher = ?, status = 10, pay_status = 10, pay_time = ? WHERE order_id = ? AND pay_status = 0',
+          '', now(), o.order_id,
         );
         if (Number(r2.changes) !== 1) throw biz('订单已支付，请勿重复操作');
 
@@ -197,15 +216,12 @@ r.post('/toPay', authMember, (req, res) => {
     }
     return res.json(ok([], '支付成功'));
   }
-  if (pt === 4) {
+  if (pt !== 1) {
     if (!voucher) return res.json(fail('请上传支付凭证'));
-    run('UPDATE orders SET pay_type = 4, pay_voucher = ? WHERE order_id = ?', voucher, o.order_id);
-    log(o.order_id, '上传支付凭证', 'member');
+    run('UPDATE orders SET pay_type = ?, pay_voucher = ? WHERE order_id = ?', pt, voucher, o.order_id);
+    log(o.order_id, '上传支付凭证', 'member', `${PAY_TYPE[pt] || '支付'}凭证已提交`);
     return res.json(ok([], '凭证已提交，等待平台确认'));
   }
-  // 微信/支付宝：演示环境直接标记待确认
-  run('UPDATE orders SET pay_type = ?, pay_voucher = ? WHERE order_id = ?', pt, voucher || '', o.order_id);
-  res.json(ok([], '已提交支付，等待确认'));
 });
 
 // 结算与分账逻辑见 lib/settle.js（与后台确认收款共用）

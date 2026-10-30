@@ -129,8 +129,8 @@ const saving = ref(false);
 
 const META = {
   store: { t: '商城设置', d: '商城名称、Logo、客服、版权与备案信息，以及积分商城总开关' },
-  trade: { t: '交易设置', d: '抢单服务费、转拍涨价与上架费、直推奖（仅一级）、注册与提现规则' },
-  pay: { t: '支付设置', d: '支付方式开关与收款码配置' },
+  trade: { t: '交易设置', d: '抢单服务费、转拍涨价与上架费、直推奖（仅一级）、提现规则与提现方式开关' },
+  pay: { t: '支付设置', d: '余额、扫码及线下凭证支付方式开关与收款码配置' },
   nav: { t: '导航配置', d: '首页、分类、抢购、邀请和个人中心的底部导航开关' },
   storage: { t: '上传配置', d: '文件存储方式、访问域名与大小限制' },
   poster: { t: '海报配置', d: '邀请海报背景、Logo、二维码位置与文案' },
@@ -165,12 +165,29 @@ async function load() {
         poster_qr_x: '265', poster_qr_y: '850', poster_qr_size: '220',
         poster_logo_x: '54', poster_logo_y: '60', poster_logo_size: '116',
         poster_title: '邀请好友加入', poster_title_x: '60', poster_title_y: '240', poster_title_size: '54',
+        poster_title_color: '#ffffff', poster_title_align: 'left',
         poster_subtitle: '一起分享好物与收益', poster_subtitle_x: '60', poster_subtitle_y: '315', poster_subtitle_size: '30',
+        poster_subtitle_color: '#ffffff', poster_subtitle_align: 'left',
         poster_content: '长按识别二维码，立即加入', poster_content_x: '60', poster_content_y: '1190', poster_content_size: '25',
-        poster_code_x: '60', poster_code_y: '1280', poster_code_size: '22',
+        poster_content_color: '#ffffff', poster_content_align: 'center',
+        poster_code_label: '邀请码：', poster_code_x: '60', poster_code_y: '1280', poster_code_size: '22',
+        poster_code_color: '#ffffff', poster_code_align: 'center',
       };
-      const defaultSwitches = { nav_invite: 10, require_receiving_account: 20 };
-      const hasValue = raw !== '' && raw !== null && raw !== undefined;
+      const defaultSwitches = {
+        nav_invite: 10,
+        require_receiving_account: 20,
+        pay_balance_open: 10,
+        withdraw_wx_open: 10,
+        withdraw_zfb_open: 10,
+        withdraw_bank_open: 10,
+        withdraw_offline_open: 10,
+        poster_title_show: 10,
+        poster_subtitle_show: 10,
+        poster_content_show: 10,
+        poster_code_show: 10,
+      };
+      // null 表示数据库里尚无该项；空字符串则是管理员主动清空，必须原样保留。
+      const hasValue = raw !== null && raw !== undefined;
       const switchValue = !hasValue ? (defaultSwitches[it.k] ?? 0) : raw;
       values[it.k] = it.type === 'switch' ? Number(switchValue) : (hasValue ? raw : (defaults[it.k] ?? ''));
     }

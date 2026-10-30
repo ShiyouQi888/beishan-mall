@@ -65,6 +65,11 @@ for (const [key, val, group] of [
   ['require_invite_code', '10', 'trade'],   // 注册必须填邀请码
   ['score_open', '10', 'store'],            // 积分商城开关
   ['home_category_show', '10', 'nav'],      // 首页商品分类栏开关
+  ['pay_balance_open', '10', 'pay'],        // 余额支付开关
+  ['withdraw_wx_open', '10', 'trade'],      // 提现到微信
+  ['withdraw_zfb_open', '10', 'trade'],     // 提现到支付宝
+  ['withdraw_bank_open', '10', 'trade'],    // 提现到银行卡
+  ['withdraw_offline_open', '10', 'trade'], // 提现线下打款
 ]) {
   if (!get('SELECT 1 FROM setting_config WHERE `key` = ?', key)) {
     run('INSERT INTO setting_config (`key`, `value`, `group`) VALUES (?,?,?)', key, val, group);

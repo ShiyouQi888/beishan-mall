@@ -46,6 +46,7 @@ export const api = {
   openNav: () => http.get('/index/getOpenNavigation'),
   notices: () => http.get('/notice/getNotice'),
   tradeConfig: () => http.get('/index/getTradeConfig'),
+  paymentSettings: () => http.get('/index/getPaySeeting'),
 
   // 商品
   categories: (params) => http.get('/goods/getCategory', { params }),

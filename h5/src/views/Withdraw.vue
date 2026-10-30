@@ -21,9 +21,9 @@
 
       <div class="card wd__acct">
         <div class="sec-title" style="padding: 14px 0 6px"><span>收款账户</span></div>
-        <div v-if="cards.length">
+        <div v-if="availableCards.length">
           <div
-            v-for="c in cards"
+            v-for="c in availableCards"
             :key="c.card_id"
             class="acct"
             :class="{ on: selected === c.card_id }"
@@ -36,11 +36,12 @@
             </div>
           </div>
         </div>
-        <div v-if="!cards.length" class="acct__empty">
-          暂无收款账户，也可以选择线下打款
+        <div v-if="!availableCards.length" class="acct__empty">
+          {{ offlineEnabled ? '暂无可用收款账户，也可以选择线下打款' : '暂无可用收款账户，请添加已开放类型的收款账户' }}
           <span class="link" @click="$router.push('/address?tab=card')">去添加</span>
         </div>
         <div
+          v-if="offlineEnabled"
           class="acct"
           :class="{ on: selected === 'offline' }"
           role="button"
@@ -74,7 +75,7 @@
         </div>
       </div>
 
-      <button class="btn-main" style="margin-top: 18px" :disabled="loading" @click="submit">
+      <button class="btn-main" style="margin-top: 18px" :disabled="loading || !selected" @click="submit">
         {{ loading ? '提交中…' : '提交申请' }}
       </button>
     </div>
@@ -96,6 +97,10 @@ const selected = ref('offline');
 const loading = ref(false);
 const records = ref([]);
 const typeText = (t) => ({ 1: '微信', 2: '支付宝', 3: '银行卡' }[t] || '账户');
+const methodKey = (t) => ({ 1: 'wx', 2: 'zfb', 3: 'bank' }[Number(t)] || '');
+const withdrawMethods = computed(() => ({ wx: true, zfb: true, bank: true, offline: true, ...(sys.value.withdraw_methods || {}) }));
+const availableCards = computed(() => cards.value.filter((card) => withdrawMethods.value[methodKey(card.type)]));
+const offlineEnabled = computed(() => Boolean(withdrawMethods.value.offline));
 const statusText = (s) => ({ 0: '待审核', 10: '已通过', 20: '已驳回' }[Number(s)] || '—');
 
 async function loadRecords() {
@@ -112,8 +117,8 @@ onMounted(async () => {
     if (s.status === 'fulfilled') sys.value = s.value.data || {};
     if (c.status === 'fulfilled') {
       cards.value = c.value.data || [];
-      selected.value = cards.value.length ? cards.value[0].card_id : 'offline';
     }
+    selected.value = availableCards.value[0]?.card_id ?? (offlineEnabled.value ? 'offline' : '');
   } catch {}
   loadRecords();
 });
