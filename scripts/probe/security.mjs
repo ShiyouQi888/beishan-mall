@@ -135,21 +135,13 @@ async function main() {
     const total = db.prepare('SELECT num, total_price FROM orders WHERE order_id = ?').get(good.data.order_id);
     ok(Number(total.num) === 2 && Number(total.total_price) === Number(g.goods_min_price) * 2, '订单数量与总额正确', `${total.num} × ${g.goods_min_price}`);
 
-    section('[3] 拆分数量：负数 / 小数被拒');
-    const splitNeg = await api('/api/order/toSplitOrder', { method: 'POST', token: mt, body: { order_id: good.data.order_id, num: -5 } });
-    ok(splitNeg.code === 0 && /拆分数量/.test(splitNeg.msg), '拆分数为负被拒', splitNeg.msg);
-    const splitFloat = await api('/api/order/toSplitOrder', { method: 'POST', token: mt, body: { order_id: good.data.order_id, num: 1.5 } });
-    ok(splitFloat.code === 0 && /拆分数量/.test(splitFloat.msg), '拆分数为小数被拒', splitFloat.msg);
-    const splitOk = await api('/api/order/toSplitOrder', { method: 'POST', token: mt, body: { order_id: good.data.order_id, num: 1 } });
-    ok(splitOk.code === 1, '拆 1 件可以', splitOk.msg);
-
-    section('[4] 会员不能直接改订单状态');
+    section('[3] 会员不能直接改订单状态');
     const up = await api('/api/order/upOrderStatus', { method: 'POST', token: mt, body: { order_id: good.data.order_id, status: 10 } });
     ok(up.code !== 1 && /不存在/.test(up.msg), 'upOrderStatus 已删除', up.msg);
     const paid = db.prepare('SELECT status, pay_status FROM orders WHERE order_id = ?').get(good.data.order_id);
     ok(Number(paid.pay_status) === 0, '订单没有被偷偷改成已成交', JSON.stringify(paid));
 
-    section('[5] 脏订单兜底：金额非正不许扣款');
+    section('[4] 脏订单兜底：金额非正不许扣款');
     // 直接塞一条负数金额的订单，模拟历史脏数据/导入异常，支付时不能变成「给买家加钱」
     const dirtyInfo = db.prepare(
       `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, type, price, num, total_price, service_charge, status, pay_status, pay_type, create_time)
@@ -162,7 +154,7 @@ async function main() {
     const afterBal = db.prepare('SELECT amount FROM member WHERE member_id = ?').get(buyer.member_id).amount;
     ok(Number(afterBal) === Number(beforeBal), '余额没有被反向增加', `${beforeBal} → ${afterBal}`);
 
-    section('[6] 只能查自己的物流');
+    section('[5] 只能查自己的物流');
     const other = db.prepare('SELECT order_id FROM orders WHERE member_id <> ? LIMIT 1').get(buyer.member_id);
     if (other) {
       const ex = await api(`/api/order/express?order_id=${other.order_id}`, { token: mt });
@@ -173,7 +165,7 @@ async function main() {
     const own = await api(`/api/order/express?order_id=${good.data.order_id}`, { token: mt });
     ok(own.code === 1, '查自己的物流正常', own.msg);
 
-    section('[7] 后台导入：状态走白名单、数量要正整数');
+    section('[6] 后台导入：状态走白名单、数量要正整数');
     const badStatus = await api('/admin/api/orders/import', {
       method: 'POST', token: at,
       body: { rows: [{ goods_id: g.goods_id, member_id: buyer.member_id, price: 100, num: 1, status: 999 }] },
@@ -190,9 +182,6 @@ async function main() {
     });
     ok(goodImport.code === 1 && goodImport.data?.okCount === 1, '合法数据可导入', goodImport.msg);
 
-    section('[8] 后台拆分：份数必须整数');
-    const adminSplitFloat = await api('/admin/api/orders/split', { method: 'POST', token: at, body: { order_id: good.data.order_id, split_num: 2.5 } });
-    ok(adminSplitFloat.code === 0 && /整数/.test(adminSplitFloat.msg), '拆 2.5 份被拒', adminSplitFloat.msg);
   } finally {
     srv.kill('SIGTERM');
     await sleep(300);

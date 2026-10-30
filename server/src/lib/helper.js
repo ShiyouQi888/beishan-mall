@@ -54,13 +54,12 @@ function adminRequestAllowed(req, allowedPaths) {
   const orderTypeForId = (id) => Number(get('SELECT type FROM orders WHERE order_id = ?', Number(id))?.type || 0);
   // type=2（历史寄卖挂单）已不再产生，统一按「全部订单」校验权限
   const orderPath = (type) => ({
-    1: '/orders', 2: '/orders', 3: '/orders/shop', 4: '/orders/shop', 5: '/streambeat',
+    1: '/orders', 2: '/orders', 3: '/orders/shop', 4: '/orders/shop',
   }[Number(type)] || null);
 
   // 身份信息与当前权限菜单可读，但不会授予任何业务操作权限。
   if (['/me', '/me/password', '/menu', '/my-paths', '/modules'].includes(path)) return true;
   if (path === '/dashboard') return has('/');
-  if (path === '/settlement') return has('/settlement');
 
   if (path === '/node/tree') return has('/node', '/role');
   if (path.startsWith('/role/')) return has('/role');
@@ -79,8 +78,8 @@ function adminRequestAllowed(req, allowedPaths) {
   // 数据清除：跟菜单节点走，默认只有超级管理员有（超管不受限），可下放给指定角色
   if (path === '/system/reset' || path === '/system/reset/plan') return has('/setting/danger');
   if (path === '/options/role') return has('/role', '/storeuser');
-  if (path === '/options/category') return has('/category', '/goods', '/shop-goods');
-  if (path === '/options/specialarea') return has('/specialarea', '/goods', '/shop-goods', '/settlement');
+  if (path === '/options/category') return has('/category', '/goods');
+  if (path === '/options/specialarea') return has('/specialarea', '/goods');
 
   if (path === '/notifications/orders') {
     const type = Number(req.query.type) || 0;
@@ -89,6 +88,7 @@ function adminRequestAllowed(req, allowedPaths) {
     return false;
   }
   if (path === '/notifications/withdrawals') return has('/withdraw');
+  if (path === '/notifications/recycles') return has('/recycle');
   // 提现审核（含批量）：原来没显式映射，导致只有超管能用，普通角色拿到菜单也审不了
   if (path === '/withdraw/audit' || path === '/withdraw/audit-batch') return has('/withdraw');
   // 订单批量确认收款：逐单按类型校验，商城单与抢购单权限分开
@@ -101,32 +101,10 @@ function adminRequestAllowed(req, allowedPaths) {
     });
   }
 
-  if (path.startsWith('/goods/')) {
-    let type = Number(req.query.type || req.body?.type || 0);
-    if (path === '/goods/split') {
-      type = Number(get('SELECT type FROM goods WHERE goods_id = ?', Number(req.body?.goods_id))?.type || 0);
-      return has(type === 2 ? '/shop-goods' : '/goods');
-    }
-    // 复制商品：按源商品的类型判定该走「抢购商品」还是「商城商品」权限
-    if (path === '/goods/duplicate') {
-      type = Number(get('SELECT type FROM goods WHERE goods_id = ?', Number(req.body?.goods_id))?.type || 0);
-      if (!type) return false;
-      return has(type === 2 ? '/shop-goods' : '/goods');
-    }
-    if (!type && (path.endsWith('/detail') || path.endsWith('/save'))) {
-      const id = req.query.id || req.body?.goods_id || req.body?.goodsId;
-      if (id) type = Number(get('SELECT type FROM goods WHERE goods_id = ?', Number(id))?.type || 0);
-    }
-    if (!type && path.endsWith('/remove')) {
-      const ids = Array.isArray(req.body?.ids) ? req.body.ids : [req.body?.id];
-      const types = ids.filter(Boolean).map((id) => Number(get('SELECT type FROM goods WHERE goods_id = ?', Number(id))?.type || 0));
-      if (types.includes(2) && !has('/shop-goods')) return false;
-      if (types.includes(1) && !has('/goods')) return false;
-      return types.length > 0;
-    }
-    if (type && type !== 1 && type !== 2) return false;
-    return has(type === 2 ? '/shop-goods' : '/goods');
-  }
+  // 商品已合并为一个「商品管理」模块，不再区分抢购/商城两套权限
+  if (path.startsWith('/goods/')) return has('/goods');
+  // 场次与商品的关联维护：场次页有这个入口，有商品管理权限的人也应该能调
+  if (path.startsWith('/specialarea/') && path.split('/').length > 3) return has('/specialarea', '/goods');
 
   if (path.startsWith('/orders/')) {
     if (path === '/orders/list') {
@@ -149,25 +127,21 @@ function adminRequestAllowed(req, allowedPaths) {
       const pagePath = orderPath(orderTypeForId(id));
       if (!pagePath || !has('/orders', pagePath)) return false;
     }
-    return has('/orders', '/orders/shop', '/streambeat');
+    return has('/orders', '/orders/shop');
   }
-  if (path.startsWith('/streambeat/')) return has('/streambeat');
   if (path.startsWith('/member/')) return has('/member');
-  if (path === '/stats/goods') {
-    const type = Number(req.query.type) || 1;
-    if (type !== 1 && type !== 2) return false;
-    return has(type === 2 ? '/shop-goods' : '/goods');
-  }
+  if (path === '/stats/goods') return has('/goods');
   if (path === '/stats/today-orders') return has('/orders');
-  if (path === '/report/audit') return has('/report');
   if (path === '/award/grant') {
     const type = orderTypeForId(req.body?.order_id);
     const pagePath = orderPath(type);
     return Boolean(pagePath && has('/orders', pagePath));
   }
   if (path.startsWith('/settle/')) {
-    return has(path === '/settle/confirm' ? '/settle' : '/settlement');
+    return has('/settle');
   }
+  // 系统回收：台账与手动结算跟着菜单节点走
+  if (path.startsWith('/recycle/') && !/\/(list|detail|save|remove)$/.test(path)) return has('/recycle');
   if (path === '/cache/clear' || path === '/sysinfo') return has('/setting/store');
 
   // 积分兑换发货/取消：跟着「积分兑换」菜单节点走
@@ -177,11 +151,11 @@ function adminRequestAllowed(req, allowedPaths) {
   if (moduleMatch) {
     const pagePath = {
       category: '/category', specialarea: '/specialarea', member: '/member',
-      certification: '/certification', grade: '/member-grade', report: '/report',
+      certification: '/certification',
       delivery: '/delivery', energy: '/energy', withdraw: '/withdraw', settle: '/settle',
       banner: '/banner', navigation: '/navigation', notice: '/notice',
       storeuser: '/storeuser', role: '/role',
-      scoreItem: '/score-goods', scoreExchange: '/score-exchange',
+      scoreItem: '/score-goods', scoreExchange: '/score-exchange', recycle: '/recycle',
     }[moduleMatch[1]];
     return Boolean(pagePath && has(pagePath));
   }
@@ -189,9 +163,9 @@ function adminRequestAllowed(req, allowedPaths) {
 }
 
 /** 状态文本映射 */
-export const GOODS_STATUS = { 10: '上架', 20: '下架', 30: '流拍' };
-export const ORDER_STATUS = { 0: '待付款', 10: '待发货', 20: '待收货', 30: '已完成', 40: '已取消', 50: '已流拍', 60: '已释放', 70: '平台已回收' };
-export const ORDER_TYPE = { 1: '抢购订单', 2: '寄卖订单', 3: '商城订单', 4: '寄买订单', 5: '流拍订单' };
+export const GOODS_STATUS = { 10: '上架', 20: '下架' };
+export const ORDER_STATUS = { 0: '待付款', 10: '待发货', 20: '待收货', 30: '已完成', 40: '已取消' };
+export const ORDER_TYPE = { 1: '抢购订单', 2: '寄卖订单', 3: '商城订单', 4: '寄买订单' };
 export const PAY_TYPE = { 1: '余额支付', 2: '微信支付', 3: '支付宝', 4: '线下凭证' };
 
 /** 金额两位小数 */

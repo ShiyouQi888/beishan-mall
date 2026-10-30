@@ -8,8 +8,10 @@
       <div class="page-actions">
         <el-button v-if="modKey === 'orders'" @click="importOrders">批量导入</el-button>
         <el-button v-if="modKey === 'orders' && Number(fixed.type) === 3" type="primary" plain @click="openShopOrder">新建寄买单</el-button>
-        <el-button v-if="modKey === 'orders' && Number(fixed.type) === 5" type="warning" @click="scanStreambeat">扫描流拍</el-button>
-        <el-button v-if="modKey !== 'report' && modKey !== 'orders' && modKey !== 'scoreExchange'" type="primary" @click="openCreate">+ 新增{{ mod.label || '' }}</el-button>
+        <span v-if="modKey === 'recycle'" class="auto-scan-hint">
+          <i class="auto-scan-dot" />系统每 60 秒自动扫描 · 列表实时刷新
+        </span>
+        <el-button v-if="modKey !== 'orders' && modKey !== 'scoreExchange' && modKey !== 'recycle'" type="primary" @click="openCreate">+ 新增{{ mod.label || '' }}</el-button>
       </div>
     </div>
 
@@ -47,6 +49,9 @@
           <el-option label="正常" :value="10" />
           <el-option label="禁用" :value="20" />
         </el-select>
+        <el-select v-if="modKey === 'goods'" v-model="filters.area_id" placeholder="关联场次" clearable style="width: 140px" @change="reload">
+          <el-option v-for="o in (optsCache.specialarea || [])" :key="o.id" :label="o.name" :value="o.id" />
+        </el-select>
         <el-button @click="reload">查询</el-button>
         <template v-if="modKey === 'category'">
           <el-button size="small" @click="batchHomeShow(10)">全部上首页</el-button>
@@ -68,11 +73,19 @@
           <el-button size="small" type="danger" plain @click="batchAuditWithdraw(false)">批量驳回</el-button>
         </template>
         <div class="spacer" />
+        <span v-if="AUTO_REFRESH_MODULES.has(modKey)" class="auto-refresh-hint">水位/库存每 20 秒自动刷新</span>
         <span class="total-hint">共 {{ total }} 条</span>
       </div>
 
+      <div v-if="modKey === 'recycle'" class="module-note">
+        商品的下一轮涨价会越过「价格上限」时即判定到顶，持有人无法再转拍；系统按商品「当前实际价格」接盘结算（商品转平台持仓）。
+        自动回收关闭或超出每日上限时，记录会停在「待处理」，可在这里手动结算。
+        新的回收会自动弹出提醒并语音播报（右上角「消息」里可关闭语音）。
+      </div>
+
       <div v-if="modKey === 'specialarea'" class="module-note">
-        抢购时间已统一到「系统设置 → 交易设置 → 抢购总时间」，所有场次共用一套；本页只管场次内容与限购，不再单独设时间。
+        每个场次各自有开放日期与抢购时段（在「配置」里设置）。商品归属由「配置 → 关联商品」决定，
+        商品本身不再带场次字段；一件商品可以同时关联多个场次。
       </div>
 
       <el-table :data="rows" v-loading="loading" style="width: 100%" @selection-change="sel = $event">
@@ -116,7 +129,7 @@
               <!-- 已转拍出去的单：买家手上没有实物，不会再有「待发货」这个动作 -->
               <span v-if="f.k === 'status' && modKey === 'orders' && row.transferred && Number(row[f.k]) === 10" class="tag-status tag-off">已转拍</span>
               <!-- 订单与兑换单用流转色；其它模块（如积分商品的在售/下架）用开关色 -->
-              <span v-else-if="f.k === 'status'" class="tag-status" :class="(modKey === 'orders' || modKey === 'scoreExchange') ? orderStatusClass(row[f.k]) : statusClass(row[f.k])">{{ labelOf(f, row[f.k]) }}</span>
+              <span v-else-if="f.k === 'status'" class="tag-status" :class="modKey === 'recycle' ? (Number(row[f.k]) === 10 ? 'tag-ok' : 'tag-warn') : (modKey === 'orders' || modKey === 'scoreExchange') ? orderStatusClass(row[f.k]) : statusClass(row[f.k])">{{ labelOf(f, row[f.k]) }}</span>
               <span v-else-if="f.k === 'type' && modKey === 'orders'" class="tag-status tag-red">{{ labelOf(f, row[f.k]) }}</span>
               <span v-else>{{ labelOf(f, row[f.k]) }}</span>
             </span>
@@ -158,15 +171,43 @@
             <!-- 开启日期 -->
             <span v-else-if="f.type === 'days'">{{ dayLabel(row[f.k]) }}</span>
 
+            <!-- 关联场次（多对多，只读） -->
+            <span v-else-if="f.type === 'areas'">
+              <template v-if="row._areas">
+                <span v-for="(name, i) in String(row._areas).split('、')" :key="i" class="tag-status tag-blue" style="margin-right: 4px">{{ name }}</span>
+              </template>
+              <span v-else class="muted">未关联</span>
+            </span>
+
+            <!-- 价格水位：绿 → 黄 → 红，红色表示已达上限 -->
+            <span v-else-if="f.type === 'capbar'" class="capbar">
+              <template v-if="row._cap && row._cap.cap_price > 0">
+                <span class="capbar__track" :title="`基准价 ¥${row._cap.base_price} · 当前 ¥${row._cap.current} · 上限 ¥${row._cap.cap_price}`">
+                  <span class="capbar__dot" :style="{ left: Math.min(100, Math.max(0, row._cap.ratio * 100)) + '%' }" />
+                </span>
+                <span class="capbar__text" :class="'capbar__text--' + row._cap.level">
+                  <template v-if="row._cap.reached">已达上限</template>
+                  <template v-else>¥{{ shortMoney(row._cap.current) }} <em>/ {{ shortMoney(row._cap.cap_price) }}</em></template>
+                </span>
+              </template>
+              <span v-else class="muted">未设上限</span>
+            </span>
+
             <!-- 富文本 -->
             <span v-else-if="f.type === 'rich'" class="muted">{{ stripHtml(row[f.k]) }}</span>
+
+            <!-- 商品名（已回收封顶的打标签） -->
+            <span v-else-if="f.k === 'goods_name' && row.recycled">
+              {{ row[f.k] }}
+              <span class="tag-status tag-red" style="margin-left: 6px">封顶</span>
+            </span>
 
             <!-- 默认 -->
             <span v-else>{{ row[f.k] ?? '—' }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 300 : modKey === 'scoreExchange' ? 260 : modKey === 'goods' ? 280 : 210" fixed="right">
+        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 300 : modKey === 'scoreExchange' ? 260 : modKey === 'goods' ? 220 : modKey === 'recycle' ? 176 : 210" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <template v-if="modKey === 'orders'">
@@ -176,11 +217,7 @@
                 <el-button v-if="row.status === 10 && !row.transferred" size="small" type="primary" @click="openDeliver(row)">发货</el-button>
                 <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认收款</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
-                <el-button v-if="row.type === 5 && row.status === 50" size="small" type="warning" @click="releaseStream(row)">释放</el-button>
-                <el-button v-if="row.type === 5 && row.status === 50" size="small" type="danger" plain @click="recycleStream(row)">平台回收</el-button>
-                <el-button v-if="row.type === 5" size="small" @click="openAssignStream(row)">指派会员</el-button>
                 <el-button v-if="Number(row.pay_status) === 10" size="small" type="success" plain @click="grantAward(row)">补发直推奖</el-button>
-                <el-button v-if="Number(row.num) > 1" size="small" @click="openSplitOrder(row)">拆分订单</el-button>
               </template>
               <template v-else-if="modKey === 'scoreExchange'">
                 <el-button v-if="row.status === 10" size="small" type="primary" @click="openScoreDeliver(row)">发货</el-button>
@@ -223,8 +260,8 @@
                 <el-button size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button v-if="row.role_id !== 6" size="small" type="danger" plain @click="removeOne(row)">删除</el-button>
               </template>
-              <template v-else-if="modKey === 'report'">
-                <el-button v-if="row.status === 0" size="small" type="primary" @click="auditReport(row)">处理</el-button>
+              <template v-else-if="modKey === 'recycle'">
+                <el-button v-if="row.status === 20" size="small" type="primary" @click="settleRecycle(row)">立即结算</el-button>
                 <el-button size="small" @click="openEdit(row)">查看</el-button>
               </template>
               <template v-else-if="modKey === 'specialarea'">
@@ -235,8 +272,6 @@
               <template v-else-if="modKey === 'goods'">
                 <el-button size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button size="small" plain @click="duplicateGoods(row)">复制</el-button>
-                <el-button v-if="!row.is_split" size="small" type="success" @click="openSplit(row)">拆分</el-button>
-                <el-button v-else size="small" disabled>已拆分</el-button>
                 <el-button size="small" type="danger" plain @click="removeOne(row)">删除</el-button>
               </template>
               <template v-else>
@@ -263,7 +298,7 @@
     </div>
 
     <!-- 编辑 / 新增 弹窗 -->
-    <el-dialog v-model="dialog" :title="modKey === 'orders' ? '订单详情' : formTitle" width="620px" destroy-on-close>
+    <el-dialog v-model="dialog" :title="modKey === 'orders' ? '订单详情' : modKey === 'recycle' ? '回收详情' : formTitle" :width="modKey === 'goods' ? '880px' : '620px'" destroy-on-close>
       <el-descriptions v-if="modKey === 'orders'" :column="2" border>
         <el-descriptions-item label="订单号">{{ form.order_no || '—' }}</el-descriptions-item>
         <el-descriptions-item label="订单类型">{{ labelOf(mod.fields?.find((f) => f.k === 'type'), form.type) }}</el-descriptions-item>
@@ -285,8 +320,18 @@
         </el-descriptions-item>
         <el-descriptions-item label="下单时间">{{ form.create_time || '—' }}</el-descriptions-item>
       </el-descriptions>
-      <el-form v-else label-width="124px" label-position="right">
-        <el-form-item v-for="f in formFields" :key="f.k" :label="f.t">
+      <el-form
+        v-else
+        :label-width="modKey === 'goods' ? '92px' : '124px'"
+        label-position="right"
+        :class="{ 'form-grid': modKey === 'goods' }"
+      >
+        <el-form-item
+          v-for="f in formFields"
+          :key="f.k"
+          :label="f.t"
+          :class="{ 'is-wide': modKey === 'goods' && f.type === 'rich' }"
+        >
           <template v-if="f.type === 'image'">
             <div class="image-field">
               <template v-if="modKey === 'category' && f.k === 'image'">
@@ -388,7 +433,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">{{ modKey === 'orders' ? '关闭' : '取消' }}</el-button>
-        <el-button v-if="modKey !== 'orders'" type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button v-if="modKey !== 'orders' && modKey !== 'recycle'" type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
 
@@ -452,29 +497,6 @@
       <template #footer>
         <el-button @click="permDlg = false">取消</el-button>
         <el-button type="primary" @click="savePerm">保存权限</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 商品拆分 -->
-    <el-dialog v-model="splitDlg" title="拆分商品" width="440px">
-      <el-form label-width="96px">
-        <el-form-item label="商品">{{ splitRow.goods_name }}</el-form-item>
-        <el-form-item label="当前价格">
-          <span class="money">¥{{ Number(splitRow.goods_min_price || 0).toFixed(2) }}</span>
-        </el-form-item>
-        <el-form-item label="拆分份数">
-          <el-input-number v-model="splitParts" :min="2" :max="1000" style="width: 100%" controls-position="right" />
-        </el-form-item>
-        <el-form-item label="每份价格">
-          <span class="money money-red">
-            ¥{{ (Number(splitRow.goods_min_price || 0) / (splitParts || 1)).toFixed(2) }}
-          </span>
-          <span class="muted" style="margin-left: 8px">按份出售，每份独立成交</span>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="splitDlg = false">取消</el-button>
-        <el-button type="primary" @click="doSplit">确认拆分</el-button>
       </template>
     </el-dialog>
 
@@ -545,32 +567,6 @@
       </el-table>
     </el-dialog>
 
-    <!-- 流拍订单指派 -->
-    <el-dialog v-model="assignDlg" title="指派流拍订单" width="560px">
-      <div class="muted" style="margin-bottom: 12px">{{ assignRow.order_no }} · {{ assignRow.goods_name }}</div>
-      <el-input v-model="assignKeyword" placeholder="搜索会员昵称或手机号" clearable @input="searchAssignMembers" />
-      <el-select v-model="assignMemberId" placeholder="请选择接收会员" filterable style="width: 100%; margin-top: 12px">
-        <el-option v-for="m in assignMembers" :key="m.member_id" :value="m.member_id" :label="`${m.nick_name || '会员'} · ${m.mobile}`" />
-      </el-select>
-      <template #footer>
-        <el-button @click="assignDlg = false">取消</el-button>
-        <el-button type="primary" :disabled="!assignMemberId" @click="assignStreambeat">确认指派</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 订单操作 -->
-    <el-dialog v-model="orderSplitDlg" title="拆分订单" width="460px">
-      <el-form label-width="90px">
-        <el-form-item label="订单号">{{ orderSplitRow.order_no }}</el-form-item>
-        <el-form-item label="订单数量">{{ orderSplitRow.num }}</el-form-item>
-        <el-form-item label="拆分份数"><el-input-number v-model="orderSplitNum" :min="2" :max="Number(orderSplitRow.num)" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="orderSplitDlg = false">取消</el-button>
-        <el-button type="primary" @click="splitOrder">确认拆分</el-button>
-      </template>
-    </el-dialog>
-
     <el-dialog v-model="shopOrderDlg" title="新建寄买订单" width="500px">
       <el-form label-width="100px">
         <el-form-item label="商品 ID"><el-input-number v-model="shopOrderForm.goods_id" :min="1" /></el-form-item>
@@ -587,7 +583,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { adminApi } from '../api.js';
@@ -614,7 +610,7 @@ const loading = ref(false);
 const sel = ref([]);
 const optsCache = reactive({});
 
-const filters = reactive({ status: '', kind: '', disabled: '' });
+const filters = reactive({ status: '', kind: '', disabled: '', area_id: '' });
 
 const dialog = ref(false);
 const saving = ref(false);
@@ -634,14 +630,6 @@ const energyMember = ref('');
 const energyList = ref([]);
 const energyTotal = ref(0);
 const teamData = ref({});
-const assignDlg = ref(false);
-const assignRow = ref({});
-const assignKeyword = ref('');
-const assignMembers = ref([]);
-const assignMemberId = ref(0);
-const orderSplitDlg = ref(false);
-const orderSplitRow = ref({});
-const orderSplitNum = ref(2);
 const shopOrderDlg = ref(false);
 const shopOrderForm = reactive({ goods_id: 0, member_id: 0, price: 0, remark: '' });
 
@@ -661,6 +649,12 @@ function isImageSrc(v) {
   return /^https?:\/\//i.test(v) || v.startsWith('data:image/') || v.startsWith('blob:') || v.startsWith('/');
 }
 
+// 色块里的金额：整数不带小数，避免 16800.00 把列宽撑爆
+const shortMoney = (v) => {
+  const n = Number(v || 0);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
+
 function imageRecommendation(field) {
   const key = field.k;
   const module = modKey.value;
@@ -670,7 +664,6 @@ function imageRecommendation(field) {
   if (module === 'category' && key === 'image') return '分类图标推荐 512×512 px（1:1），主体居中，建议使用透明背景 PNG 或 WebP。';
   if (module === 'navigation' && key === 'file_path') return '导航图标推荐 512×512 px（1:1），主体居中并预留边距。';
   if (module === 'certification') return '证件照片建议 1200×800 px（3:2）或更高分辨率；请完整拍入证件四边并保持文字清晰。';
-  if (module === 'report' && key === 'images') return '凭证截图建议长边至少 1200 px；请保留完整内容，避免裁掉订单号或关键信息。';
   if (module === 'orders' && key === 'goods_thumb') return '商品缩略图按正方形显示，推荐 800×800 px。';
   return '建议使用清晰原图；裁剪比例按前台展示需要选择，重要内容留在画面中央。';
 }
@@ -690,14 +683,14 @@ function imagePresets(field) {
 
 const desc = computed(() => {
   const m = {
-    goods: '抢购商品管理，支持编辑价格、场次、持有人与上下架状态',
+    goods: '统一商品库：价格、库存、持有人与上下架。商品在哪个场次售卖，去「抢购场次 → 关联商品」里设置；被系统回收的商品带「封顶」标签，前台不再展示，改回上架即二次上架',
     category: '首页抢购分类与商城分类维护',
-    specialarea: '设置每日抢购场次的内容与限购；开放时间统一在「交易设置 → 抢购总时间」',
+    specialarea: '设置每日抢购场次的内容、限购与关联商品',
     orders: '全部订单查询、发货、审核与状态流转',
     settle: '大账结算、中账差额、小账凭证三类账目核对',
     energy: '会员佣金、余额、积分变更流水',
     withdraw: '会员提现申请审核，驳回自动退回余额',
-    member: '会员资料、等级、团队关系与资金账户',
+    member: '会员资料、团队关系与资金账户',
     certification: '会员实名认证资料审核',
     banner: '首页与抢购页轮播广告位',
     navigation: '首页宫格导航入口配置',
@@ -805,8 +798,9 @@ const imgList = (s) => {
   }
 };
 
-async function load() {
-  loading.value = true;
+async function load(opt = {}) {
+  const silent = opt && opt.silent === true;
+  if (!silent) loading.value = true;
   try {
     const params = { page: page.value, limit: limit.value };
     if (keyword.value) params.keyword = keyword.value;
@@ -821,9 +815,10 @@ async function load() {
     await loadSelects();
     loadStats();
   } catch {
-    rows.value = [];
+    // 静默刷新失败时保留上一次的数据，别把表格清空给运营看
+    if (!silent) rows.value = [];
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -832,6 +827,8 @@ async function loadSelects() {
   for (const f of mod.value.fields || []) {
     if (f.type === 'select' && typeof f.opts === 'string') need.add(f.opts);
   }
+  // 商品列表的「关联场次」筛选需要场次下拉，虽然商品表单里已经没有场次字段了
+  if (modKey.value === 'goods') need.add('specialarea');
   for (const n of need) {
     if (!optsCache[n]) {
       try {
@@ -1143,81 +1140,16 @@ const statItems = computed(() => {
     { k: '商品总金额', v: Number(d.total_amount || 0), c: d.total_count || 0 },
     { k: '上架商品总金额', v: Number(d.online_amount || 0), c: d.online_count || 0 },
     { k: '下架商品总金额', v: Number(d.offline_amount || 0), c: d.offline_count || 0 },
-    { k: '流拍商品总金额', v: Number(d.pending_amount || 0), c: d.pending_count || 0 },
+    { k: '封顶商品总金额', v: Number(d.recycled_amount || 0), c: d.recycled_count || 0 },
   ];
 });
 
 async function loadStats() {
   if (modKey.value !== 'goods') return;
   try {
-    const r = await http.get('/stats/goods', { params: { type: Number(fixed.value.type) || 1 } });
+    const r = await http.get('/stats/goods');
     stats.value = r.data || null;
   } catch {}
-}
-
-// ---------- 举报处理 ----------
-async function auditReport(row) {
-  let result = '';
-  try {
-    const { value } = await ElMessageBox.prompt('请输入处理结果', '举报处理', {
-      inputPlaceholder: '例如：已联系双方核实，交易正常',
-      confirmButtonText: '标记已处理',
-      cancelButtonText: '驳回',
-      distinguishCancelAndClose: true,
-      inputValue: '',
-    });
-    result = value || '';
-    await http.post('/report/audit', { report_id: row.report_id, pass: true, result });
-    ElMessage.success('已处理');
-    load();
-  } catch (e) {
-    if (e === 'cancel') {
-      await http.post('/report/audit', { report_id: row.report_id, pass: false, result: '驳回' });
-      ElMessage.success('已驳回');
-      load();
-    }
-  }
-}
-
-// ---------- 流拍释放 ----------
-async function releaseStream(row) {
-  try {
-    await ElMessageBox.confirm('释放后商品恢复可售，确定释放？', '释放流拍', { type: 'warning' });
-  } catch {
-    return;
-  }
-  const r = await adminApiPost('/streambeat/release', { order_id: row.order_id });
-  if (r.code === 1) {
-    ElMessage.success('已释放');
-    load();
-  } else ElMessage.warning(r.msg);
-}
-
-// ---------- 平台回收 ----------
-async function recycleStream(row) {
-  const price = Number(row.total_price || 0);
-  try {
-    await ElMessageBox.confirm(
-      `平台将按商品当前挂牌价 ¥${price.toFixed(2)} 回收，款项直接打给持有人，商品转为平台持仓并下架。确定回收？`,
-      '平台回收',
-      { type: 'warning', confirmButtonText: '确认回收' },
-    );
-  } catch {
-    return;
-  }
-  const r = await adminApiPost('/streambeat/recycle', { order_id: row.order_id });
-  if (r.code === 1) {
-    ElMessage.success(r.msg || '已回收');
-    load();
-  } else ElMessage.warning(r.msg);
-}
-
-async function scanStreambeat() {  try {
-    await ElMessageBox.confirm('将扫描全部场次中已超过转拍期限的商品，并按规则标记流拍。确定继续？', '扫描流拍', { type: 'warning' });
-  } catch { return; }
-  const r = await adminApi.scanStreambeat();
-  ElMessage.success(r.msg || '扫描完成');
-  load();
 }
 
 async function importOrders() {
@@ -1332,45 +1264,6 @@ async function grantAward(row) {
   load();
 }
 
-function openAssignStream(row) {
-  assignRow.value = row;
-  assignKeyword.value = '';
-  assignMemberId.value = 0;
-  assignDlg.value = true;
-  searchAssignMembers();
-}
-
-let assignSearchTimer;
-async function searchAssignMembers() {
-  clearTimeout(assignSearchTimer);
-  assignSearchTimer = setTimeout(async () => {
-    const r = await adminApi.streambeatMembers(assignKeyword.value);
-    assignMembers.value = r.data || [];
-  }, 180);
-}
-
-async function assignStreambeat() {
-  try { await ElMessageBox.confirm('指派后会把商品持有人改为所选会员，并更新订单状态。确定指派？', '确认操作', { type: 'warning' }); }
-  catch { return; }
-  await adminApi.assignStreambeat({ order_id: assignRow.value.order_id, member_id: assignMemberId.value });
-  ElMessage.success('订单已指派');
-  assignDlg.value = false;
-  load();
-}
-
-function openSplitOrder(row) {
-  orderSplitRow.value = row;
-  orderSplitNum.value = 2;
-  orderSplitDlg.value = true;
-}
-
-async function splitOrder() {
-  await adminApi.splitOrder({ order_id: orderSplitRow.value.order_id, split_num: orderSplitNum.value });
-  ElMessage.success('订单拆分完成');
-  orderSplitDlg.value = false;
-  load();
-}
-
 function openShopOrder() {
   Object.assign(shopOrderForm, { goods_id: 0, member_id: 0, price: 0, remark: '' });
   shopOrderDlg.value = true;
@@ -1404,24 +1297,18 @@ async function toggleAdvance(row) {
   load();
 }
 
-// ---------- 商品拆分 ----------
-const splitDlg = ref(false);
-const splitRow = ref({});
-const splitParts = ref(2);
-
-function openSplit(row) {
-  splitRow.value = row;
-  splitParts.value = 2;
-  splitDlg.value = true;
-}
-
-async function doSplit() {
-  const r = await adminApiPost('/goods/split', { goods_id: splitRow.value.goods_id, parts: splitParts.value });
-  if (r.code === 1) {
-    ElMessage.success(r.msg || '拆分成功');
-    splitDlg.value = false;
-    load();
-  } else ElMessage.warning(r.msg);
+// ---------- 系统回收 ----------
+async function settleRecycle(row) {
+  try {
+    await ElMessageBox.confirm(
+      `按 ¥${Number(row.recycle_price || 0).toFixed(2)} 结算给「${row._member || '持有人'}」？结算后商品转平台持仓，不可撤销。`,
+      '手动结算回收单',
+      { type: 'warning', confirmButtonText: '确认结算', cancelButtonText: '取消' },
+    );
+  } catch { return; }
+  const r = await http.post('/recycle/settle', { recycle_id: row.recycle_id });
+  ElMessage.success(r.msg || '已结算');
+  load();
 }
 
 function openAdjust(row) {
@@ -1441,19 +1328,48 @@ async function doAdjust() {
 }
 
 watch(() => route.fullPath, () => {
+  syncAutoRefresh();
   page.value = 1;
   keyword.value = '';
   filters.status = '';
   filters.kind = '';
   filters.disabled = '';
   teamDlg.value = false;
-  assignDlg.value = false;
-  orderSplitDlg.value = false;
   shopOrderDlg.value = false;
   load();
 });
 
-onMounted(load);
+// 自动刷新：商品列表（价格水位/库存/持有人会随前台成交、转拍变化）与回收台账
+// 每 20 秒静默拉一次；弹窗打开、页面隐藏、正在加载时跳过，切回标签页立刻补一次。
+const AUTO_REFRESH_MODULES = new Set(['goods', 'recycle']);
+const AUTO_REFRESH_MS = 20000;
+let autoRefreshTimer = 0;
+
+function autoRefreshTick() {
+  if (document.hidden || dialog.value || loading.value) return;
+  load({ silent: true });
+}
+
+function syncAutoRefresh() {
+  if (autoRefreshTimer) { window.clearInterval(autoRefreshTimer); autoRefreshTimer = 0; }
+  if (!AUTO_REFRESH_MODULES.has(modKey.value)) return;
+  autoRefreshTimer = window.setInterval(autoRefreshTick, AUTO_REFRESH_MS);
+}
+
+// 切回浏览器标签页时立即补一次，避免看到的是离开前的旧水位
+function onVisibilityChange() {
+  if (!document.hidden && AUTO_REFRESH_MODULES.has(modKey.value)) autoRefreshTick();
+}
+
+onMounted(async () => {
+  await load();
+  syncAutoRefresh();
+  document.addEventListener('visibilitychange', onVisibilityChange);
+});
+onUnmounted(() => {
+  if (autoRefreshTimer) window.clearInterval(autoRefreshTimer);
+  document.removeEventListener('visibilitychange', onVisibilityChange);
+});
 </script>
 
 <style scoped>
@@ -1536,8 +1452,97 @@ onMounted(load);
 .mono { font-variant-numeric: tabular-nums; }
 .muted { color: #a8adb7; }
 
+/* 回收页：自动扫描状态提示 */
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 10px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: #f2f5f9;
+  color: #8c93a0;
+  font-size: 12px;
+}
+.auto-refresh-hint::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: auto-scan-pulse 1.8s infinite;
+}
+
+.auto-scan-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: #eefaf3;
+  color: #1f9d5f;
+  font-size: 12.5px;
+}
+.auto-scan-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+  animation: auto-scan-pulse 1.8s infinite;
+}
+@keyframes auto-scan-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); }
+  70% { box-shadow: 0 0 0 7px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
 /* 星期多选（场次开放日期等） */
 .days-field { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* 商品编辑：横向双列网格（图片 / 图集 / 富文本通栏） */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 22px;
+  align-items: start;
+}
+.form-grid .is-wide { grid-column: 1 / -1; }
+.form-grid :deep(.el-form-item) { margin-bottom: 16px; }
+.form-grid .is-wide :deep(.el-textarea__inner) { min-height: 110px; }
+.form-grid :deep(.el-form-item__label) { color: #6b7280; }
+
+/* 涨幅水位：一根绿→黄→红的色标，白点标出当前价的位置 */
+.capbar { display: inline-flex; align-items: center; gap: 8px; width: 100%; }
+.capbar__track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 56px;
+  height: 8px;
+  border-radius: 5px;
+  /* 淡色刻度：整条只是「量程」，真正刺眼的是文字与圆点，避免绿色商品也看着像红灯 */
+  background: linear-gradient(90deg, rgba(22, 163, 74, 0.35) 0%, rgba(234, 179, 8, 0.35) 55%, rgba(239, 68, 68, 0.4) 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+.capbar__dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #2b3040;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  transition: left 0.2s;
+}
+.capbar__text { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; color: #6b7280; }
+.capbar__text em { font-style: normal; color: #a8adb7; }
+.capbar__text--green { color: #16a34a; }
+.capbar__text--yellow { color: #b45309; }
+.capbar__text--orange { color: #ea580c; }
+.capbar__text--red { color: #dc2626; font-weight: 600; }
 .day-btn {
   min-width: 44px;
   height: 30px;

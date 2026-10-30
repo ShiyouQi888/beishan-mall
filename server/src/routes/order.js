@@ -3,11 +3,12 @@ import { all, get, run, tx, now } from '../db.js';
 import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, priceIncreaseRate, calcNextPrice, assetUrl, ORDER_STATUS, ORDER_TYPE, PAY_TYPE } from '../lib/helper.js';
 import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate, goodsStillOwnedBySeller } from '../lib/settle.js';
-import { deductStock, restoreStock, isPieceSale } from '../lib/split.js';
+import { deductStock, restoreStock, isPieceSale } from '../lib/stock.js';
 import { soldTodayOf } from '../lib/quota.js';
-import { sessionWindow } from '../lib/sessionWindow.js';
-import { nextSlot } from '../lib/sessions.js';
 import { todayStr } from '../lib/sessionWindow.js';
+import { nextSlot } from '../lib/sessions.js';
+import { areasOfGoods, openAreaOf, displayAreaOf, setGoodsAreas } from '../lib/areaGoods.js';
+import { priceCapOf, clampToCap } from '../lib/priceCap.js';
 
 const r = Router();
 
@@ -82,13 +83,12 @@ function paymentEnabled(type) {
  * 后台「库存」填成 >1 的抢购商品，运营的预期就是「这个价有一批货，抢一个减一个」。
  * 这类商品在数据上要有「初始名额」——只靠 stock_num 判断不出来，它卖着卖着也会变成 0/1。
  *
- * 这里只补 stock_total（名额），**不碰 is_split**：
+ * 这里只补 stock_total（名额），不动价格与在售状态：
  * 拆分是「一件货按份定价」的另一种玩法，跟「这批货能卖几次」是两件事，混用字段
  * 会让后台显示成「已拆分」、H5 显示「拆分为 100 份」，运营看到一脸懵。
  * @returns {object} 补齐名额之后的最新商品行
  */
 function ensureStockTotal(g) {
-  if (Number(g.type) !== 1) return g;                             // 商城商品不参与名额
   const total = Number(g.stock_total) || 0;
   const stock = Number(g.stock_num) || 0;
   if (total >= stock) return g;                                    // 名额已经覆盖库存，不用动
@@ -123,6 +123,7 @@ r.post('/toAddOrder', authMember, (req, res) => {
   if (!Number.isInteger(numInt) || numInt < 1) return res.json(fail('购买数量必须是不小于 1 的整数'));
   if (numInt > 999) return res.json(fail('单笔最多购买 999 件'));
   if (isPieceSale(g) && numInt > Number(g.stock_num || 0)) {
+    // 拆分商品按「份」卖，一批货按「名额」卖，提示文案要跟着走，不然用户看不懂
     return res.json(fail(`只剩 ${Number(g.stock_num) || 0} 个名额了`));
   }
 
@@ -138,29 +139,35 @@ r.post('/toAddOrder', authMember, (req, res) => {
     }
   }
 
-  // 场次时间校验：按该商品所属场次自己的「周几 + 时段」判断
-  if (g.specialarea_id) {
-    const a = get('SELECT * FROM specialarea WHERE specialarea_id = ?', g.specialarea_id);
-    if (a) {
-      const w = sessionWindow(a);
+  // 场次校验：商品与场次是多对多，只要其中一场正在开放就能下单。
+  // 一件商品都没关联场次时，它属于「随时可买」，不受场次时间约束。
+  const areas = areasOfGoods(g.goods_id);
+  let orderArea = null;
+  if (areas.length) {
+    const opened = openAreaOf(areas);
+    if (!opened) {
+      // 给出最贴近的提示：今天不开放 / 还没到时间 / 今天已经结束
+      const shown = displayAreaOf(areas);
+      const w = shown.w;
       if (!w.dayOk) return res.json(fail(`今日未开放该场次（开放：${w.daysText}）`));
-      if (!w.timeOk) return res.json(fail(`当前不在该场次抢购时间内（${w.text}）`));
-      // 限购：只算「这个会员买过这个商品多少件」，不牵扯同场的其它商品、也不牵扯别的场次。
-      // 之前按「今天所有抢购商品合计」算，会员在别的场买过东西再来买这个会被莫名拦住。
-      const bought = get(
-        'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
-        m.member_id, g.goods_id,
-      ).n;
-      const limit = a.buy_num || 1;
-      if (Number(bought) + numInt > limit) {
-        return res.json(fail(`每人限抢 ${limit} 件，你已经抢过 ${Number(bought)} 件了`));
-      }
+      if (w.state === 'upcoming') return res.json(fail(`当前不在抢购时间内（${w.text} 开抢）`));
+      return res.json(fail(`该商品所在场次已结束（${w.text}）`));
+    }
+    orderArea = opened.area;
+    // 限购：只算「这个会员买过这个商品多少件」，不牵扯同场的其它商品。
+    const bought = get(
+      'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
+      m.member_id, g.goods_id,
+    ).n;
+    const limit = orderArea.buy_num || 1;
+    if (Number(bought) + numInt > limit) {
+      return res.json(fail(`每人限抢 ${limit} 件，你已经抢过 ${Number(bought)} 件了`));
     }
   }
 
   // 是否强制会员先设置收款方式由后台「交易设置」控制，默认关闭。
   // 兼容旧版 H5：收款账户页面写入 member_card，而旧校验只检查 member.pay_setting。
-  if (g.type === 1 && Number(cfg('require_receiving_account', '20')) === 10) {
+  if (areas.length && Number(cfg('require_receiving_account', '20')) === 10) {
     const hasReceivingAccount = Boolean(m.pay_setting)
       || Boolean(get('SELECT card_id FROM member_card WHERE member_id = ? LIMIT 1', m.member_id));
     if (!hasReceivingAccount) return res.json(fail('请先设置收款方式'));
@@ -179,13 +186,14 @@ r.post('/toAddOrder', authMember, (req, res) => {
     tx(() => {
       // 一批货需要扣名额（原子扣减，不足则拒单）；唯一一件货不动库存
       if (isPieceSale(g)) {
-        if (!deductStock(g.goods_id, numInt)) throw biz(`名额不足，只剩 ${g.stock_num} 个`);
+        if (!deductStock(g.goods_id, numInt)) throw biz(`数量不足，只剩 ${g.stock_num} 个名额`);
       }
       const info = run(
         `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
           type, price, num, total_price, service_charge, status, pay_status, pay_type, address_id, remark, create_time)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        no, m.member_id, g.member_id, g.goods_id, g.goods_name, g.good_thumb, g.specialarea_id,
+        no, m.member_id, g.member_id, g.goods_id, g.goods_name, g.good_thumb,
+        orderArea ? Number(orderArea.specialarea_id) : 0,
         1, price, numInt, total, fee, 0, 0, requestedPayType, Number(address_id) || 0, remark || '', now(),
       );
       orderId = Number(info.lastInsertRowid);
@@ -393,9 +401,12 @@ r.get('/express', authMember, (req, res) => {
 function quoteConsignment(o, g, clientPrice) {
   const prevPrice = money2(o.total_price);
   const rate = priceIncreaseRate();
-  const nextPrice = rate > 0
+  const cap = priceCapOf(g);
+  const raw = rate > 0
     ? calcNextPrice(prevPrice)
     : (Number(clientPrice) > 0 ? money2(clientPrice) : money2(g.goods_min_price));
+  // 兜底：如果因为改配置/手工改价导致这一轮会越过围栏，压到围栏价（正常已被 reached 拦下）
+  const nextPrice = clampToCap(raw, cap);
   const listingFee = calcListingFee(prevPrice);
   return {
     prev_price: prevPrice,
@@ -405,8 +416,18 @@ function quoteConsignment(o, g, clientPrice) {
     listing_fee: listingFee,
     // 持有人的实际套利 = 下一轮收回价 − 上一手成本 − 上架费
     net_income: money2(nextPrice - prevPrice - listingFee),
+    // 价格水位（供前端展示「还能涨多少」）
+    base_price: cap.base_price,
+    cap_price: cap.cap_price,
+    increase_pct: cap.pct,
+    headroom: cap.headroom,
+    capped: cap.cap_price > 0 && nextPrice >= cap.cap_price,
   };
 }
+
+/** 超过价格上限的提示文案（报价与转拍共用） */
+const capReachedMsg = (cap) =>
+  `该商品已达价格上限 ¥${cap.cap_price.toFixed(2)}（当前 ¥${cap.current.toFixed(2)}，基准价 ¥${cap.base_price.toFixed(2)}），不能再转拍；系统会自动回收结算，款项将退回余额`;
 
 /** 转拍报价（H5 展示用，不落库） */
 r.get('/getConsignmentQuote', authMember, (req, res) => {
@@ -419,6 +440,8 @@ r.get('/getConsignmentQuote', authMember, (req, res) => {
   if (!g) return res.json(fail('商品不存在'));
   // 一批货是「一个名额一个名额卖出去的」，买家只买到其中一份，没有整件的处置权
   if (isPieceSale(g)) return res.json(fail('按件出售的商品不支持转拍'));
+  const cap = priceCapOf(g);
+  if (cap.reached) return res.json(fail(capReachedMsg(cap)));
   res.json(ok(quoteConsignment(o, g, req.query.price)));
 });
 
@@ -435,6 +458,10 @@ r.post('/consignment', authMember, (req, res) => {
   if (!g) return res.json(fail('商品不存在'));
   if (isPieceSale(g)) return res.json(fail('按件出售的商品不支持转拍'));
   if (g.member_id !== m.member_id) return res.json(fail('您不是该商品持有人'));
+
+  // 价格上限：到顶后不再允许挂出，否则下一轮价格会突破上限，上限就形同虚设
+  const capNow = priceCapOf(g);
+  if (capNow.reached) return res.json(fail(capReachedMsg(capNow)));
 
   // 转拍时限：支付后 N 小时内可转拍（0 表示不限）
   const area = o.specialarea_id
@@ -474,18 +501,20 @@ r.post('/consignment', authMember, (req, res) => {
       // 商品重新上架，更新标价；划线价须高于现价，否则同步上调
       const curLine = Number(g.line_price || 0);
       const newLine = curLine > 0 && curLine <= sellPrice ? money2(sellPrice * 1.1) : curLine;
-      // 转拍上架要落到「下一场」，而不是原地留在上一场（否则同一件商品永远只在前一场流转）
-      // 一天内按场次顺序往后走，当天最后一场之后顺延到第二天第一场。
-      // 商城商品(type=2)不属于场次体系，保持原样。
-      const slot = Number(g.type) === 1 ? nextSlot(g.specialarea_id, g.area_date) : null;
-      const nextArea = slot ? slot.area_id : g.specialarea_id;
+      // 转拍上架要落到「下一场」：以本单成交的场次为起点往后走，当天最后一场之后顺延到第二天第一场。
+      // 商品可能同时挂在多个场次，转拍是一次全新的挂牌 —— 只保留下一场这一条关联，
+      // 新的挂牌因此有唯一确定的场次（否则同一件货会在旧场次里被按旧价再抢一次）。
+      const slot = nextSlot(o.specialarea_id || g.specialarea_id, g.area_date);
+      const nextArea = slot ? slot.area_id : 0;
       const nextDate = slot ? slot.date : g.area_date || '';
       run(
         `UPDATE goods SET goods_min_price = ?, line_price = ?, goods_status = 10, is_sell = 10,
-           specialarea_id = ?, area_date = ?, update_time = ?
+           area_date = ?, update_time = ?
          WHERE goods_id = ?`,
-        sellPrice, newLine, nextArea, nextDate, now(), g.goods_id,
+        sellPrice, newLine, nextDate, now(), g.goods_id,
       );
+      // 关联表是唯一数据源：覆盖成「下一场」，镜像列由 setGoodsAreas 同步
+      setGoodsAreas(g.goods_id, slot ? [slot.area_id] : []);
 
       // 不再生成寄卖挂单：挂单信息已完整存在于「本订单的 consignment_status/listing_fee/transposition_time」
       // 与「goods 的持有人/标价/上下架」两处，另开一张 type=2 订单属于纯冗余（曾留下永不结清的僵尸单）
@@ -502,67 +531,9 @@ r.post('/consignment', authMember, (req, res) => {
   ));
 });
 
-// 拆分订单（把一单拆成多单）
-r.post('/toSplitOrder', authMember, (req, res) => {
-  const { order_id, num } = req.body;
-  const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), req.member.member_id);
-  if (!o) return res.json(fail('订单不存在'));
-  if (o.num < 2) return res.json(fail('订单数量不足，无法拆分'));
-  const wanted = Number(num);
-  if (!Number.isInteger(wanted) || wanted < 1) return res.json(fail('拆分数量必须是不小于 1 的整数'));
-  const n = Math.min(wanted, o.num - 1);
-  tx(() => {
-    run('UPDATE orders SET num = num - ? WHERE order_id = ?', n, o.order_id);
-    const no = orderNo('S');
-    const info = run(
-      `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
-        type, price, num, total_price, service_charge, status, pay_status, create_time)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      no, o.member_id, o.seller_id, o.goods_id, o.goods_name, o.goods_thumb, o.specialarea_id,
-      o.type, o.price, n, money2(o.price * n), serviceCharge(o.price * n), o.status, o.pay_status, now(),
-    );
-    log(o.order_id, '拆分订单', 'member', `拆出 ${n} 件`);
-    log(Number(info.lastInsertRowid), '拆分生成', 'member');
-  });
-  res.json(ok([], '拆分成功'));
-});
-
 // 原 /upOrderStatus：直接写 orders.status，任何登录会员都能把订单改成任意状态（含伪装成已成交），
 // 且前台早已改用 /order/receipt 与 /order/cancel（带状态校验），故删除。
 
-
-// 举报（写入举报表，后台可审核）
-r.post('/toOrderReport', authMember, (req, res) => {
-  const { order_id, reason, content, images } = req.body;
-  if (!reason) return res.json(fail('请先选择举报原因'));
-  const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
-  if (!o) return res.json(fail('订单不存在'));
-  // 只能举报自己参与的单：否则任何人都能拿订单号给别人刷举报
-  if (Number(o.member_id) !== Number(req.member.member_id)
-    && Number(o.seller_id) !== Number(req.member.member_id)) {
-    return res.json(fail('无权举报该订单'));
-  }
-  // 同一订单同一人只留一条待处理的举报，避免重复刷
-  const dup = get(
-    "SELECT report_id FROM order_report WHERE order_id = ? AND member_id = ? AND status = 0",
-    o.order_id, req.member.member_id,
-  );
-  if (dup) return res.json(fail('你已举报过该订单，平台正在处理'));
-  run(
-    `INSERT INTO order_report (order_id, member_id, target_id, goods_id, reason, content, images, status, create_time)
-     VALUES (?,?,?,?,?,?,?,0,?)`,
-    o.order_id, req.member.member_id, o.seller_id || 0, o.goods_id || 0,
-    reason, content || '', images || '', now(),
-  );
-  res.json(ok([], '举报已提交，平台会尽快处理'));
-});
-
-r.get('/getOrderReport', authMember, (req, res) => {
-  const { order_id } = req.query;
-  const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
-  if (!o) return res.json(fail('订单不存在'));
-  res.json(ok({ reasons: ['商品与描述不符', '卖家不发货', '价格欺诈', '虚假交易', '其他'] }));
-});
 
 // 评价
 r.post('/evaluation', authMember, (req, res) => {
@@ -578,6 +549,6 @@ r.post('/evaluation', authMember, (req, res) => {
 // ---------------- 会员间结算待办：已下线 ----------------
 // 原来这里有 mySettle / settleVoucher / settleConfirm，用于「差价匹配」生成的付款单。
 // 但成交流程早已改为即时入账（付款时卖家当场到账），这套会员间付款会重复收钱，
-// 前台页面与后台生成入口都已移除，接口一并删除。历史 settle_match 数据仍可在后台查看。
+// 前台页面与后台生成入口都已移除，接口一并删除。
 
 export default r;

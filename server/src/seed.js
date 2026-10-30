@@ -56,7 +56,7 @@ if (already) {
 }
 
 tx(() => {
-  // ---------- 后台角色（会员等级见 member_grade，两者不再混用一张表） ----------
+  // ---------- 后台角色（会员等级体系已下线，角色与会员彻底分开） ----------
   run('INSERT INTO store_role (role_id, role_name, description, is_super, create_time) VALUES (?,?,?,?,?)',
     6, '超级管理员', '拥有全部权限，不受节点限制', 1, now());
   run('INSERT INTO store_role (role_id, role_name, description, is_super, create_time) VALUES (?,?,?,?,?)',
@@ -64,19 +64,6 @@ tx(() => {
 
   run('INSERT INTO store_user (user_name, password, nick_name, role_id, status, create_time) VALUES (?,?,?,?,?,?)',
     ADMIN_USER, hashPwd(ADMIN_PASSWORD), '超级管理员', 6, 10, now());
-
-  // ---------- 会员等级（对齐原站等级体系） ----------
-  const grades = [
-    [1, '普通会员', 1, 0, 0, 0],
-    [2, '白银级', 1, 1, 5, 0],
-    [3, '黄金级', 1, 1, 10, 0],
-    [4, '砖石级', 1, 1, 20, 0],
-    [5, '王者级', 1, 1, 30, 0],
-  ];
-  for (const [id, name, drive, valid, water, award] of grades) {
-    run('INSERT INTO member_grade (grade_id, name, drive_num, team_valid, team_water, team_award, create_time) VALUES (?,?,?,?,?,?,?)',
-      id, name, drive, valid, water, award, now());
-  }
 
   // ---------- 系统设置 ----------
   const settings = [
@@ -94,6 +81,8 @@ tx(() => {
     ['require_receiving_account', '20', 'trade'],
     ['require_invite_code', '10', 'trade'],  // 注册是否强制邀请码：10 必须 / 20 可选
     ['price_increase_rate', '3', 'trade'],
+    ['recycle_open', '10', 'trade'],          // 到顶自动回收（平台按买入价+一轮涨幅接盘）
+    ['recycle_daily_cap', '0', 'trade'],      // 每日回收总额上限（0 = 不限）
     ['consignment_rule', '转拍免上架费；商品按后台涨价率自动加价进入下一轮，成交后货款全额结算给上一手持有人。', 'trade'],
     ['withdraw_min', '10', 'trade'],
     ['withdraw_fee', '0', 'trade'],
@@ -175,11 +164,11 @@ tx(() => {
   const mkMember = (nick, mobile, pId, code) => {
     const parent = pId ? get('SELECT * FROM member WHERE member_id = ?', pId) : null;
     const info = run(
-      `INSERT INTO member (nick_name, mobile, password, p_id, path, level, invitation_code, identity_vip,
+      `INSERT INTO member (nick_name, mobile, password, p_id, path, level, invitation_code,
         is_valid, amount, score, e_card_number, is_certification, disabled, client_type, create_time, update_time)
-       VALUES (?,?,?,?,?,?,?,?,10,?,0,0,1,10,3,?,?)`,
+       VALUES (?,?,?,?,?,?,?,10,?,0,0,1,10,3,?,?)`,
       nick, mobile, hashPwd(mobile), pId, parent ? `${parent.path}${parent.member_id}/` : '/',
-      parent ? (parent.level || 1) + 1 : 1, code, pId ? 1 : 0, pId ? 5000 : 0, now(), now(),
+      parent ? (parent.level || 1) + 1 : 1, code, pId ? 5000 : 0, now(), now(),
     );
     const id = Number(info.lastInsertRowid);
     if (pId) {
@@ -211,15 +200,20 @@ tx(() => {
     ['足金转运珠', 'GP20260008', imgGold, 1800, 2600, 1, 2, boss],
   ];
   goodsData.forEach(([n, no, thumb, price, line, area, cat, holder], i) => {
-    run(
+    const info = run(
       `INSERT INTO goods (goods_name, goods_no, good_thumb, images, detail, category_id, specialarea_id,
-        member_id, goods_min_price, line_price, stock_num, sales_actual, goods_status, is_sell, is_split,
+        member_id, goods_min_price, line_price, stock_num, sales_actual, goods_status, is_sell,
         turn_beat_num, goods_sort, type, create_time, update_time)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,10,10,0,?,?,1,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,10,10,?,?,1,?,?)`,
       n, no, thumb, JSON.stringify([thumb]), `<p>${n} · 精选正品，支持复检，顺丰包邮。</p>`,
       cat, area, holder, price, line, 1, Math.floor(Math.random() * 8), Math.floor(Math.random() * 5),
       100 - i, now(), now(),
     );
+    // 商品与场次的关联是唯一数据源：把示例商品挂到对应场次下
+    if (area > 0) {
+      run('INSERT OR IGNORE INTO specialarea_goods (specialarea_id, goods_id, sort, create_time) VALUES (?,?,?,?)',
+        area, Number(info.lastInsertRowid), 100 + i, now());
+    }
   });
 
   // 商城商品（普通购物）
@@ -236,6 +230,9 @@ tx(() => {
       `<p>${n} · 商城自营商品</p>`, price, line, 100, 100 - i, now(), now(),
     );
   });
+
+  // 基准价 = 首次上架价（涨幅上限按它起算）；演示数据统一取当前售价，涨幅上限默认关闭
+  run('UPDATE goods SET base_price = goods_min_price WHERE IFNULL(base_price, 0) <= 0');
 
   // ---------- 轮播 / 导航 ----------
   // 不再预置首页轮播图：它会和运营自己传的图一起轮播，看起来像「换了也换不掉」

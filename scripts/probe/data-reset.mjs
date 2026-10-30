@@ -151,7 +151,7 @@ async function main() {
 
     eq(db.prepare('SELECT COUNT(*) c FROM orders').get().c, 0, '订单已清空');
     eq(db.prepare('SELECT COUNT(*) c FROM finance_energy').get().c, 0, '资金流水已清空');
-    eq(db.prepare('SELECT COUNT(*) c FROM settle_batch').get().c, 0, '结算批次已清空');
+    eq(db.prepare('SELECT COUNT(*) c FROM settle_pay').get().c, 0, '结算账目已清空');
     eq(db.prepare('SELECT COUNT(*) c FROM member').get().c, 1, '只保留 1 个官方账号');
     const off = db.prepare('SELECT * FROM member LIMIT 1').get();
     eq(off.mobile, '13800000001', '官方手机号');

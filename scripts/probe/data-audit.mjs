@@ -45,9 +45,6 @@ function paired(name, aSql, bSql) {
   if (a === b) console.log(`  ✓ ${name}（${a} 对）`);
   else { issues++; console.log(`  ✗ ${name}：${a} vs ${b}`); }
 }
-paired('平台回收流水与已回收流拍单一一对应',
-  "SELECT COUNT(*) c FROM finance_energy WHERE type_name = '平台回收'",
-  'SELECT COUNT(*) c FROM orders WHERE type = 5 AND status = 70');
 paired('提现申请流水与提现记录一一对应',
   "SELECT COUNT(*) c FROM finance_energy WHERE type_name = '提现申请'",
   'SELECT COUNT(*) c FROM finance_withdraw');
@@ -61,9 +58,7 @@ check('订单买家都存在于会员表', 'SELECT COUNT(*) c FROM orders o LEFT
 check('订单卖家都存在（seller_id>0 时）', 'SELECT COUNT(*) c FROM orders o LEFT JOIN member m ON m.member_id = o.seller_id WHERE o.seller_id > 0 AND m.member_id IS NULL');
 check('已支付订单都有支付时间', "SELECT COUNT(*) c FROM orders WHERE pay_status = 10 AND (pay_time IS NULL OR pay_time = '')");
 check('已转拍订单都有上架费与转拍时间', "SELECT COUNT(*) c FROM orders WHERE consignment_status = 10 AND (IFNULL(listing_fee,0) <= 0 OR transposition_time IS NULL)");
-check('不存在仍在售却被标记流拍的商品', 'SELECT COUNT(*) c FROM goods WHERE goods_status = 30 AND member_id = 0');
 check('寄卖挂单(type=2)已清零', 'SELECT COUNT(*) c FROM orders WHERE type = 2');
-check('流拍单都有备注来源', "SELECT COUNT(*) c FROM orders WHERE type = 5 AND (remark IS NULL OR remark = '')");
 
 console.log('\n【会员与关系链】');
 check('手机号无重复', 'SELECT COUNT(*) c FROM (SELECT mobile FROM member GROUP BY mobile HAVING COUNT(*) > 1) t');
@@ -79,12 +74,10 @@ if (Number(badPath)) { issues++; console.log(`  ✗ 会员层级 path 与上级�
 const selfParent = db.prepare('SELECT COUNT(*) c FROM member WHERE p_id = member_id').get().c;
 checks++;
 if (Number(selfParent)) { issues++; console.log(`  ✗ 存在自己作为上级的会员：${selfParent}`); } else console.log('  ✓ 无自引用上级');
-check('会员等级引用有效', 'SELECT COUNT(*) c FROM member m LEFT JOIN member_grade g ON g.grade_id = m.grade_id WHERE IFNULL(m.grade_id,0) > 0 AND g.grade_id IS NULL');
 
 console.log('\n【商品与场次】');
 check('在售商品都有持有人或归平台', 'SELECT COUNT(*) c FROM goods WHERE goods_status = 10 AND member_id IS NULL');
 check('商品持有人都真实存在（member_id>0 时）', 'SELECT COUNT(*) c FROM goods g LEFT JOIN member m ON m.member_id = g.member_id WHERE g.member_id > 0 AND m.member_id IS NULL');
-check('拆分商品份数与库存一致', 'SELECT COUNT(*) c FROM goods WHERE is_split = 1 AND (split_total <= 0 OR stock_num > split_total)');
 check('商品标价非负', 'SELECT COUNT(*) c FROM goods WHERE goods_min_price < 0');
 check('划线价不低于现价（非零时）', 'SELECT COUNT(*) c FROM goods WHERE line_price > 0 AND line_price < goods_min_price');
 check('场次时间区间合法', 'SELECT COUNT(*) c FROM specialarea WHERE end_time <= start_time');
@@ -97,11 +90,6 @@ check('菜单节点无重复路径', "SELECT COUNT(*) c FROM (SELECT action_name
 check('配置键无空值', "SELECT COUNT(*) c FROM setting_config WHERE `value` IS NULL");
 check('不存在已废弃的三级佣金键', "SELECT COUNT(*) c FROM setting_config WHERE `key` IN ('commission_l1','commission_l2','commission_l3','commission_base')");
 
-console.log('\n【结算】');
-check('中账差额 = 卖出 − 买入', 'SELECT COUNT(*) c FROM settle_account WHERE ABS(balance - (consignment_amount - buy_amount)) > 0.011');
-check('批次内买卖总额配平', 'SELECT COUNT(*) c FROM settle_batch WHERE ABS(total_buy - total_sell) > 0.011');
-check('匹配单金额为正', 'SELECT COUNT(*) c FROM settle_match WHERE amount <= 0');
-check('结算不含寄卖挂单', 'SELECT COUNT(*) c FROM settle_account a JOIN orders o ON o.order_id IN (SELECT order_id FROM orders WHERE type = 2) WHERE a.buy_amount > 0');
 
 console.log('\n' + '='.repeat(52));
 console.log(`检查 ${checks} 项，发现问题 ${issues} 项`);

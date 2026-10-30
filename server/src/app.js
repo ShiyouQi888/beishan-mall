@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { db, get, run, now } from './db.js';
 import { ensureNodes } from './lib/nodes.js';
 import { ensureBuiltinAdmin } from './lib/builtinAdmin.js';
+import { scanCappedGoods } from './lib/recycle.js';
+import { expireUnsold } from './lib/expire.js';
 import { fail, cfg } from './lib/helper.js';
 import { themeOf, DEFAULT_THEME } from './lib/themes.js';
 
@@ -44,26 +46,20 @@ if (!db.prepare('PRAGMA table_info(store_role)').all().some((c) => c.name === 'i
 // 这个字段一旦定下就不再随成交变化，用来区分两种完全不同的商品：
 //   名额 = 1          → 唯一的一件货，成交即整件归买家 + 下架，买家可转拍
 //   名额 > 1          → 一批货，抢一个减一个名额，抢光才下架，整件始终归原持有人
-// 与「拆分」是两件事：拆分是一货多份的定价方式，名额是一批货能卖几次。
 if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'stock_total')) {
   db.exec('ALTER TABLE goods ADD COLUMN stock_total INTEGER DEFAULT 0');
   console.log('[migrate] goods.stock_total 已添加');
 }
 
-// 上一版曾把「库存 >1 的整件商品」硬标成拆分商品（is_split=1、split_total=库存份数），
-// 用来记账名额。概念不对（拆分是定价玩法，名额是能卖几次），现在名额有独立字段了，把标记还回去。
-// 只跑一次：真拆分商品的份数里必然已经有卖出的，或者历史销量不可能是这次拆分产生的，
-// 用「一份没卖 + 销量远大于份数」识别被误标的那些。
-if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_unmark_fake_split'")) {
-  const unmarked = run(
-    `UPDATE goods SET is_split = 0, split_total = 0
-     WHERE IFNULL(is_split, 0) = 1 AND IFNULL(split_total, 0) > 1
-       AND IFNULL(stock_num, 0) = split_total
-       AND IFNULL(sales_actual, 0) > split_total`,
-  );
-  run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_unmark_fake_split', '1')");
-  if (Number(unmarked.changes) > 0) {
-    console.log(`[migrate] ${Number(unmarked.changes)} 件商品撤销了误标的「拆分」状态`);
+// 「按份拆分」功能已整体下线：旧库里的 is_split / split_total 一律清掉并删列。
+// 已拆分的商品保留现有份数与每份价格，当作普通多库存商品继续卖（不再有按份的专属逻辑）。
+if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_drop_split'")) {
+  const cols = db.prepare('PRAGMA table_info(goods)').all().map((c) => c.name);
+  if (cols.includes('is_split')) db.exec('ALTER TABLE goods DROP COLUMN is_split');
+  if (cols.includes('split_total')) db.exec('ALTER TABLE goods DROP COLUMN split_total');
+  run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_drop_split', '1')");
+  if (cols.includes('is_split') || cols.includes('split_total')) {
+    console.log('[migrate] 已下线「按份拆分」：goods.is_split / split_total 列已删除，原拆分商品按普通商品保留');
   }
 }
 
@@ -77,13 +73,109 @@ if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'sessio
 }
 // 「名额」一旦定下就不随成交变化，用来区分「唯一一件货」（成交即归买家）和「一批货」（抢一个减一个）。
 const initStockTotal = run(
-  `UPDATE goods SET stock_total = CASE
-     WHEN IFNULL(is_split, 0) = 1 AND IFNULL(split_total, 0) > 1 THEN split_total
-     ELSE MAX(IFNULL(stock_num, 1), 1) END
-   WHERE IFNULL(stock_total, 0) = 0`,
+  `UPDATE goods SET stock_total = MAX(IFNULL(stock_num, 1), 1) WHERE IFNULL(stock_total, 0) = 0`,
 );
 if (Number(initStockTotal.changes) > 0) {
   console.log(`[migrate] ${Number(initStockTotal.changes)} 件商品补齐名额`);
+}
+
+// 商品价格上限：base_price 是「首次上架价」，色块水位从它起算；price_cap 是「最高能卖多少钱」（元，0=不限）。
+// 老库补列后，基准价用「当前售价」回填（历史成交价拿不到，从当前价开始算涨幅最稳），
+// 上限一律 0 = 不限，现有商品行为不变，运营按需去后台逐个设置。
+{
+  const cols = db.prepare('PRAGMA table_info(goods)').all().map((c) => c.name);
+  if (!cols.includes('base_price')) {
+    db.exec('ALTER TABLE goods ADD COLUMN base_price REAL DEFAULT 0');
+    console.log('[migrate] goods.base_price 已添加');
+  }
+  if (!cols.includes('price_cap')) {
+    db.exec('ALTER TABLE goods ADD COLUMN price_cap REAL DEFAULT 0');
+    console.log('[migrate] goods.price_cap 已添加（价格上限，元；0 = 不限）');
+  }
+  const filled = run(
+    'UPDATE goods SET base_price = goods_min_price WHERE IFNULL(base_price, 0) <= 0 AND goods_min_price > 0',
+  );
+  if (Number(filled.changes) > 0) {
+    console.log(`[migrate] ${Number(filled.changes)} 件商品补齐基准价（取当前售价）`);
+  }
+  // 上一版上限是「百分比」，现在改成「金额封顶」：把百分比折算成上限价，再删列。
+  // 折算 = 基准价 × (1 + 上限%/100)，这样已设过上限的商品行为保持不变。
+  if (cols.includes('price_cap_rate')) {
+    const converted = run(
+      `UPDATE goods SET price_cap = ROUND(base_price * (1 + price_cap_rate / 100), 2)
+       WHERE IFNULL(price_cap, 0) <= 0 AND IFNULL(price_cap_rate, 0) > 0 AND IFNULL(base_price, 0) > 0`,
+    );
+    db.exec('ALTER TABLE goods DROP COLUMN price_cap_rate');
+    console.log(`[migrate] 价格上限改为金额口径：${Number(converted.changes) || 0} 件商品已折算成上限价，price_cap_rate 列已删除`);
+  }
+  // 已回收封顶标记：前台不再展示，后台打「封顶」标签；改回上架才重新流通
+  if (!cols.includes('recycled')) {
+    db.exec('ALTER TABLE goods ADD COLUMN recycled INTEGER DEFAULT 0');
+    console.log('[migrate] goods.recycled 已添加（1 = 已被系统回收封顶）');
+  }
+  // 只回填一次：之后「二次上架」会把标记清掉，不能被启动迁移again 打回去
+  if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_recycled_flag'")) {
+    const marked = run(
+      `UPDATE goods SET recycled = 1
+       WHERE EXISTS (SELECT 1 FROM goods_recycle r WHERE r.goods_id = goods.goods_id AND r.status = 10)`,
+    );
+    run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_recycled_flag', '1')");
+    if (Number(marked.changes) > 0) {
+      console.log(`[migrate] ${Number(marked.changes)} 件已回收商品补打「封顶」标记`);
+    }
+  }
+}
+
+// 「流拍」下线：删掉历史流拍台账（orders.type = 5），流拍态商品（goods_status = 30）改回下架。
+// 替代方案是「到期自动下架」：场次结束仍没人买 → 下架退回持有人，不生成任何台账。
+if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_drop_streambeat'")) {
+  const del = run('DELETE FROM orders WHERE type = 5');
+  const back = run('UPDATE goods SET goods_status = 20 WHERE goods_status = 30');
+  run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_drop_streambeat', '1')");
+  console.log(`[migrate] 流拍已下线：删除 ${Number(del.changes) || 0} 条流拍台账，${Number(back.changes) || 0} 件流拍商品改回下架`);
+}
+
+// 「差价对账」下线：批次 / 中账 / 匹配三张表一并删除（成交流程早已即时入账）
+if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_drop_settlement'")) {
+  for (const t of ['settle_match', 'settle_account', 'settle_batch']) db.exec(`DROP TABLE IF EXISTS ${t}`);
+  run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_drop_settlement', '1')");
+  console.log('[migrate] 差价对账已下线：settle_batch / settle_account / settle_match 已删除');
+}
+
+// 「举报处理」下线：举报表一并删除（历史数据不留）
+if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_drop_report'")) {
+  db.exec('DROP TABLE IF EXISTS order_report');
+  run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_drop_report', '1')");
+  console.log('[migrate] 举报处理已下线：order_report 表已删除');
+}
+
+// 「会员等级」体系整体下线：会员表上的等级/战绩字段与 member_grade 表一起删
+// （等级不再影响任何资金口径：团队奖、升级判定都已移除）
+if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_drop_member_grade'")) {
+  const mcols = db.prepare('PRAGMA table_info(member)').all().map((c) => c.name);
+  for (const col of ['grade_id', 'identity_vip', 'team_water']) {
+    if (mcols.includes(col)) db.exec(`ALTER TABLE member DROP COLUMN ${col}`);
+  }
+  db.exec('DROP TABLE IF EXISTS member_grade');
+  run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_drop_member_grade', '1')");
+  console.log('[migrate] 会员等级体系已下线：member_grade 表与 grade_id/identity_vip/team_water 字段已删除');
+}
+
+// 商品与场次改为「关联表」决定，goods.specialarea_id 只作为首个关联场次的镜像。
+// 老库里每件商品的场次存在 goods.specialarea_id 上，这里一次性搬进关联表；
+// 搬完之后商品表上的场次字段不再参与任何业务判断。
+if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_area_goods_rel'")) {
+  const moved = run(
+    `INSERT OR IGNORE INTO specialarea_goods (specialarea_id, goods_id, sort, create_time)
+     SELECT specialarea_id, goods_id, IFNULL(goods_sort, 100), ? FROM goods
+     WHERE IFNULL(specialarea_id, 0) > 0
+       AND specialarea_id IN (SELECT specialarea_id FROM specialarea)`,
+    now(),
+  );
+  run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_area_goods_rel', '1')");
+  if (Number(moved.changes) > 0) {
+    console.log(`[migrate] ${Number(moved.changes)} 件商品的场次已迁入关联表 specialarea_goods`);
+  }
 }
 
 // 清理早期 seed 预置的默认轮播图。
@@ -175,6 +267,8 @@ for (const [key, val, group] of [
   ['withdraw_zfb_open', '10', 'trade'],     // 提现到支付宝
   ['withdraw_bank_open', '10', 'trade'],    // 提现到银行卡
   ['withdraw_offline_open', '10', 'trade'], // 提现线下打款
+  ['recycle_open', '10', 'trade'],          // 到顶自动回收开关
+  ['recycle_daily_cap', '0', 'trade'],      // 每日回收总额上限（0 = 不限）
 ]) {
   if (!get('SELECT 1 FROM setting_config WHERE `key` = ?', key)) {
     run('INSERT INTO setting_config (`key`, `value`, `group`) VALUES (?,?,?)', key, val, group);
@@ -203,6 +297,11 @@ for (const deadKey of ['commission_l1', 'commission_l2', 'commission_l3', 'commi
     run('DELETE FROM setting_config WHERE `key` = ?', deadKey);
     console.log(`[migrate] 删除废弃配置 ${deadKey}`);
   }
+}
+
+// 「按份拆分」下线后，这条一次性迁移标记已无意义（is_split 列也已删除）
+if (get("SELECT 1 FROM setting_config WHERE `key` = 'migrate_unmark_fake_split'")) {
+  run("DELETE FROM setting_config WHERE `key` = 'migrate_unmark_fake_split'");
 }
 
 // 竞拍与充值套餐已整体下线（只有配置项/空表，没有对应业务逻辑与页面）
@@ -330,3 +429,34 @@ app.listen(PORT, HOST, () => {
   if (hasAdmin) console.log(`  后台管理：http://${HOST}:${PORT}/admin/`);
   if (hasH5) console.log(`  H5 商城：http://${HOST}:${PORT}/`);
 });
+
+// 到顶商品自动回收：默认 60 秒扫一次（只查「到顶 + 下架 + 仍在会员手里」的货，开销极小）。
+// 后台「订单管理 → 系统回收」也有手动扫描按钮，两者走同一段逻辑，幂等。
+// RECYCLE_SCAN_MS=0 可关掉定时任务（联调脚本用，避免定时器抢在断言前结算）。
+const RECYCLE_SCAN_MS = Number(process.env.RECYCLE_SCAN_MS ?? 60000);
+if (RECYCLE_SCAN_MS > 0) {
+  setInterval(() => {
+    try {
+      const r = scanCappedGoods();
+      if (r.settled || r.pending) {
+        console.log(`[recycle] 到顶回收：结算 ${r.settled} 件（¥${r.paid.toFixed(2)}）｜待处理 ${r.pending} 件`);
+      }
+    } catch (e) {
+      console.error('[recycle] 扫描失败：', e.message);
+    }
+  }, RECYCLE_SCAN_MS).unref?.();
+}
+
+// 到期自动下架：转拍挂出后场次结束仍没人买 → 下架退回持有人（替代原「流拍」）
+// EXPIRE_SCAN_MS=0 可关掉（联调脚本用）
+const EXPIRE_SCAN_MS = Number(process.env.EXPIRE_SCAN_MS ?? 300000);
+if (EXPIRE_SCAN_MS > 0) {
+  setInterval(() => {
+    try {
+      const r = expireUnsold();
+      if (r.expired) console.log(`[expire] 到期下架：${r.expired} 件挂单已退回持有人`);
+    } catch (e) {
+      console.error('[expire] 扫描失败：', e.message);
+    }
+  }, EXPIRE_SCAN_MS).unref?.();
+}

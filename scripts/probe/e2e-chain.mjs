@@ -140,6 +140,11 @@ async function main() {
     });
     ok(createGoods.code === 1 && createGoods.data?.id, '创建商品', createGoods.msg);
     const gid = createGoods.data.id;
+    // 商品不再自带场次字段：建完之后单独把它关联到场次（唯一数据源是关联表）
+    const linkArea = await adminAt('/admin/api/specialarea/goods/add', {
+      method: 'POST', token: at, body: { specialarea_id: areaId, goods_ids: [gid] },
+    });
+    ok(linkArea.code === 1, '商品关联到场次', linkArea.msg);
     const g0 = db.prepare('SELECT goods_id, goods_min_price, member_id, goods_status FROM goods WHERE goods_id = ?').get(gid);
     eqMoney(g0.goods_min_price, CFD.basePrice, '商品初始标价 10000');
     eqMoney(g0.goods_status, 10, '商品在售');
@@ -194,6 +199,10 @@ async function main() {
     for (let r = 1; r <= CFD.rounds; r += 1) {
       const e = expectChain[r - 1];
       const buyer = buyers[r - 1];
+
+      // 转拍会把商品排到「下一场」，一天三场走完就顺延到第二天。
+      // 联调要连跑 5 轮，这里代替「等到了那一天」把场次日期放开，金额口径一概不动。
+      db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(gid);
 
       // 4.1 报价：服务费 = 标价 × 2%
       const quote = await api(`/api/order/getServiceCharge?goods_id=${gid}&num=1`);
@@ -296,7 +305,7 @@ async function main() {
     // ================= 6. 直推奖（0.5%，平台支出，不影响买卖双方） =================
     section('[6] 直推奖（默认 0.5%，验证是否影响买卖双方金额）');
     const driveRate = Number((await api('/api/index/getTradeConfig')).data?.drive_award_rate || 0);
-    const awardRows = db.prepare("SELECT member_id, face_value, remarks FROM finance_energy WHERE type = 3").all();
+    const awardRows = db.prepare("SELECT member_id, face_value, remarks FROM finance_energy WHERE type = 1").all();
     const awardTotal = m2(awardRows.reduce((s, a) => s + Number(a.face_value), 0));
     console.log(`    直推奖率 ${driveRate}%，共 ${awardRows.length} 笔、合计 ${yuan(awardTotal)}`);
     const expectAward = m2(expectChain.reduce((s, e) => s + m2((e.price * driveRate) / 100), 0));

@@ -14,8 +14,14 @@ const menuPaths = MENU.flatMap((g) => g.items.map((i) => i.path));
 const matches = (p) => routes.has(p) || [...routes].some((r) => r.includes(':') && new RegExp('^' + r.replace(/:[^/]+/g, '[^/]+') + '$').test(p));
 
 const missing = menuPaths.filter((p) => !matches(p));
+// 纯跳转路由（redirect）不是页面，不需要菜单项：例如 /shop-goods → /goods 的兼容跳转
+const redirectRoutes = new Set(
+  [...src.matchAll(/\{\s*path:\s*'([^']+)',\s*redirect:\s*'([^']+)'/g)].map((m) => m[1]),
+);
 const extra = [...routes].filter(
-  (p) => p.startsWith('/') && !p.includes(':') && !menuPaths.includes(p) && !['/login', '/forbidden', '/404', '/:pathMatch(.*)*'].includes(p),
+  (p) => p.startsWith('/') && !p.includes(':') && !menuPaths.includes(p)
+    && !redirectRoutes.has(p)
+    && !['/login', '/forbidden', '/404', '/:pathMatch(.*)*'].includes(p),
 );
 
 // 重复路由定义（同路径或同名出现多次 → Vue Router 会告警/后者覆盖前者）

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, tx, now, today } from '../db.js';
 import { ok, fail, authMember, money } from '../lib/helper.js';
+import { todayStr } from '../lib/sessionWindow.js';
 
 const r = Router();
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;
@@ -9,8 +10,10 @@ const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` =
 r.get('/getAmountInfo', authMember, (req, res) => {
   const m = req.member;
   const monthStart = today().slice(0, 7) + '-01';
-  const lastMonthStart = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)
-    .toISOString().slice(0, 10);
+  const lastMonth = new Date();
+  lastMonth.setDate(1);
+  lastMonth.setMonth(lastMonth.getMonth() - 1);
+  const lastMonthStart = todayStr(lastMonth);
   const sum = (from, to) =>
     get(
       'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 1 AND create_time >= ? AND create_time < ?',

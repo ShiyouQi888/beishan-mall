@@ -37,35 +37,44 @@
           <div class="item__info">
             <div class="item__name ellipsis2">{{ g.goods_name }}</div>
             <div class="item__tags">
-              <span class="tag" :class="g.listed ? 'tag--on' : 'tag--off'">
-                {{ g.listed ? '已挂牌 · 等下一轮被抢' : '待转拍上架' }}
+              <span class="tag" :class="g.transferable ? (g.listed ? 'tag--on' : 'tag--off') : 'tag--ghost'">
+                {{ g.transferable ? (g.listed ? '已挂牌 · 等下一轮被抢' : '待转拍上架') : (g.cap_reached ? '已达价格上限' : '按件出售') }}
               </span>
-              <span class="tag tag--ghost" v-if="g.turn_beat_num">已流转 {{ g.turn_beat_num }} 次</span>
+              <span class="tag tag--ghost" v-if="g.transferable && g.turn_beat_num">已流转 {{ g.turn_beat_num }} 次</span>
             </div>
           </div>
         </div>
 
         <div class="item__rows">
           <div class="kv"><span>我的买入价</span><span>{{ Number(g.my_price) > 0 ? money(g.my_price) : '—' }}</span></div>
-          <div class="kv"><span>下一轮标价</span><span class="brand">{{ money(g.next_price) }}</span></div>
-          <div class="kv"><span>上架费</span><span>-{{ money(g.listing_fee) }}</span></div>
-          <div class="kv kv--sum">
-            <span>{{ g.listed ? '成交后可收回' : '转拍后预计收益' }}</span>
-            <span class="brand strong">
-              {{ g.est_net === null ? '—' : money(g.listed ? g.next_price : g.est_net) }}
-            </span>
-          </div>
-          <div class="kv kv--net" v-if="g.est_net !== null">
-            <span>扣除买入价与上架费后净赚</span>
-            <span :class="Number(g.est_net) >= 0 ? 'brand' : 'loss'">
-              {{ Number(g.est_net) >= 0 ? '+' : '' }}{{ money(g.est_net) }}
-            </span>
-          </div>
+          <template v-if="g.transferable">
+            <div class="kv"><span>下一轮标价</span><span class="brand">{{ money(g.next_price) }}</span></div>
+            <div class="kv"><span>上架费</span><span>-{{ money(g.listing_fee) }}</span></div>
+            <div class="kv kv--sum">
+              <span>{{ g.listed ? '成交后可收回' : '转拍后预计收益' }}</span>
+              <span class="brand strong">
+                {{ g.est_net === null ? '—' : money(g.listed ? g.next_price : g.est_net) }}
+              </span>
+            </div>
+            <div class="kv kv--net" v-if="g.est_net !== null">
+              <span>扣除买入价与上架费后净赚</span>
+              <span :class="Number(g.est_net) >= 0 ? 'brand' : 'loss'">
+                {{ Number(g.est_net) >= 0 ? '+' : '' }}{{ money(g.est_net) }}
+              </span>
+            </div>
+          </template>
+          <template v-else>
+            <div class="kv"><span>剩余件数</span><span class="brand">{{ g.stock_left }} / {{ g.stock_total }} 件</span></div>
+            <div class="kv"><span>每件售价</span><span class="brand">{{ money(g.current_price) }}</span></div>
+          </template>
         </div>
 
         <div class="item__actions">
-          <button v-if="!g.listed" class="mini mini--main" @click="goToConsign(g)">去转拍</button>
-          <span v-else class="item__wait">等着被抢走即可，无需操作</span>
+          <template v-if="g.transferable">
+            <button v-if="!g.listed" class="mini mini--main" @click="goToConsign(g)">去转拍</button>
+            <span v-else class="item__wait">等着被抢走即可，无需操作</span>
+          </template>
+          <span v-else class="item__wait">{{ g.cap_reached ? '已达价格上限，不能再转拍' : '按件出售，整件不可转拍' }}</span>
         </div>
       </div>
 

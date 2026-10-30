@@ -196,7 +196,7 @@ async function main() {
     const oRow = db.prepare('SELECT consignment_status, listing_fee, transposition_time FROM orders WHERE order_id = ?').get(oid);
     eq(oRow.consignment_status, 10, '原订单标记为已转拍');
     eq(oRow.listing_fee, feeExpect, '原订单记录上架费');
-    ok(!!oRow.transposition_time, '原订单记录转拍时间（流拍扫描依据）');
+    ok(!!oRow.transposition_time, '原订单记录转拍时间');
 
     // 平台单轮净收 = 抢单服务费 + 转拍上架费 − 直推奖
     const svcFee = money(price * svcRate / 100);
@@ -205,28 +205,14 @@ async function main() {
     ok(net > 0, '平台本轮净收入为正', `净收 ${net}（服务费 ${svcFee} + 上架费 ${feeExpect} − 直推奖 ${driveExpect}）`);
 
     
-    console.log('\n[3] 差价结算已停用（防重复收款）');
     const at = (await api('/admin/api/login', { method: 'POST', body: { user_name: 'admin1', password: '123456' } })).data.token;
 
-    // 成交即入账：卖家在付款那一刻就拿到钱了，再跑差价匹配会让他收第二次
-    const settleRun = await api('/admin/api/settle/run', { method: 'POST', token: at, body: { specialarea_id: 0 } });
-    ok(settleRun.code === 0 && /停用/.test(settleRun.msg), '执行结算被拒绝', settleRun.msg);
-
-    // 会员端三个接口必须真的没了，避免「有接口没入口」的半死状态卷土重来
-    const gone = await api('/api/order/mySettle', { token: buyer });
-    ok(gone.code !== 1 && /不存在/.test(gone.msg), '会员端结算接口已删除', gone.msg);
-    ok((await api('/api/order/settleConfirm', { method: 'POST', token: buyer, body: { match_id: 1 } })).code !== 1, '确认收款接口已删除');
-
-    // 只读对账接口还在（后台对账要用）
-    ok((await api('/admin/api/settle/batches', { token: at })).code === 1, '结算批次可读（对账）');
-    ok((await api('/admin/api/settle/accounts?batch_id=0', { token: at })).code === 1, '中账可读（对账）');
-
-    // 卖家确实在支付时就到账了，这是停用差价匹配的根本原因
+    // 成交即入账：卖家在付款那一刻就拿到钱（差价匹配下线后，这是唯一的结算方式）
     const sellerOfOrder = db.prepare('SELECT seller_id FROM orders WHERE order_id = ?').get(oid)?.seller_id;
     const sellerRow = db.prepare('SELECT amount FROM member WHERE member_id = ?').get(sellerOfOrder);
     ok(!!sellerRow && Number(sellerRow.amount) > 0, '卖家在成交时已到账（即时入账）', '余额 ' + money(sellerRow?.amount));
 
-    console.log('\n[4] 风控拦截');
+    console.log('\n[3] 风控拦截');
 
     const dup = await api('/api/order/toPay', { method: 'POST', token: buyer, body: { order_id: oid, pay_type: 1 } });
     ok(dup.code === 0, '重复支付被拦截', dup.msg);
@@ -277,7 +263,7 @@ async function main() {
       method: 'POST', token: at, body: { group: 'trade', values: { require_receiving_account: '20' } },
     });
 
-    console.log('\n[5] 提现与退回');
+    console.log('\n[4] 提现与退回');
     await api('/api/member/card/add', { method: 'POST', token: buyer, body: { type: 3, account: '6222000000000003', name: '北山', bank: '招商银行' } });
     const wb = Number((await detail(buyer)).amount);
     await api('/api/finance/withdraw/apply', { method: 'POST', token: buyer, body: { amount: 100, account_type: 3, account_info: '招商银行 6222' } });
@@ -288,15 +274,14 @@ async function main() {
     await api('/admin/api/withdraw/audit', { method: 'POST', token: at, body: { withdraw_id: pend.withdraw_id, pass: false, remark: '测试驳回' } });
     eq(Number((await detail(buyer)).amount), wb, '驳回后余额自动退回');
 
-    console.log('\n[6] 数据一致性');
+    console.log('\n[5] 数据一致性');
     const fs2 = db.prepare("SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE type = 2").get().v;
     const bs2 = db.prepare('SELECT IFNULL(SUM(amount),0) v FROM member').get().v;
     eq(money(bs2 - baseline.balSum), money(fs2 - baseline.flowSum), '余额变动 == 余额流水汇总（增量）');
     eq(db.prepare('SELECT COUNT(*) c FROM member WHERE amount < 0').get().c, 0, '没有会员出现负余额');
     eq(db.prepare('SELECT COUNT(*) c FROM orders o LEFT JOIN goods g ON g.goods_id = o.goods_id WHERE g.goods_id IS NULL').get().c, 0, '没有孤儿订单');
-    ok(db.prepare('SELECT COUNT(*) c FROM member_grade').get().c === 5, '五级会员等级配置存在');
 
-    console.log('\n[7] 并发安全');
+    console.log('\n[6] 并发安全');
     const bid = db.prepare("SELECT member_id id FROM member WHERE mobile='13822367845'").get().id;
     await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: bid, field: 'amount', value: 50000, remark: '测试充值' } });
     const g3 = db.prepare("SELECT * FROM goods WHERE member_id = (SELECT member_id FROM member WHERE mobile='13800000002') AND goods_min_price <= 20000 ORDER BY goods_min_price ASC LIMIT 1").get();
@@ -311,104 +296,7 @@ async function main() {
       }
     }
 
-    console.log('\n[8] 商品拆分');
-    await api('/api/member/setPay', {
-      method: 'POST', token: seller,
-      body: { type: 3, account: '6222000000000010', name: '玄德世家', bank: '工商银行' },
-    });
-    const splitable = db.prepare(
-      "SELECT * FROM goods WHERE member_id = ? AND goods_status = 10 AND is_split = 0 AND type = 1 LIMIT 1",
-    ).get(bid);
-    if (splitable) {
-      const p0 = Number(splitable.goods_min_price);
-      const sp = await api('/api/goods/split', {
-        method: 'POST', token: buyer, body: { goods_id: splitable.goods_id, parts: 4 },
-      });
-      ok(sp.code === 1, '拆分成功', sp.msg);
-      eq(sp.data?.per_part, money(p0 / 4), `每份价格 = ${p0} / 4`);
-
-      const gs = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(splitable.goods_id);
-      const expectLine = Number(splitable.line_price) > 0
-        ? Math.floor((Number(splitable.line_price) * 100) / 4) / 100
-        : 0;
-      eq(gs.line_price, expectLine, `划线价同步按份折算（${splitable.line_price} → ${expectLine}）`);
-      ok(gs.line_price === 0 || Number(gs.line_price) > Number(gs.goods_min_price), '划线价高于每份现价');
-      eq(gs.stock_num, 4, '库存为 4 份');
-      eq(gs.is_split, 1, '标记为拆分商品');
-      eq(gs.split_total, 4, '记录拆分总份数');
-
-      const dupSplit = await api('/api/goods/split', {
-        method: 'POST', token: buyer, body: { goods_id: splitable.goods_id, parts: 2 },
-      });
-      ok(dupSplit.code === 0, '已拆分商品不可重复拆分', dupSplit.msg);
-
-      const buySplit = await api('/api/order/toAddOrder', {
-        method: 'POST', token: seller, body: { goods_id: splitable.goods_id, num: 2, pay_type: 1 },
-      });
-      ok(buySplit.code === 1, '拆分商品可下单 2 份', buySplit.msg);
-      const gs2 = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(splitable.goods_id);
-      eq(gs2.stock_num, 2, '下单后库存扣减为 2 份');
-
-      const over = await api('/api/order/toAddOrder', {
-        method: 'POST', token: seller, body: { goods_id: splitable.goods_id, num: 5, pay_type: 1 },
-      });
-      ok(over.code === 0 && /名额|库存/.test(over.msg), '超过名额被拒单', over.msg);
-    }
-
-    console.log('\n[9] 流拍（按原订单推导，不再依赖寄卖挂单）');
-    // 造一个「已转拍挂着但没卖掉」的状态：任一持有人 + 其订单标记已转拍 + 商品仍在架
-    const pendListing = db.prepare(
-      `SELECT o.order_id, o.goods_id, o.member_id FROM orders o JOIN goods g ON g.goods_id = o.goods_id
-       WHERE o.type = 1 AND o.status IN (10, 30) AND g.member_id = o.member_id AND g.goods_status = 10
-       ORDER BY o.order_id DESC LIMIT 1`,
-    ).get();
-    ok(!!pendListing, '找到可构造流拍的挂单');
-    if (pendListing) {
-      db.prepare("UPDATE orders SET consignment_status = 10, transposition_time = '2026-10-28 10:00:00' WHERE order_id = ?")
-        .run(pendListing.order_id);
-      // 此时库里不应存在 type=2 挂单，流拍必须靠原订单推出来
-      eq(
-        db.prepare('SELECT COUNT(*) c FROM orders WHERE goods_id = ? AND type = 2 AND status = 0').get(pendListing.goods_id).c,
-        0, '无寄卖挂单也能识别待流拍',
-      );
-
-      const scan = await api('/admin/api/streambeat/scan', {
-        method: 'POST', token: at, body: { date: '2026-10-28' },
-      });
-      ok(scan.code === 1, '执行流拍扫描', scan.msg);
-      ok((scan.data?.count || 0) >= 1, '标记了流拍商品', `${scan.data?.count} 件`);
-
-      const gA = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(pendListing.goods_id);
-      eq(gA.goods_status, 30, '商品状态变为流拍(30)');
-
-      const lOrder = db.prepare('SELECT * FROM orders WHERE type = 5 AND status = 50 ORDER BY order_id DESC LIMIT 1').get();
-      ok(!!lOrder, '生成流拍记录(type=5)');
-
-      eq(
-        db.prepare('SELECT consignment_status c FROM orders WHERE order_id = ?').get(pendListing.order_id).c,
-        0, '流拍后原订单挂单标记已关闭',
-      );
-
-      // 幂等：再扫一次不应重复生成
-      const scan2 = await api('/admin/api/streambeat/scan', {
-        method: 'POST', token: at, body: { date: '2026-10-29' },
-      });
-      eq(
-        db.prepare('SELECT COUNT(*) c FROM orders WHERE type = 5 AND goods_id = ?').get(pendListing.goods_id).c,
-        1, '同一挂单不会重复判流拍',
-      );
-      ok(scan2.code === 1, '重复扫描不报错', scan2.msg);
-
-      const rel = await api('/admin/api/streambeat/release', {
-        method: 'POST', token: at, body: { order_id: lOrder.order_id },
-      });
-      ok(rel.code === 1, '释放流拍', rel.msg);
-      const gR = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(pendListing.goods_id);
-      eq(gR.goods_status, 10, '释放后商品恢复上架(10)');
-    }
-
-
-    console.log('\n[10] 场次时段 / 开放日 + 专场转拍时限');
+    console.log('\n[7] 场次时段 / 开放日 + 专场转拍时限');
     const cfgSave = await api('/admin/api/specialarea/save', {
       method: 'POST', token: at,
       body: { specialarea_id: 1, title_main: '测试专场' },
@@ -463,7 +351,7 @@ async function main() {
     }
 
 
-    console.log('\n[11] 后台补充接口');
+    console.log('\n[8] 后台补充接口');
     const st = await api('/admin/api/stats/goods', { token: at });
     ok(st.code === 1 && Number(st.data?.total_amount) > 0, '商品金额统计', `总额 ${st.data?.total_amount}`);
 
@@ -483,21 +371,6 @@ async function main() {
       const afterClear = Number((await detail(seller)).e_card_number);
       eq(afterClear, 0, `清除佣金生效（原 ${beforeClear}）`);
     }
-
-    const rep = await api('/api/order/toOrderReport', {
-      method: 'POST', token: buyer, body: { order_id: oid, reason: '商品与描述不符', content: '测试举报' },
-    });
-    ok(rep.code === 1, 'H5 提交举报', rep.msg);
-
-    const repList = await api('/admin/api/report/list?page=1&limit=5', { token: at });
-    const rp = (repList.data?.data || [])[0];
-    ok(!!rp && rp.status === 0, '后台可见待处理举报', `共 ${repList.data?.total} 条`);
-
-    await api('/admin/api/report/audit', {
-      method: 'POST', token: at, body: { report_id: rp.report_id, pass: true, result: '已核实' },
-    });
-    const rp2 = db.prepare('SELECT status FROM order_report WHERE report_id = ?').get(rp.report_id);
-    eq(rp2.status, 10, '举报审核流转为已处理');
 
     // 积分商城：接口路径对齐原站 /api/score/（不是 /api/goods/score/）
     // 积分商品自本轮起是独立表 score_item，不再关联 goods
@@ -567,7 +440,7 @@ async function main() {
     ok(allPaths.includes('/setting/prompt'), '节点树保留须知配置');
 
 
-    console.log('\n[12] 订单增强与权限节点');
+    console.log('\n[9] 订单增强与权限节点');
     const imp = await api('/admin/api/orders/import', {
       method: 'POST', token: at,
       body: { rows: [{ goods_id: 2, member_id: bid, price: 500, num: 4 }] },
@@ -579,13 +452,6 @@ async function main() {
       method: 'POST', token: at, body: { rows: [{ goods_id: 999999, member_id: bid }] },
     });
     ok(badImp.data?.failCount === 1 && /商品不存在/.test(badImp.data.errors[0].msg), '导入失败行返回原因');
-
-    const sp = await api('/admin/api/orders/split', {
-      method: 'POST', token: at, body: { order_id: impOid, split_num: 2 },
-    });
-    ok(sp.code === 1 && sp.data?.per === 2, '后台拆分订单', sp.msg);
-    const splitRows = db.prepare("SELECT COUNT(*) c FROM orders WHERE remark LIKE '由订单%拆分'").get().c;
-    ok(splitRows >= 1, '拆分后生成新订单', `${splitRows} 笔`);
 
     const tm = await api('/admin/api/member/team-orders?member_id=1', { token: at });
     ok(tm.code === 1 && tm.data?.team_count >= 1, '团队订单视图', `团队 ${tm.data?.team_count} 人 / ${tm.data?.order_count} 单`);
@@ -658,8 +524,8 @@ async function main() {
     ok(!(adminRows.data?.data?.[0] && 'password' in adminRows.data.data[0]), '管理员列表不会返回密码哈希');
     const modules = await api('/admin/api/modules', { token: at });
     const goodsStatusField = modules.data?.find((x) => x.key === 'goods')?.fields?.find((x) => x.k === 'goods_status');
-    ok(goodsStatusField?.type === 'select' && Object.keys(goodsStatusField.opts || {}).length === 3,
-      '商品状态编辑元数据提供上架、下架、流拍三态选择');
+    ok(goodsStatusField?.type === 'select' && Object.keys(goodsStatusField.opts || {}).length === 2,
+      '商品状态编辑元数据提供上架、下架两态选择');
 
     const newMember = await api('/admin/api/member/save', {
       method: 'POST', token: at,
@@ -683,26 +549,29 @@ async function main() {
     const mn = await api('/admin/api/menu', { token: at });
     const menuPaths = (mn.data?.menus || []).flatMap((g) => g.items.map((i) => i.path));
     ok((mn.data?.menus || []).length >= 5, '菜单接口返回分组', `${mn.data?.menus?.length} 组`);
-    ok(menuPaths.includes('/goods') && menuPaths.includes('/shop-goods'), '菜单含抢购商品与商城商品');
+    ok(menuPaths.includes('/goods') && !menuPaths.includes('/shop-goods'), '菜单只有一个统一的商品管理');
     ok(!!mn.data?.menus?.[0]?.items?.[0]?.icon, '菜单项带图标');
 
     const opMenu = await api('/admin/api/menu', { token: tOp });
     const opPaths = (opMenu.data?.menus || []).flatMap((g) => g.items.map((i) => i.path));
     ok(opPaths.length > 0 && opPaths.length < menuPaths.length, '受限账号菜单已按权限裁剪', `${opPaths.length}/${menuPaths.length}`);
 
-    // 商品按类型分离
-    const gList1 = await api('/admin/api/goods/list?type=1&limit=50', { token: at });
-    const gList2 = await api('/admin/api/goods/list?type=2&limit=50', { token: at });
-    ok((gList1.data?.data || []).every((x) => x.type === 1), '抢购商品列表只含 type=1', `${gList1.data?.total} 件`);
-    ok((gList2.data?.data || []).every((x) => x.type === 2), '商城商品列表只含 type=2', `${gList2.data?.total} 件`);
+    // 商品已合并为一个模块：一条列表管全部，场次归属由关联表决定
+    const gListAll = await api('/admin/api/goods/list?limit=50', { token: at });
+    const gRowsAll = gListAll.data?.data || [];
+    ok(gRowsAll.length > 0 && gRowsAll.every((x) => Array.isArray(x._area_ids)), '商品列表统一返回关联场次', `${gListAll.data?.total} 件`);
+    const areaIdOne = db.prepare('SELECT specialarea_id FROM specialarea ORDER BY specialarea_id LIMIT 1').get()?.specialarea_id;
+    const byArea = await api(`/admin/api/goods/list?area_id=${areaIdOne}&limit=50`, { token: at });
+    ok((byArea.data?.data || []).length > 0
+      && (byArea.data?.data || []).every((x) => x._area_ids.includes(Number(areaIdOne))),
+      '按场次筛选只返回已关联该场的商品');
 
-    const wrongGoodsType = await api('/admin/api/goods/list?type=99', { token: tOp });
-    ok(wrongGoodsType.httpStatus === 403, '商品接口拒绝未定义商品类型的权限绕过', String(wrongGoodsType.httpStatus));
+    const noArea = await api('/admin/api/goods/list?area_id=999999&limit=50', { token: at });
+    ok(noArea.code === 1 && (noArea.data?.data || []).length === 0, '筛选不存在的场次返回空列表');
 
     // 后台角色与会员等级已分离
     const roles = db.prepare('SELECT role_id, role_name FROM store_role').all();
     ok(roles.length <= 3 && roles.every((r) => r.role_id >= 6), '后台角色表不再混入会员等级');
-    ok(db.prepare('SELECT COUNT(*) c FROM member_grade').get().c === 5, '会员等级独立存放于 member_grade');
 
     // 孤儿权限绑定清理：指向已不存在角色的记录必须被清掉
     db.prepare('INSERT OR IGNORE INTO store_role_node (role_id, node_id) VALUES (?,?)').run(88888, 1);
@@ -719,7 +588,7 @@ async function main() {
     });
     ok(superTry.code === 0, '超级管理员权限不可被修改', superTry.msg);
 
-    console.log('\n[13] 抢单服务费（后台可配置，买家额外承担，卖家仍收全额）');
+    console.log('\n[10] 抢单服务费（后台可配置，买家额外承担，卖家仍收全额）');
     const scGet = async () =>
       Number((await api('/admin/api/setting/trade', { token: at })).data?.values?.service_charge ?? -1);
     const scSet = async (v) =>
@@ -802,7 +671,7 @@ async function main() {
     }
 
     if (!KEEP_SCHEDULE) db.prepare("UPDATE goods SET area_date = ''").run(); // 本段只测口径，清掉日程
-    console.log('\n[14] 转拍自动涨价（逐轮复利，卖家收回全额）');
+    console.log('\n[11] 转拍自动涨价（逐轮复利，卖家收回全额）');
     const incOf = () => Number(
       db.prepare("SELECT `value` v FROM setting_config WHERE `key`='price_increase_rate'").get()?.v ?? 0,
     );
@@ -826,7 +695,7 @@ async function main() {
 
     const gw = db.prepare(
       `SELECT goods_id, goods_min_price FROM goods
-       WHERE goods_status = 10 AND type = 1 AND IFNULL(is_split, 0) = 0 AND member_id NOT IN (?, ?)
+       WHERE goods_status = 10 AND type = 1 AND member_id NOT IN (?, ?)
        ORDER BY goods_id LIMIT 1`,
     ).get(idA, idB);
     ok(!!gw, '找到可用商品（持有人既非 A 也非 B）');
@@ -897,7 +766,7 @@ async function main() {
     eq(incOf(), 3, '涨价率恢复 3%');
 
     if (!KEEP_SCHEDULE) db.prepare("UPDATE goods SET area_date = ''").run(); // 本段只测口径，清掉日程
-    console.log('\n[15] 我的店铺 + 平台回收');
+    console.log('\n[12] 我的店铺（收益口径 / 挂牌 / 被抢走后消失）');
 
     // ---------- 我的店铺：预计收益口径 ----------
     // 造一个明确的状态：会员 A 持有一件在售商品，且有一笔买入订单
@@ -907,7 +776,7 @@ async function main() {
     });
     const shopGoods = db.prepare(
       `SELECT g.goods_id, g.goods_min_price FROM goods g
-       WHERE g.goods_status = 10 AND g.type = 1 AND IFNULL(g.is_split,0) = 0 AND g.member_id <> ?
+       WHERE g.goods_status = 10 AND g.type = 1 AND g.member_id <> ?
        ORDER BY g.goods_id DESC LIMIT 1`,
     ).get(shopOwner.id);
     ok(!!shopGoods, '找到可用于店铺测试的商品');
@@ -961,58 +830,7 @@ async function main() {
       '商品被抢走后从我的店铺消失',
     );
 
-    // ---------- 平台回收 ----------
-    // 先制造一条流拍单：找一个挂在架上没卖掉的，回填时间后扫描
-    const rec = db.prepare(
-      `SELECT o.order_id, o.goods_id, o.member_id FROM orders o JOIN goods g ON g.goods_id = o.goods_id
-       WHERE o.type = 1 AND o.status IN (10,30) AND g.member_id = o.member_id AND g.goods_status = 10
-       ORDER BY o.order_id DESC LIMIT 1`,
-    ).get();
-    ok(!!rec, '找到可构造流拍的商品');
-    db.prepare("UPDATE orders SET consignment_status = 10, transposition_time = '2026-10-27 10:00:00' WHERE order_id = ?")
-      .run(rec.order_id);
-    const recScan = await api('/admin/api/streambeat/scan', {
-      method: 'POST', token: at, body: { date: '2026-10-27' },
-    });
-    ok(recScan.code === 1, '回收测试：先造出流拍单', recScan.msg);
-    const lOrder2 = db.prepare('SELECT * FROM orders WHERE type = 5 AND goods_id = ? ORDER BY order_id DESC LIMIT 1')
-      .get(rec.goods_id);
-    ok(!!lOrder2 && Number(lOrder2.status) === 50, '流拍单已生成待回收');
-
-    const listPrice = Number(db.prepare('SELECT goods_min_price p FROM goods WHERE goods_id = ?').get(rec.goods_id).p);
-    const ownerRow0 = Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(rec.member_id).amount);
-    const recycl = await api('/admin/api/streambeat/recycle', {
-      method: 'POST', token: at, body: { order_id: lOrder2.order_id },
-    });
-    ok(recycl.code === 1, '平台回收成功', recycl.msg);
-    eq(recycl.data?.price, listPrice, `回收价 = 挂牌价 ${listPrice}`);
-
-    const ownerRow1 = Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(rec.member_id).amount);
-    eq(money(ownerRow1 - ownerRow0), listPrice, '回收款已打给原持有人');
-
-    const recGoods = db.prepare('SELECT member_id, goods_status FROM goods WHERE goods_id = ?').get(rec.goods_id);
-    eq(recGoods.member_id, 0, '商品转为平台持仓（持有人置空）');
-    eq(recGoods.goods_status, 20, '回收后商品下架');
-    eq(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(lOrder2.order_id).status, 70, '流拍单置为已回收');
-
-    const flow = db.prepare(
-      "SELECT face_value FROM finance_energy WHERE member_id = ? AND type_name = '平台回收' ORDER BY energy_id DESC LIMIT 1",
-    ).get(rec.member_id);
-    eq(flow?.face_value, listPrice, '生成平台回收资金流水');
-
-    const recycl2 = await api('/admin/api/streambeat/recycle', {
-      method: 'POST', token: at, body: { order_id: lOrder2.order_id },
-    });
-    ok(recycl2.code === 0, '同一流拍单不可重复回收', recycl2.msg);
-
-    // 平台持仓商品可重新上架并被会员买走（无人收款）
-    db.prepare('UPDATE goods SET goods_status = 10 WHERE goods_id = ?').run(rec.goods_id);
-    const relist = await api('/api/order/toAddOrder', {
-      method: 'POST', token: buyer2Token, body: { goods_id: rec.goods_id, num: 1, pay_type: 1 },
-    });
-    ok(relist.code === 1, '平台持仓商品可重新上架并被购买', relist.msg);
-
-    console.log('\n[16] 注册邀请码开关');
+    console.log('\n[13] 注册邀请码开关');
     const inviteCfg = async () =>
       (await api('/admin/api/setting/trade', { token: at })).data?.values?.require_invite_code;
     const setInvite = async (v) =>
@@ -1065,7 +883,7 @@ async function main() {
     eq(await inviteCfg(), 10, '邀请码开关恢复开启');
     eq((await api('/api/index/getRegisterAgreements')).data?.require_invite_code, '1', 'H5 下发开关状态（开启=1）');
 
-    console.log('\n[17] 一级分销：终身绑定 + 后台可改绑');
+    console.log('\n[14] 一级分销：终身绑定 + 后台可改绑');
     // 平级奖已下线，配置组里不应再出现
     const tradeItems3b = (await api('/admin/api/setting/trade', { token: at })).data?.items || [];
     ok(!tradeItems3b.some((i) => i.k === 'same_level_award_rate'), '交易设置已移除平级奖');
@@ -1128,7 +946,7 @@ async function main() {
       method: 'POST', token: at, body: { member_id: yId, field: 'amount', value: 200000, remark: '分销测试注资' },
     });
     const buyGid = db.prepare(
-      'SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND IFNULL(is_split,0) = 0 AND member_id <> ? LIMIT 1',
+      'SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND member_id <> ? LIMIT 1',
     ).get(yId)?.goods_id;
     ok(!!buyGid, '找到分销测试商品');
     const yOrder = await api('/api/order/toAddOrder', {
@@ -1146,7 +964,7 @@ async function main() {
     ).get(xId, `%${yOrder.data.order_no}%`).c;
     eq(xAward, 0, '旧上级 X 拿不到这笔佣金');
 
-    console.log('\n[18] 会员管理：启用 / 禁用 / 删除');
+    console.log('\n[15] 会员管理：启用 / 禁用 / 删除');
     const memberStatus = async (ids, disabled) =>
       api('/admin/api/member/status', { method: 'POST', token: at, body: { ids, disabled } });
     const memberRemove = async (ids) =>

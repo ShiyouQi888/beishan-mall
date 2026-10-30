@@ -142,6 +142,10 @@ async function main() {
     });
     ok(cg.code === 1 && cg.data?.id, '创建商品', cg.msg);
     const gid = cg.data.id;
+    // 商品与场次改为关联表驱动：建完商品再单独关联，goods.specialarea_id 不再参与判断
+    await adminAt('/admin/api/specialarea/goods/add', {
+      method: 'POST', token: at, body: { specialarea_id: areaId, goods_ids: [gid] },
+    });
 
     const buyers = [];
     for (let i = 0; i < ROUNDS; i += 1) {
@@ -239,7 +243,12 @@ async function main() {
     ok(dbListing >= expectListing, '库中上架费合计已落库', `库中 ${yuan(dbListing)}`);
     section('[5] 趋势数据一致性');
     ok(Array.isArray(ovB.trend_daily) && ovB.trend_daily.length === 30, '日趋势返回 30 天');
-    const todayStr = new Date().toISOString().slice(0, 10);
+    // 本地日期（toISOString 是 UTC，东八区 0-8 点会差一天）
+    const todayStr = (() => {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    })();
     ok(ovB.trend_daily[29].date === todayStr, '日趋势最后一天 = 今天', ovB.trend_daily[29].date);
     ok(ovB.trend_daily.every((x, i) => i === 0 || x.date > ovB.trend_daily[i - 1].date), '日趋势按日期升序');
     eqMoney(ovB.trend_daily[29].net, ovB.today.net, '日趋势今天净利 = 今日净利卡片');
@@ -282,7 +291,7 @@ async function main() {
     const insEnergy = db.prepare(
       'INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
     );
-    insEnergy.run(buyers[0].mid, m2(ovD.total.income * 2), 3, '直推奖', 'PROBE_TMP', now());
+    insEnergy.run(buyers[0].mid, m2(ovD.total.income * 2), 1, '直推奖', 'PROBE_TMP', now());
     const ovF = (await adminAt('/admin/api/finance/overview', { token: at })).data;
     ok(ovF.risks.some((x) => x.title.includes('分销成本占收入')), '佣金超过收入 60% 时报分销成本风险');
     ok(m2(ovF.total.drive_award) > m2(ovF.total.income), '支出已超过收入');

@@ -27,7 +27,7 @@ const OFFICIAL = {
 
 if (!process.argv.includes('--yes')) {
   console.log(`即将重置：${DB_FILE}`);
-  console.log('会清空：会员、订单、订单日志、资金流水、提现、地址、收款卡、实名、举报、结算批次/账目/匹配、站内消息');
+  console.log('会清空：会员、订单、订单日志、资金流水、提现、地址、收款卡、实名、结算账目、站内消息');
   console.log(`会保留：后台账号、权限节点、全部配置、分类、场次、商品、广告、公告、运费模板、会员等级`);
   console.log('并只保留 1 个官方会员（邀请码来源 + 商品初始持有人）');
   console.log('\n确认执行请加 --yes：node scripts/reset-demo.mjs --yes');
@@ -64,10 +64,10 @@ const db = new DatabaseSync(DB_FILE);
 db.exec('PRAGMA busy_timeout = 5000');
 
 const wipe = [
-  'order_log', 'order_report', 'orders',
+  'order_log', 'orders',
   'finance_energy', 'finance_withdraw',
   'member_address', 'member_card', 'member_certification', 'member_msg',
-  'settle_match', 'settle_account', 'settle_batch', 'settle_pay',
+  'settle_pay',
 ];
 
 let removed = 0;
@@ -97,10 +97,10 @@ try {
      WHERE member_id = ?`,
   ).run(OFFICIAL.nick, OFFICIAL.mobile, hashPwd(OFFICIAL.password), OFFICIAL.code, keepId);
 
-  // 商品复位：全部归官方持有、上架、未拆分、流转归零
+  // 商品复位：全部归官方持有、上架、流转归零
   const goodsReset = db.prepare(
     `UPDATE goods SET member_id = ?, goods_status = 10, stock_num = 1,
-       is_split = 0, split_total = 0, turn_beat_num = 0, sales_actual = 0, is_sell = 10
+       turn_beat_num = 0, sales_actual = 0, is_sell = 10
      WHERE 1 = 1`,
   ).run(keepId).changes;
 
@@ -124,7 +124,7 @@ try {
 const chk = new DatabaseSync(DB_FILE);
 const count = (t) => chk.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c;
 console.log('\n重置后：');
-for (const t of ['member', 'orders', 'finance_energy', 'finance_withdraw', 'goods', 'goods_category', 'specialarea', 'setting_config', 'store_user', 'member_grade']) {
+for (const t of ['member', 'orders', 'finance_energy', 'finance_withdraw', 'goods', 'goods_category', 'specialarea', 'setting_config', 'store_user']) {
   console.log(`  ${t.padEnd(18)} ${count(t)}`);
 }
 const g = chk.prepare('SELECT goods_status, COUNT(*) c FROM goods GROUP BY goods_status').all();

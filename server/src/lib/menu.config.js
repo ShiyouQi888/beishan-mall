@@ -17,13 +17,8 @@ export const MENU = [
     items: [
       {
         path: '/goods',
-        title: '抢购商品',
+        title: '商品管理',
         icon: `<path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5v-9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>`,
-      },
-      {
-        path: '/shop-goods',
-        title: '商城商品',
-        icon: `<svg viewBox="0 0 24 24" width="17" height="17" fill="none"><circle cx="9" cy="20" r="1.6" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="20" r="1.6" stroke="currentColor" stroke-width="1.7"/><path d="M3 4h2.5l2.2 10.4A1.6 1.6 0 0 0 9.4 16h8.3a1.6 1.6 0 0 0 1.6-1.2L21 8H7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
       },
       {
         path: '/category',
@@ -51,14 +46,9 @@ export const MENU = [
         icon: `<rect x="4" y="3.5" width="16" height="17" rx="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M8 9h8M8 13h8M8 17h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
       },
       {
-        path: '/streambeat',
-        title: '流拍订单',
-        icon: `<path d="M12 3.5 3.5 8.5 12 13.5l8.5-5L12 3.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M4 15.5 12 20l8-4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`,
-      },
-      {
-        path: '/report',
-        title: '举报处理',
-        icon: `<path d="M12 3.5 21 20H3L12 3.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10v4M12 17.2v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
+        path: '/recycle',
+        title: '系统回收',
+        icon: `<path d="M20 12a8 8 0 1 1-2.3-5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M20.5 4.5V9H16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0 0 2.3 5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.5 19.5V15H8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`,
       },
       {
         path: '/orders/shop',
@@ -79,11 +69,6 @@ export const MENU = [
         path: '/finance-board',
         title: '财务大盘',
         icon: `<path d="M3.5 20.5h17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6.5 20V13M12 20V6.5M17.5 20v-4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m4.5 9.5 5-4 4 2.5 5.5-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
-      },
-      {
-        path: '/settlement',
-        title: '差价对账',
-        icon: `<path d="M4 8h13l-3-3M20 16H7l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
       },
       {
         path: '/settle',
@@ -109,11 +94,6 @@ export const MENU = [
         path: '/member',
         title: '会员列表',
         icon: `<circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.7"/><path d="M4.8 20c.6-3.5 3.6-5.8 7.2-5.8s6.6 2.3 7.2 5.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
-      },
-      {
-        path: '/member-grade',
-        title: '会员等级',
-        icon: `<path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.2 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.7l5.9-.8L12 3.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>`,
       },
       {
         path: '/certification',

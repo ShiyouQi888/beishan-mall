@@ -1,4 +1,4 @@
-// 后台补充接口：统计、会员操作、直推奖补发、指派订单、举报审核、缓存清理
+// 后台补充接口：统计、会员操作、直推奖补发、指派订单、缓存清理
 import { Router } from 'express';
 import { all, get, run, tx, now, today, db } from '../../db.js';
 import { ok, fail, authAdmin, money, ORDER_STATUS } from '../../lib/helper.js';
@@ -10,14 +10,12 @@ import { MENU } from '../../lib/menu.config.js';
 const r = Router();
 
 // ---------------- 统计 ----------------
-/** 商品金额统计（对齐原站 getstatistics 的四个卡片） */
+/** 商品金额统计（对齐原站 getstatistics 的四个卡片）——商品已统一，按「单价 × 库存」计货值 */
 r.get('/stats/goods', authAdmin, (req, res) => {
-  const type = Number(req.query.type) || 1; // 1抢购 2商城
   const amt = (extra) =>
     get(
-      `SELECT IFNULL(SUM(goods_min_price * CASE WHEN is_split = 1 THEN stock_num ELSE 1 END), 0) v
-       FROM goods WHERE type = ? AND ${extra}`,
-      type,
+      `SELECT IFNULL(SUM(goods_min_price * MAX(IFNULL(stock_num, 1), 1)), 0) v
+       FROM goods WHERE ${extra}`,
     )?.v || 0;
 
   res.json(
@@ -26,10 +24,13 @@ r.get('/stats/goods', authAdmin, (req, res) => {
       online_amount: money(amt('goods_status = 10')),
       offline_amount: money(amt('goods_status = 20')),
       pending_amount: money(amt('goods_status = 30')),
-      total_count: get('SELECT COUNT(*) c FROM goods WHERE type = ?', type).c,
-      online_count: get('SELECT COUNT(*) c FROM goods WHERE type = ? AND goods_status = 10', type).c,
-      offline_count: get('SELECT COUNT(*) c FROM goods WHERE type = ? AND goods_status = 20', type).c,
-      pending_count: get('SELECT COUNT(*) c FROM goods WHERE type = ? AND goods_status = 30', type).c,
+      // 已回收封顶的商品：前台不再展示，单独统计便于核对平台持仓
+      recycled_amount: money(amt('IFNULL(recycled, 0) = 1')),
+      total_count: get('SELECT COUNT(*) c FROM goods').c,
+      online_count: get('SELECT COUNT(*) c FROM goods WHERE goods_status = 10').c,
+      offline_count: get('SELECT COUNT(*) c FROM goods WHERE goods_status = 20').c,
+      pending_count: get('SELECT COUNT(*) c FROM goods WHERE goods_status = 30').c,
+      recycled_count: get('SELECT COUNT(*) c FROM goods WHERE IFNULL(recycled, 0) = 1').c,
     }),
   );
 });
@@ -169,7 +170,7 @@ r.post('/member/status', authAdmin, (req, res) => {
 /**
  * 批量删除会员。
  * 有业务记录的账号不能删——订单/流水/提现都引用会员，删了会变成孤儿数据，这种情况会提示改用禁用。
- * 支持的删除前提：无订单、无资金流水、无提现、无下级、无地址/收款卡/实名/举报。
+ * 支持的删除前提：无订单、无资金流水、无提现、无下级、无地址/收款卡/实名。
  */
 r.post('/member/remove', authAdmin, (req, res) => {
   const ids = (Array.isArray(req.body?.ids) ? req.body.ids : [req.body?.id]).map(Number).filter(Boolean);
@@ -194,8 +195,6 @@ r.post('/member/remove', authAdmin, (req, res) => {
     if (card) reasons.push(`${card} 张收款卡`);
     const cert = cnt('SELECT COUNT(*) c FROM member_certification WHERE member_id = ?', id);
     if (cert) reasons.push('实名认证记录');
-    const rep = cnt('SELECT COUNT(*) c FROM order_report WHERE member_id = ?', id);
-    if (rep) reasons.push(`${rep} 条举报`);
     return reasons;
   };
 
@@ -236,45 +235,6 @@ r.get('/member/options', authAdmin, (req, res) => {
     : all('SELECT member_id, nick_name, mobile FROM member ORDER BY member_id DESC LIMIT 50');
   res.json(ok(rows));
 });
-
-r.get('/streambeat/members', authAdmin, (req, res) => {
-  const kw = String(req.query.keyword || '').trim();
-  const rows = kw
-    ? all('SELECT member_id, nick_name, mobile, amount FROM member WHERE nick_name LIKE ? OR mobile LIKE ? LIMIT 50', `%${kw}%`, `%${kw}%`)
-    : all('SELECT member_id, nick_name, mobile, amount FROM member ORDER BY member_id DESC LIMIT 50');
-  res.json(ok(rows));
-});
-
-/** 把流拍/挂单商品指派给指定会员 */
-r.post('/streambeat/assign', authAdmin, (req, res) => {
-  const { order_id, member_id } = req.body || {};
-  const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
-  if (!o) return res.json(fail('订单不存在'));
-  const m = get('SELECT * FROM member WHERE member_id = ?', Number(member_id));
-  if (!m) return res.json(fail('目标会员不存在'));
-  if (!o.goods_id) return res.json(fail('该订单没有关联商品'));
-
-  tx(() => {
-    run('UPDATE goods SET member_id = ?, goods_status = 10, update_time = ? WHERE goods_id = ?',
-      m.member_id, now(), o.goods_id);
-    run('UPDATE orders SET member_id = ?, status = 30, finish_time = ?, remark = ? WHERE order_id = ?',
-      m.member_id, now(), `后台指派给 ${m.nick_name}`, o.order_id);
-    run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
-      o.order_id, '指派订单', 'admin', `指派给 ${m.nick_name}（${m.mobile}）`, now());
-  });
-  res.json(ok([], `已指派给 ${m.nick_name}`));
-});
-
-// ---------------- 举报审核 ----------------
-r.post('/report/audit', authAdmin, (req, res) => {
-  const { report_id, pass, result } = req.body || {};
-  const rp = get('SELECT * FROM order_report WHERE report_id = ?', Number(report_id));
-  if (!rp) return res.json(fail('举报记录不存在'));
-  run('UPDATE order_report SET status = ?, result = ? WHERE report_id = ?',
-    pass ? 10 : 20, result || '', rp.report_id);
-  res.json(ok([], pass ? '已处理' : '已驳回'));
-});
-
 
 // ---------------- 订单管理增强 ----------------
 /** 批量导入订单（后台录入，跳过前台风控） */
@@ -328,43 +288,6 @@ r.post('/orders/import', authAdmin, (req, res) => {
     ok({ okCount, failCount: errors.length, errors, created },
       `导入完成：成功 ${okCount} 条，失败 ${errors.length} 条`),
   );
-});
-
-/** 后台拆分订单：把一笔订单按数量拆成多笔 */
-r.post('/orders/split', authAdmin, (req, res) => {
-  const { order_id, split_num } = req.body || {};
-  const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
-  if (!o) return res.json(fail('订单不存在'));
-  const n = Number(split_num) || 2;
-  if (!Number.isInteger(n) || n < 2) return res.json(fail('拆分份数必须是不小于 2 的整数'));
-  if (n > 100) return res.json(fail('单次最多拆 100 份'));
-  if (Number(o.num) < n) return res.json(fail(`订单数量为 ${o.num}，无法拆成 ${n} 份`));
-  if (o.pay_status === 10 && o.consignment_status === 10) {
-    return res.json(fail('已转拍上架的订单不可拆分'));
-  }
-
-  const per = Math.floor(Number(o.num) / n);
-  const remain = Number(o.num) - per * (n - 1);
-  const price = Number(o.price);
-
-  tx(() => {
-    for (let i = 0; i < n - 1; i++) {
-      run(
-        `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
-          type, price, num, total_price, status, pay_status, pay_type, remark, create_time)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        orderNo('S'), o.member_id, o.seller_id, o.goods_id, o.goods_name, o.goods_thumb, o.specialarea_id,
-        o.type, price, per, money(price * per), o.status, o.pay_status, o.pay_type,
-        `由订单 ${o.order_no} 拆分`, now(),
-      );
-    }
-    run('UPDATE orders SET num = ?, total_price = ?, remark = ? WHERE order_id = ?',
-      remain, money(price * remain), `原订单拆分为 ${n} 份（本单 ${remain} 件）`, o.order_id);
-    run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
-      o.order_id, '后台拆分', 'admin', `拆成 ${n} 份，每份 ${per} 件`, now());
-  });
-
-  res.json(ok({ parts: n, per }, `已拆分为 ${n} 笔订单（每份 ${per} 件）`));
 });
 
 /** 会员团队订单视图 */
@@ -505,8 +428,6 @@ r.get('/sysinfo', authAdmin, (req, res) => {
         member: size('member'),
         goods: size('goods'),
         orders: size('orders'),
-        settle_batch: size('settle_batch'),
-        report: size('order_report'),
       },
     }),
   );

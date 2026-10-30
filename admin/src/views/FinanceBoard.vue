@@ -212,7 +212,6 @@ const rules = [
   { k: '平台回收支出', c: '流拍后平台把商品收回、把钱付给会员。这是「钱换成货」的资产转换，不计入经营损益，单独列示。' },
   { k: '现金净流', c: '经营净利 − 平台回收支出。反映平台账上现金的真实增减，为负说明在垫钱囤货。' },
   { k: '会员负债', c: '全体会员余额 + 可提现佣金。这是平台欠会员的钱，必须随时能兑付。' },
-  { k: '差价结算缺口', c: '核对中账后的差额。平台应付 > 会员应付，说明平台还要往外掏钱。' },
   { k: '单均毛利', c: '抢单服务费 − 直推奖。小于等于 0 意味着每做一单都亏钱，是最高优先级的风险。' },
 ];
 
@@ -264,7 +263,6 @@ const mainCards = computed(() => {
 const subCards = computed(() => {
   const x = d.value;
   if (!x) return [];
-  const gap = Number(x.settle.payable) - Number(x.settle.receivable);
   return [
     {
       label: '累计现金净流',
@@ -279,13 +277,6 @@ const subCards = computed(() => {
       money: true,
       color: '#c88a1e',
       hint: `已打款 ¥${fmt(x.liability.paid_withdraw)}`,
-    },
-    {
-      label: '差价结算缺口',
-      value: fmt(gap),
-      money: true,
-      color: Number(gap) > 0 ? '#e63c26' : '#1f9d5f',
-      hint: `应付会员 ¥${fmt(x.settle.payable)} · 应收 ¥${fmt(x.settle.receivable)}`,
     },
     {
       label: '单均毛利',

@@ -2,18 +2,21 @@
 import { Router } from 'express';
 import { all, get } from '../../db.js';
 import { ok, authAdmin, money, cfg } from '../../lib/helper.js';
+import { todayStr, addDays } from '../../lib/sessionWindow.js';
 
 const r = Router();
 
 const num = (v) => money(Number(v || 0));
-const today = () => new Date().toISOString().slice(0, 10);
+// 必须用本地日期：toISOString 是 UTC，东八区凌晨 0-8 点会算成「昨天」，
+// 今日订单/服务费/净利全部显示 0（跨零点后大盘直接失真）。
+const today = () => todayStr();
 
 /**
  * 口径说明（写进接口里，前端直接展示，避免各页面口径不一）：
  *   经营收入 = 抢单服务费（orders.service_charge，已支付）+ 转拍上架费（orders.listing_fee）
  *   经营支出 = 直推奖（finance_energy type=1）
  *   经营净利 = 收入 − 支出
- *   回收支出 = 平台回收付给会员的钱（资产转换，不计入经营损益，单列）
+ *   回收支出 = 平台接盘付给会员的钱（流拍回收历史数据 + 到顶系统回收，资产转换，不计入经营损益，单列）
  *   现金净流 = 经营净利 − 回收支出
  *   会员负债 = 会员余额合计 + 可提现佣金合计（平台需要兑付的钱）
  */
@@ -34,7 +37,7 @@ function rangeStats(from, to) {
   )?.v;
   const recycle = get(
     `SELECT IFNULL(SUM(face_value),0) v FROM finance_energy
-     WHERE type_name = '平台回收' AND create_time >= ? AND create_time <= ?`,
+     WHERE type_name IN ('平台回收', '系统回收') AND create_time >= ? AND create_time <= ?`,
     from, to,
   )?.v;
   const withdraw = get(
@@ -65,7 +68,7 @@ function rangeStats(from, to) {
 
 /** 每日趋势（近 N 天，缺失日期补 0） */
 function dailyTrend(days = 30) {
-  const start = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
+  const start = addDays(today(), -(days - 1));
   const rows = all(
     `SELECT substr(create_time,1,10) d,
             COUNT(*) c,
@@ -88,7 +91,7 @@ function dailyTrend(days = 30) {
 
   const out = [];
   for (let i = 0; i < days; i += 1) {
-    const d = new Date(Date.now() - (days - 1 - i) * 86400000).toISOString().slice(0, 10);
+    const d = addDays(today(), -(days - 1 - i));
     const o = orderMap.get(d) || {};
     const svc = num(o.svc);
     const listing = num(o.listing);
@@ -135,17 +138,6 @@ r.get('/finance/overview', authAdmin, (req, res) => {
   const paidWithdraw = num(get('SELECT IFNULL(SUM(amount),0) v FROM finance_withdraw WHERE status = 10').v);
   const liability = money(balance + commission);
 
-  // 结算缺口：中账差额为负=会员应付平台，正=平台应付会员
-  const settleRows = all(
-    `SELECT IFNULL(SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END),0) payable,
-            IFNULL(SUM(CASE WHEN balance < 0 THEN -balance ELSE 0 END),0) receivable,
-            COUNT(*) c
-     FROM settle_account`,
-  )[0] || {};
-  const unmatched = get(
-    `SELECT IFNULL(SUM(amount),0) v FROM settle_match WHERE pay_status = 0`,
-  ).v;
-
   // 风险判定
   const svcRate = Number(cfg('service_charge', '0'));
   const awardRate = Number(cfg('drive_award_rate', '0'));
@@ -178,7 +170,7 @@ r.get('/finance/overview', authAdmin, (req, res) => {
     risks.push({
       level: 'warn',
       title: `现金净流为负（¥${totalStats.cash_net}）`,
-      detail: `平台回收已累计付出 ¥${totalStats.recycle_cost}。这是把钱变成库存，短期现金压力大，需确认回收商品能再卖出。`,
+      detail: `平台回收（含到顶回收）已累计付出 ¥${totalStats.recycle_cost}。这是把钱变成库存，短期现金压力大，需确认回收商品能再卖出。`,
     });
   }
   // 分销成本率：直推奖（含团队奖）占经营收入的比例，超过 60% 说明赚的钱大半发给了推广
@@ -210,13 +202,6 @@ r.get('/finance/overview', authAdmin, (req, res) => {
       detail: '这些钱已经冻结在会员余额之外，审核通过后即真实流出，请预留资金。',
     });
   }
-  if (Number(unmatched) > 0) {
-    risks.push({
-      level: 'info',
-      title: `未确认的匹配付款单 ¥${num(unmatched)}`,
-      detail: '中账差额已有匹配单但还没确认收款，确认后账目才算结清。',
-    });
-  }
   if (negativeMembers > 0) {
     risks.push({
       level: 'high',
@@ -238,12 +223,6 @@ r.get('/finance/overview', authAdmin, (req, res) => {
       total: liability,
       pending_withdraw: pendingWithdraw,
       paid_withdraw: paidWithdraw,
-    },
-    settle: {
-      payable: num(settleRows.payable),
-      receivable: num(settleRows.receivable),
-      accounts: Number(settleRows.c || 0),
-      unmatched: num(unmatched),
     },
     rate: {
       service_charge: svcRate,

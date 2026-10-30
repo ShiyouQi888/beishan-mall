@@ -5,7 +5,11 @@ import { all, get, run, tx, now, today } from '../../db.js';
 import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE } from '../../lib/helper.js';
 import { hashPwd, verifyPwd, needsRehash, signAdmin, randomCode } from '../../lib/auth.js';
 import { settleOrder, goodsStillOwnedBySeller } from '../../lib/settle.js';
-import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat, restoreStock } from '../../lib/split.js';
+import { restoreStock } from '../../lib/stock.js';
+import { areasOfGoods, areaMapOfGoods, setGoodsAreas, addGoodsToArea, removeGoodsFromArea, clearAreaLinks } from '../../lib/areaGoods.js';
+import { priceCapOf } from '../../lib/priceCap.js';
+import { todayStr, addDays } from '../../lib/sessionWindow.js';
+import { scanCappedGoods, settlePending, recycleSummary } from '../../lib/recycle.js';
 import extraRouter from './extra.js';
 import mediaRouter from './media.js';
 import systemRouter from './system.js';
@@ -27,19 +31,24 @@ const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` =
 // ============================================================
 const M = {
   goods: {
-    table: 'goods', pk: 'goods_id', label: '抢购商品',
+    table: 'goods', pk: 'goods_id', label: '商品',
     search: ['goods_name', 'goods_no'],
     orderBy: 'goods_id DESC',
     fields: [
       { k: 'goods_id', t: 'ID', type: 'text', readonly: true, w: 64 },
       { k: 'good_thumb', t: '商品图片', type: 'image', w: 84 },
+      { k: 'images', t: '图集', type: 'images', hide: true },
       { k: 'goods_name', t: '商品名称', type: 'text', w: 140 },
       { k: 'goods_no', t: '商品编码', type: 'text', w: 116, hide: true },
-      { k: 'specialarea_id', t: '场次', type: 'select', opts: 'specialarea', w: 104 },
-      { k: 'area_date', t: '场次日期', type: 'text', readonly: true, w: 104, tip: '轮转上架时自动写入。空白表示不限日期（后台手动上架的商品）' },
+      // 场次由「抢购场次 → 关联商品」决定，商品这边只读展示，不再提供选择框
+      { k: 'areas', t: '关联场次', type: 'areas', readonly: true, w: 150, tip: '在场次页「关联商品」里维护。一件商品可以同时关联多个场次；没有关联任何场次时，它只在首页/分类/搜索里正常售卖，不受场次时间限制。' },
+      { k: 'area_date', t: '场次日期', type: 'text', readonly: true, w: 100, hide: true, tip: '轮转上架时自动写入。空白表示不限日期（未进入场次的商品）' },
       { k: 'category_id', t: '分类', type: 'select', opts: 'category', w: 96 },
       { k: 'member_id', t: '现持有人', type: 'holder', w: 104 },
       { k: 'goods_min_price', t: '售卖价', type: 'money', w: 100 },
+      { k: 'base_price', t: '基准价', type: 'money', w: 100, hide: true, tip: '涨跌幅从这个价起算，默认取首次上架时的售卖价；转拍涨价不会改它。改这里等于重设涨幅起点。' },
+      { k: 'price_cap', t: '价格上限(元)', type: 'money', w: 108, hide: true, tip: '填金额，不是百分比：这是一道围栏，任何一轮标价都不能越过它。判定不是「等到等于上限」，而是「下一轮涨价会越界时」就停止转拍（如上限 1200、当前 1180、涨 3% 会到 1215 → 到顶）。0 = 不限。' },
+      { k: 'price_warning', t: '价格水位', type: 'capbar', readonly: true, w: 168, tip: '绿 → 黄 → 红表示当前价在「基准价 → 价格上限」这段区间里的位置；红色表示已达上限、不能再转拍。' },
       { k: 'line_price', t: '划线价', type: 'money', w: 100, hide: true },
       { k: 'stock_num', t: '库存', type: 'number', w: 72, tip: '还能被抢几个名额。填 1 = 唯一的一件货，成交后整件归买家并下架，等买家转拍；填 >1 = 一批货，抢一个减一个名额，抢光才下架，整件始终归原持有人。' },
       { k: 'session_quota', t: '每场放量', type: 'number', w: 92, hide: true, tip: '这一场只拿出多少件来卖。0 = 不限，整批库存都能卖。例如库存 100 件、这里填 10：本场最多卖 10 件，卖满立刻结束变灰，剩下 90 件留到下一场。注意是「名额数」不是「人数」—— 10 个名额 + 每人限购 2 件 = 5 个人就抢完了。' },
@@ -48,7 +57,6 @@ const M = {
       { k: 'goods_sort', t: '排序', type: 'number', w: 72, hide: true },
       { k: 'goods_status', t: '状态', type: 'select', opts: GOODS_STATUS, w: 84 },
       { k: 'detail', t: '商品详情', type: 'rich', hide: true },
-      { k: 'images', t: '图集', type: 'images', hide: true },
       { k: 'create_time', t: '添加时间', type: 'text', readonly: true, w: 150, hide: true },
     ],
   },
@@ -80,6 +88,7 @@ const M = {
       { k: 'start_time', t: '开始时间', type: 'timesec', w: 88 },
       { k: 'end_time', t: '结束时间', type: 'timesec', w: 88 },
       { k: 'buy_num', t: '限购次数', type: 'number', w: 84 },
+      { k: 'area_goods_count', t: '商品数', type: 'count', readonly: true, w: 80, tip: '本场次已关联多少件商品。点「配置」进去可以增减。' },
       { k: 'transposition_hours', t: '转拍时限(小时)', type: 'number', w: 96 },
       { k: 'is_subscribe', t: '开放预约', type: 'switch', opts: { 10: '是', 0: '否' }, w: 100 },
       { k: 'is_open', t: '启用', type: 'switch', opts: { 10: '启用', 20: '停用' }, w: 90 },
@@ -96,7 +105,6 @@ const M = {
       { k: 'mobile', t: '手机号', type: 'text', w: 130 },
       { k: 'password', t: '登录密码', type: 'password', hide: true },
       { k: 'invitation_code', t: '邀请码', type: 'text', w: 112, readonly: true },
-      { k: 'identity_vip', t: '会员等级', type: 'vip', w: 100 },
       { k: 'is_valid', t: '会员身份', type: 'select', opts: { 10: '有效会员', 20: '无效会员' }, w: 110, hide: true },
       { k: 'is_certification', t: '实名', type: 'cert', w: 90, readonly: true },
       { k: 'amount', t: '账户余额', type: 'money', w: 110, readonly: true },
@@ -108,6 +116,26 @@ const M = {
       { k: 'is_advance', t: '提前抢购', type: 'switch', opts: { 10: '已开通', 0: '未开通' }, w: 100, readonly: true },
       { k: 'disabled', t: '状态', type: 'switch', opts: { 10: '正常', 20: '禁用' }, w: 90 },
       { k: 'create_time', t: '注册时间', type: 'text', readonly: true, w: 160 },
+    ],
+  },
+  // 系统回收台账：商品涨到价格上限后被平台接盘结算的记录（只读，结算走专用接口）
+  recycle: {
+    table: 'goods_recycle', pk: 'recycle_id', label: '系统回收',
+    search: ['goods_name'], orderBy: 'recycle_id DESC',
+    fields: [
+      { k: 'recycle_id', t: 'ID', type: 'text', readonly: true, w: 64 },
+      { k: 'good_thumb', t: '图片', type: 'image', w: 76 },
+      { k: 'goods_name', t: '商品', type: 'text', readonly: true, w: 160 },
+      { k: 'member_id', t: '原持有人', type: 'member', readonly: true, w: 132 },
+      { k: 'buy_price', t: '买入价', type: 'money', readonly: true, w: 96 },
+      { k: 'increase_rate', t: '结算涨幅(%)', type: 'number', readonly: true, w: 96, hide: true },
+      { k: 'recycle_price', t: '回收价', type: 'money', readonly: true, w: 100 },
+      { k: 'profit', t: '持有人收益', type: 'money', readonly: true, w: 100 },
+      { k: 'cap_price', t: '当时上限价', type: 'money', readonly: true, w: 108, hide: true },
+      { k: 'status', t: '状态', type: 'select', opts: { 10: '已结算', 20: '待处理' }, readonly: true, w: 88 },
+      { k: 'create_time', t: '产生时间', type: 'text', readonly: true, w: 140 },
+      { k: 'settle_time', t: '结算时间', type: 'text', readonly: true, w: 156, hide: true },
+      { k: 'remark', t: '备注', type: 'text', readonly: true, w: 180, hide: true },
     ],
   },
   orders: {
@@ -145,35 +173,6 @@ const M = {
       { k: 'back_image', t: '反面', type: 'image', w: 80 },
       { k: 'status', t: '审核状态', type: 'select', opts: { 0: '待审核', 10: '已通过', 20: '已拒绝' }, w: 110 },
       { k: 'create_time', t: '提交时间', type: 'text', readonly: true, w: 160 },
-    ],
-    actions: ['audit'],
-  },
-  grade: {
-    table: 'member_grade', pk: 'grade_id', label: '会员等级',
-    search: ['name'], orderBy: 'grade_id ASC',
-    fields: [
-      { k: 'grade_id', t: '等级', type: 'text', readonly: true, w: 70 },
-      { k: 'name', t: '等级名称', type: 'text', required: true },
-      { k: 'drive_num', t: '直推人数', type: 'number', w: 100 },
-      { k: 'team_valid', t: '团队有效人数', type: 'number', w: 120 },
-      { k: 'team_water', t: '团队流水(万)', type: 'number', w: 120 },
-      { k: 'team_award', t: '团队奖(%)', type: 'number', w: 110 },
-    ],
-  },
-  report: {
-    table: 'order_report', pk: 'report_id', label: '举报',
-    search: ['reason', 'content'], orderBy: 'report_id DESC',
-    fields: [
-      { k: 'report_id', t: 'ID', type: 'text', readonly: true, w: 64 },
-      { k: 'member_id', t: '举报人', type: 'member', w: 110 },
-      { k: 'order_id', t: '订单ID', type: 'text', w: 84 },
-      { k: 'goods_id', t: '商品ID', type: 'text', w: 84 },
-      { k: 'reason', t: '举报原因', type: 'text', w: 140 },
-      { k: 'content', t: '补充说明', type: 'text' },
-      { k: 'images', t: '凭证', type: 'image', w: 80 },
-      { k: 'status', t: '状态', type: 'select', opts: { 0: '待处理', 10: '已处理', 20: '已驳回' }, w: 96 },
-      { k: 'result', t: '处理结果', type: 'text', w: 140, hide: true },
-      { k: 'create_time', t: '提交时间', type: 'text', readonly: true, w: 150 },
     ],
     actions: ['audit'],
   },
@@ -397,8 +396,8 @@ r.get('/dashboard', authAdmin, (req, res) => {
       overview: {
         member_total: num('SELECT COUNT(*) c FROM member'),
         member_today: num('SELECT COUNT(*) c FROM member WHERE create_time >= ?', d),
-        goods_total: num('SELECT COUNT(*) c FROM goods WHERE type = 1'),
-        goods_online: num("SELECT COUNT(*) c FROM goods WHERE type = 1 AND goods_status = 10"),
+        goods_total: num('SELECT COUNT(*) c FROM goods'),
+        goods_online: num('SELECT COUNT(*) c FROM goods WHERE goods_status = 10'),
         order_total: num('SELECT COUNT(*) c FROM orders'),
         order_today: num('SELECT COUNT(*) c FROM orders WHERE create_time >= ?', d),
         turnover_total: money(sum("SELECT IFNULL(SUM(total_price),0) v FROM orders WHERE pay_status = 10")),
@@ -480,10 +479,33 @@ r.get('/notifications/withdrawals', authAdmin, (req, res) => {
   res.json(ok({ latest_id: latestId, items }));
 });
 
+// 系统回收通知：按回收单 ID 增量读取。到顶回收是系统自动发生的，
+// 运营不在回收页时也要能第一时间收到提醒（后台全局轮询 + 语音播报）。
+r.get('/notifications/recycles', authAdmin, (req, res) => {
+  const hasCursor = req.query.after_id !== undefined && req.query.after_id !== '';
+  const afterId = hasCursor ? Number(req.query.after_id) : 0;
+  if (!Number.isSafeInteger(afterId) || afterId < 0) return res.json(fail('回收通知游标无效'));
+
+  if (!hasCursor) {
+    const latestId = Number(get('SELECT IFNULL(MAX(recycle_id),0) id FROM goods_recycle')?.id || 0);
+    return res.json(ok({ latest_id: latestId, items: [] }));
+  }
+
+  const items = all(
+    `SELECT r.recycle_id, r.goods_id, r.goods_name, r.member_id, r.buy_price, r.recycle_price,
+            r.status, r.create_time, m.nick_name
+     FROM goods_recycle r LEFT JOIN member m ON m.member_id = r.member_id
+     WHERE r.recycle_id > ? ORDER BY r.recycle_id ASC LIMIT 50`,
+    afterId,
+  );
+  const latestId = items.length ? Number(items[items.length - 1].recycle_id) : afterId;
+  res.json(ok({ latest_id: latestId, items }));
+});
+
 function buildTrend() {
   const days = [];
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
+    const d = addDays(todayStr(), -i);
     const orders = get('SELECT COUNT(*) c, IFNULL(SUM(total_price),0) v FROM orders WHERE create_time >= ? AND create_time < ?', d, d + ' 23:59:59');
     const members = get('SELECT COUNT(*) c FROM member WHERE create_time >= ? AND create_time < ?', d, d + ' 23:59:59');
     days.push({ date: d.slice(5), orders: orders.c, amount: money(orders.v), members: members.c });
@@ -548,6 +570,8 @@ const SETTING_GROUPS = {
     { k: 'consignment_rule', t: '转拍规则说明', type: 'textarea' },
     { k: 'withdraw_min', t: '最低提现金额', type: 'number' },
     { k: 'withdraw_fee', t: '提现手续费(%)', type: 'number' },
+    { k: 'recycle_open', t: '到顶自动回收', type: 'switch', tip: '开启：商品的下一轮涨价会越过「价格上限」时即判定到顶，持有人无法再转拍，系统按商品「当前实际价格」接盘结算（刚买下的按买入价原价退回），商品转平台持仓。关闭：只记一笔「待处理」，不自动打款。' },
+    { k: 'recycle_daily_cap', t: '每日回收上限(元)', type: 'number', tip: '平台每天最多垫付多少回收款；0 = 不限。超出后当天的到顶商品只记「待处理」，可在「订单管理 → 系统回收」里手动结算。' },
   ],
   pay: [
     { k: 'pay_balance_open', t: '余额支付', type: 'switch' },
@@ -653,74 +677,9 @@ r.post('/setting/save', authAdmin, (req, res) => {
 });
 
 
-// ---------------- 场次结算（差价匹配） ----------------
-// 差价结算：已停用（仅保留历史批次的查看）
-//
-// 原因：成交流程早已改成「即时入账」——买家付款时扣余额、卖家当场到账（lib/settle.js）。
-// 再跑一遍差价匹配会额外生成「会员之间互相打款」的付款单，等于让收款方收第二次钱。
-// 如果你确实要把会员余额当虚拟账、货款全部走线下，需要重新实现差价匹配（原实现已删）。
-r.post('/settle/run', authAdmin, (req, res) => {
-  res.json(fail('差价结算已停用：现在成交即入账，再生成会员间付款单会导致重复收款'));
-});
-
-r.get('/settle/batches', authAdmin, (req, res) => {
-  const list = all('SELECT * FROM settle_batch ORDER BY batch_id DESC LIMIT 50');
-  res.json(ok(list.map((b) => ({
-    ...b,
-    area_name: b.specialarea_id
-      ? get('SELECT title_main n FROM specialarea WHERE specialarea_id = ?', b.specialarea_id)?.n || ''
-      : '全部场次',
-  }))));
-});
-
-r.get('/settle/accounts', authAdmin, (req, res) => {
-  const bid = Number(req.query.batch_id);
-  const rows = all(
-    `SELECT sa.*, m.nick_name, m.mobile FROM settle_account sa
-     LEFT JOIN member m ON m.member_id = sa.member_id
-     WHERE sa.batch_id = ? ORDER BY ABS(sa.balance) DESC`,
-    bid,
-  );
-  res.json(ok(rows));
-});
-
-r.get('/settle/matches', authAdmin, (req, res) => {
-  const bid = Number(req.query.batch_id);
-  const rows = all(
-    `SELECT sm.*,
-       pm.nick_name payer_name, pm.mobile payer_mobile,
-       qm.nick_name payee_name, qm.mobile payee_mobile
-     FROM settle_match sm
-     LEFT JOIN member pm ON pm.member_id = sm.payer_id
-     LEFT JOIN member qm ON qm.member_id = sm.payee_id
-     WHERE sm.batch_id = ? ORDER BY sm.match_id`,
-    bid,
-  );
-  res.json(ok(rows));
-});
-
-r.post('/settle/confirm-match', authAdmin, (req, res) => {
-  const { match_id, pass } = req.body || {};
-  const m = get('SELECT * FROM settle_match WHERE match_id = ?', Number(match_id));
-  if (!m) return res.json(fail('记录不存在'));
-  if (m.pay_status === 20) return res.json(fail('该笔已完成'));
-  run('UPDATE settle_match SET pay_status = ?, confirm_time = ? WHERE match_id = ?',
-    pass ? 20 : 10, now(), m.match_id);
-  res.json(ok([], pass ? '已确认收款' : '已标记待确认'));
-});
-
-
-// ---------------- 拆分 & 流拍 ----------------
-r.post('/goods/split', authAdmin, (req, res) => {
-  const { goods_id, parts } = req.body || {};
-  const out = splitGoods(goods_id, parts, 0);
-  if (!out.ok) return res.json(fail(out.reason));
-  res.json(ok(out, `已拆分为 ${out.parts} 份，每份 ¥${out.per_part.toFixed(2)}`));
-});
-
-/** 按 type 生成下一个商品编码：抢购 GP20260001 / 商城 SP20260001 */
-function nextGoodsNo(type) {
-  const prefix = Number(type) === 2 ? 'SP' : 'GP';
+/** 生成下一个商品编码：统一 GP20260001（不再区分抢购/商城） */
+function nextGoodsNo() {
+  const prefix = 'GP';
   const year = String(new Date().getFullYear());
   const head = `${prefix}${year}`;
   const rows = all('SELECT goods_no FROM goods WHERE goods_no LIKE ?', `${head}%`);
@@ -747,7 +706,7 @@ r.post('/goods/duplicate', authAdmin, (req, res) => {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(req.body?.goods_id));
   if (!g) return res.json(fail('商品不存在'));
 
-  const goodsNo = nextGoodsNo(g.type);
+  const goodsNo = nextGoodsNo();
   const platformOwned = Number(g.member_id) === 0;
   const status = platformOwned ? Number(g.goods_status) || 20 : 20;
   const isSell = platformOwned ? Number(g.is_sell) || 0 : 0;
@@ -755,42 +714,134 @@ r.post('/goods/duplicate', authAdmin, (req, res) => {
 
   const info = run(
     `INSERT INTO goods (goods_name, goods_no, good_thumb, images, detail, category_id, specialarea_id, area_date,
-       member_id, goods_min_price, line_price, stock_num, stock_total, sales_actual, goods_status, is_sell,
-       is_split, split_total, session_quota, turn_beat_num, goods_sort, type, score_price, create_time, update_time)
-     VALUES (?,?,?,?,?,?,?,'',0,?,?,?,?,0,?,?,?,?,?,0,?,?,?,?,?)`,
+       member_id, goods_min_price, base_price, price_cap, line_price, stock_num, stock_total, sales_actual,
+       goods_status, is_sell, session_quota, turn_beat_num, goods_sort, type, score_price, create_time, update_time)
+     VALUES (?,?,?,?,?,?,?,'',0,?,?,?,?,?,?,0,?,?,?,0,?,?,?,?,?)`,
     `${g.goods_name}（副本）`, goodsNo, g.good_thumb || '', g.images || '', g.detail || '',
     Number(g.category_id) || 0, Number(g.specialarea_id) || 0,
-    Number(g.goods_min_price) || 0, Number(g.line_price) || 0,
+    // 副本是全新的挂牌：基准价取它自己的售价（涨幅从 0 起算），上限沿用源商品
+    Number(g.goods_min_price) || 0, Number(g.goods_min_price) || 0, Number(g.price_cap) || 0,
+    Number(g.line_price) || 0,
     Number(g.stock_num) || 0, Math.max(1, Number(g.stock_num) || 0), status, isSell,
-    Number(g.is_split) || 0, Number(g.split_total) || 0, Number(g.session_quota) || 0,
+    Number(g.session_quota) || 0,
     Number(g.goods_sort) || 100, Number(g.type) || 1, Number(g.score_price) || 0,
     t, t,
   );
 
   const newId = Number(info.lastInsertRowid);
+  // 场次关联跟着一起复制（旧版复制的是 goods.specialarea_id，行为保持一致）。
+  // 新商品默认是下架态，落在同一场次也不会立刻出现在抢购列表里。
+  setGoodsAreas(newId, areasOfGoods(g.goods_id).map((a) => Number(a.specialarea_id)));
   const tip = platformOwned && status === 10
     ? '已复制，可直接编辑或下架'
     : '已复制并设为下架，确认价格与场次后再上架';
   res.json(ok({ goods_id: newId, goods_no: goodsNo }, tip));
 });
 
-r.post('/streambeat/scan', authAdmin, (req, res) => {
-  const { specialarea_id = 0, date = '' } = req.body || {};
-  const out = scanStreambeat(Number(specialarea_id), date);
-  res.json(ok(out, out.count ? `扫描完成，${out.count} 件商品流拍` : '没有需要标记流拍的商品'));
+// ---------------- 系统回收（到顶） ----------------
+// 商品涨到价格上限后无法再转拍，平台按「买入价 + 一轮涨幅」接盘；这里是台账与手动入口。
+
+r.get('/recycle/summary', authAdmin, (req, res) => res.json(ok(recycleSummary())));
+
+r.post('/recycle/scan', authAdmin, (req, res) => {
+  // 强制结算（忽略开关与日限额）只给超管，避免普通运营绕过成本闸门
+  const force = !!req.body?.force && isSuperRole(req.admin.role_id);
+  const out = scanCappedGoods({ force });
+  const parts = [];
+  if (out.settled) parts.push(`已结算 ${out.settled} 件，垫付 ¥${out.paid.toFixed(2)}`);
+  if (out.pending) {
+    const why = out.no_order ? `（含 ${out.no_order} 件缺少买入订单，需人工核对）` : '';
+    parts.push(`${out.pending} 件记为「待处理」${why}，可在列表中手动结算`);
+  }
+  if (out.skipped) parts.push(`${out.skipped} 件跳过`);
+  res.json(ok(out, parts.length ? parts.join('；') : '没有需要回收的到顶商品'));
 });
 
-r.post('/streambeat/release', authAdmin, (req, res) => {
-  const out = releaseStreambeat(req.body?.order_id);
+r.post('/recycle/settle', authAdmin, (req, res) => {
+  const out = settlePending(req.body?.recycle_id, req.admin.user_name || 'admin');
   if (!out.ok) return res.json(fail(out.reason));
-  res.json(ok(out, '已释放，商品恢复可售'));
+  res.json(ok(out, `已结算 ¥${out.recycle_price.toFixed(2)}（持有人收益 ¥${out.profit.toFixed(2)}）`));
 });
 
-// 平台回收：按当前挂牌价把流拍商品收归平台，给持有人打款
-r.post('/streambeat/recycle', authAdmin, (req, res) => {
-  const out = recycleStreambeat(req.body?.order_id);
-  if (!out.ok) return res.json(fail(out.reason));
-  res.json(ok(out, `已按挂牌价 ¥${Number(out.price).toFixed(2)} 回收，商品转平台持仓`));
+// ---------------- 场次 ↔ 商品 关联 ----------------
+// 商品表不再维护场次字段：哪个场次卖哪些货，全部由这组接口维护（多对多，可重复挂多场）。
+
+/** 某场次已关联的商品列表 */
+r.get('/specialarea/:id/goods', authAdmin, (req, res) => {
+  const areaId = Number(req.params.id);
+  const area = get('SELECT * FROM specialarea WHERE specialarea_id = ?', areaId);
+  if (!area) return res.json(fail('场次不存在'));
+  const rows = all(
+    `SELECT g.*, sg.sort AS link_sort FROM specialarea_goods sg
+     JOIN goods g ON g.goods_id = sg.goods_id
+     WHERE sg.specialarea_id = ?
+     ORDER BY sg.sort ASC, sg.area_goods_id ASC`,
+    areaId,
+  );
+  const list = rows.map((row) => {
+    const out = enrich('goods', row);
+    out.link_sort = row.link_sort;
+    // 除了本场之外还挂在哪些场次（多场关联时给运营一个提示）
+    out.other_areas = (out._area_ids || [])
+      .filter((id) => Number(id) !== areaId)
+      .map((id) => get('SELECT title_main FROM specialarea WHERE specialarea_id = ?', id)?.title_main || '')
+      .filter(Boolean)
+      .join('、');
+    return out;
+  });
+  res.json(ok({ specialarea: { specialarea_id: area.specialarea_id, title_main: area.title_main }, total: list.length, list }));
+});
+
+/** 可添加的商品（带「已在本场 / 已在其它场」标记） */
+r.get('/specialarea/:id/pick-goods', authAdmin, (req, res) => {
+  const areaId = Number(req.params.id);
+  if (!get('SELECT 1 FROM specialarea WHERE specialarea_id = ?', areaId)) return res.json(fail('场次不存在'));
+  const kw = String(req.query.keyword || '').trim();
+  const rows = kw
+    ? all('SELECT * FROM goods WHERE goods_name LIKE ? OR goods_no LIKE ? ORDER BY goods_id DESC LIMIT 60', `%${kw}%`, `%${kw}%`)
+    : all('SELECT * FROM goods ORDER BY goods_id DESC LIMIT 60');
+  const map = areaMapOfGoods(rows.map((g) => g.goods_id));
+  const list = rows.map((g) => {
+    const areas = map.get(Number(g.goods_id)) || [];
+    return {
+      goods_id: g.goods_id,
+      goods_name: g.goods_name,
+      goods_no: g.goods_no,
+      good_thumb: g.good_thumb,
+      goods_min_price: Number(g.goods_min_price || 0),
+      stock_num: Number(g.stock_num || 0),
+      goods_status: g.goods_status,
+      in_area: areas.some((a) => Number(a.specialarea_id) === areaId),
+      other_areas: areas
+        .filter((a) => Number(a.specialarea_id) !== areaId)
+        .map((a) => a.title_main || a.name || `#${a.specialarea_id}`)
+        .join('、'),
+    };
+  });
+  res.json(ok(list));
+});
+
+/** 场次批量关联商品 */
+r.post('/specialarea/goods/add', authAdmin, (req, res) => {
+  const areaId = Number(req.body?.specialarea_id);
+  if (!areaId) return res.json(fail('请选择场次'));
+  if (!get('SELECT 1 FROM specialarea WHERE specialarea_id = ?', areaId)) return res.json(fail('场次不存在'));
+  const ids = (Array.isArray(req.body?.goods_ids) ? req.body.goods_ids : [req.body?.goods_id]).map(Number).filter(Boolean);
+  if (!ids.length) return res.json(fail('请选择要关联的商品'));
+  const out = addGoodsToArea(areaId, ids);
+  if (!out.added) return res.json(fail('所选的商品都已经在本场了'));
+  res.json(ok(out, out.skipped ? `已关联 ${out.added} 件，${out.skipped} 件已存在或无效` : `已关联 ${out.added} 件商品`));
+});
+
+/** 场次取消关联商品（只解除关联，不删商品） */
+r.post('/specialarea/goods/remove', authAdmin, (req, res) => {
+  const areaId = Number(req.body?.specialarea_id);
+  if (!areaId) return res.json(fail('请选择场次'));
+  const ids = (Array.isArray(req.body?.goods_ids) ? req.body.goods_ids : [req.body?.goods_id]).map(Number).filter(Boolean);
+  if (!ids.length) return res.json(fail('请选择要移除的商品'));
+  const removed = removeGoodsFromArea(areaId, ids);
+  if (!removed) return res.json(fail('这些商品本来就不在本场次'));
+  res.json(ok({ removed }, `已移除 ${removed} 件商品`));
 });
 
 // ---------------- 通用列表 ----------------
@@ -825,13 +876,14 @@ r.get('/:module/list', authAdmin, (req, res) => {
       args.push(Number(req.query.status));
     }
   }
-  if (req.params.module === 'goods' && req.query.type) {
-    where.push('type = ?');
-    args.push(Number(req.query.type));
-  }
   if (req.params.module === 'settle' && req.query.kind) {
     where.push('kind = ?');
     args.push(req.query.kind);
+  }
+  // 商品按「关联场次」筛选：件品与场次是多对多，走关联表判断
+  if (req.params.module === 'goods' && req.query.area_id) {
+    where.push('goods_id IN (SELECT goods_id FROM specialarea_goods WHERE specialarea_id = ?)');
+    args.push(Number(req.query.area_id));
   }
 
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
@@ -884,9 +936,16 @@ function enrich(mod, row) {
     out._category = row.category_id
       ? get('SELECT name FROM goods_category WHERE category_id = ?', row.category_id)?.name || ''
       : '';
-    out._area = row.specialarea_id
-      ? get('SELECT title_main FROM specialarea WHERE specialarea_id = ?', row.specialarea_id)?.title_main || ''
-      : '';
+    // 关联场次由关联表决定（可能多个），不再读 goods.specialarea_id 镜像列
+    const areas = areasOfGoods(row.goods_id);
+    out._areas = areas.map((a) => a.title_main || a.name || `#${a.specialarea_id}`).join('、');
+    out._area_ids = areas.map((a) => Number(a.specialarea_id));
+    // 价格水位：列表里的「绿→黄→红」色块按它渲染
+    out._cap = priceCapOf(row);
+  }
+  if (mod === 'recycle') {
+    const mm = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', row.member_id);
+    out._member = mm ? `${mm.nick_name || '会员'} · ${mm.mobile}` : '—';
   }
   if (mod === 'orders') {
     const b = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', row.member_id);
@@ -899,18 +958,16 @@ function enrich(mod, row) {
   if (mod === 'member') {
     out._parent = row.p_id ? get('SELECT nick_name FROM member WHERE member_id = ?', row.p_id)?.nick_name || '' : '';
   }
+  if (mod === 'specialarea') {
+    // 场次列表展示「已关联商品数」，商品归属完全由关联表决定
+    out.area_goods_count = Number(get('SELECT COUNT(*) c FROM specialarea_goods WHERE specialarea_id = ?', row.specialarea_id)?.c || 0);
+  }
   if (mod === 'energy' || mod === 'withdraw' || mod === 'settle' || mod === 'scoreExchange') {
     out._member = get('SELECT nick_name FROM member WHERE member_id = ?', row.member_id)?.nick_name || '';
     if (row.b_member_id) out._bmember = get('SELECT nick_name FROM member WHERE member_id = ?', row.b_member_id)?.nick_name || '';
   }
   if (mod === 'certification') {
     out._member = get('SELECT nick_name FROM member WHERE member_id = ?', row.member_id)?.nick_name || '';
-  }
-  if (mod === 'report') {
-    out._member = get('SELECT nick_name FROM member WHERE member_id = ?', row.member_id)?.nick_name || '';
-    if (row.target_id) {
-      out._target = get('SELECT nick_name FROM member WHERE member_id = ?', row.target_id)?.nick_name || '';
-    }
   }
   return out;
 }
@@ -942,6 +999,7 @@ r.post('/:module/save', authAdmin, (req, res) => {
   }
 
   const id = body[mod.pk];
+  let relisted = false;   // 本次保存是否把「已回收封顶」的商品重新上架
   // 商品：「库存」是还能抢几个，「名额」是一共几个，两个字段各管各的。
   // 运营把库存调大时名额跟着涨；调小时名额不动 —— 已经卖出去的名额不能凭空消失，
   // 否则剩余名额会被算错，取消订单归还时还会被错误地截断。
@@ -950,10 +1008,37 @@ r.post('/:module/save', authAdmin, (req, res) => {
     const nextStock = 'stock_num' in body ? Number(body.stock_num) || 0 : Number(cur?.stock_num) || 0;
     body.stock_total = Math.max(Number(cur?.stock_total) || 0, nextStock, 1);
     keys.push('stock_total');
+
+    // 价格上限：金额（元），0 = 不限；负数/非法一律归 0
+    if ('price_cap' in body) {
+      const v = Number(body.price_cap);
+      body.price_cap = Number.isFinite(v) && v > 0 ? Math.min(1e9, Number(v.toFixed(2))) : 0;
+    }
+    // 二次上架：回收封顶的商品只有后台改回「上架」才重新流通。
+    // 清掉封顶标记，并把基准价重置为当前售价（水位从 0 重算），否则一上架就是满格红。
+    if (id) {
+      const rc = get('SELECT recycled, goods_min_price FROM goods WHERE goods_id = ?', Number(id));
+      if (Number(rc?.recycled) === 1 && Number(body.goods_status) === 10) {
+        relisted = true;
+        body.recycled = 0;
+        if (!keys.includes('recycled')) keys.push('recycled');
+        if (!('base_price' in body) || !(Number(body.base_price) > 0)) {
+          body.base_price = Number(body.goods_min_price) > 0 ? Number(body.goods_min_price) : Number(rc.goods_min_price);
+          if (!keys.includes('base_price')) keys.push('base_price');
+        }
+      }
+    }
+    // 基准价：新建时默认取售卖价（水位从这里起算）；编辑时留空表示保持原值
+    if (!id) {
+      body.base_price = Number(body.base_price) > 0 ? Number(body.base_price) : (Number(body.goods_min_price) || 0);
+      if (!keys.includes('base_price')) keys.push('base_price');
+    }
   }
   if (id) {
     const updateKeys = keys.filter((k) => k !== mod.pk && !(k === 'password' && !body[k])
-      && !(mod.table === 'member' && k === 'p_id'));
+      && !(mod.table === 'member' && k === 'p_id')
+      // 基准价留空（0）表示不修改，避免一次误清空就把涨幅起点重置成 0
+      && !(mod.table === 'goods' && k === 'base_price' && !(Number(body[k]) > 0)));
     const currentMember = mod.table === 'member' ? get('SELECT * FROM member WHERE member_id = ?', Number(id)) : null;
     let nextMemberParent = null;
     if (mod.table === 'member') {
@@ -1034,6 +1119,13 @@ r.post('/:module/save', authAdmin, (req, res) => {
         run('UPDATE member SET child_id = ? WHERE member_id = ?', remaining.join(','), Number(currentMember.p_id));
       }
     });
+    if (relisted) {
+      const row2 = get('SELECT goods_min_price, price_cap FROM goods WHERE goods_id = ?', Number(id));
+      const capWarn = Number(row2?.price_cap) > 0 && Number(row2.price_cap) <= Number(row2.goods_min_price) + 0.004
+        ? '；注意价格上限不高于现价，买家买入后会立刻到顶，建议调高上限或清零'
+        : '';
+      return res.json(ok({ id, relisted: true }, `已解除封顶并重新上架（基准价重置为 ¥${Number(row2?.goods_min_price || 0).toFixed(2)}）${capWarn}`));
+    }
     return res.json(ok({ id }, '修改成功'));
   }
   // 新增
@@ -1064,15 +1156,14 @@ r.post('/:module/save', authAdmin, (req, res) => {
     const memberValues = { ...body, invitation_code: code, p_id: parent?.member_id || 0,
       path: parent ? `${parent.path || '/'}${parent.member_id}/` : '/',
       level: parent ? Number(parent.level || 1) + 1 : 1,
-      grade_id: Number(body.grade_id) || 1, identity_vip: Number(body.identity_vip) || 0,
       is_valid: Number(body.is_valid) || 10, is_certification: Number(body.is_certification) || 0,
       disabled: Number(body.disabled) || 10,
       amount: Number(body.amount) || 0, score: Number(body.score) || 0,
       e_card_number: Number(body.e_card_number) || 0, rush_amount: Number(body.rush_amount) || 0,
       fy_price: Number(body.fy_price) || 0, create_time: now(), update_time: now() };
-    ins = [...permittedMemberKeys, 'invitation_code', 'path', 'level', 'grade_id', 'password', 'create_time', 'update_time'];
+    ins = [...permittedMemberKeys, 'invitation_code', 'path', 'level', 'password', 'create_time', 'update_time'];
     vals = [...permittedMemberKeys.map((k) => memberValues[k]), code, memberValues.path, memberValues.level,
-      memberValues.grade_id, hashPwd(body.password), memberValues.create_time, memberValues.update_time];
+      hashPwd(body.password), memberValues.create_time, memberValues.update_time];
     const create = () => {
       const info = run(`INSERT INTO member (${ins.join(',')}) VALUES (${ins.map(() => '?').join(',')})`, ...vals);
       const memberId = Number(info.lastInsertRowid);
@@ -1104,7 +1195,7 @@ r.post('/:module/remove', authAdmin, (req, res) => {
   const ids = (Array.isArray(req.body?.ids) ? req.body.ids : [req.body?.id]).filter(Boolean);
   if (!ids.length) return res.json(fail('请选择要删除的记录'));
   const moduleName = req.params.module;
-  if (['orders', 'member', 'energy', 'withdraw', 'settle', 'certification', 'report'].includes(moduleName)) {
+  if (['orders', 'member', 'energy', 'withdraw', 'settle', 'certification'].includes(moduleName)) {
     return res.json(fail('业务记录需保留审计，不能通过通用接口删除'));
   }
   for (const id of ids) {
@@ -1124,11 +1215,14 @@ r.post('/:module/remove', authAdmin, (req, res) => {
     if (moduleName === 'category' && get('SELECT 1 FROM goods WHERE category_id = ?', Number(id))) {
       return res.json(fail('分类下仍有商品，不能删除'));
     }
-    if (moduleName === 'specialarea' && get('SELECT 1 FROM goods WHERE specialarea_id = ?', Number(id))) {
-      return res.json(fail('场次下仍有商品，不能删除'));
-    }
+    // 场次下的商品只存在于关联表里：删场次先把关联清掉，商品本身保留（不连带删货）
+    if (moduleName === 'specialarea') clearAreaLinks(id);
   }
-  tx(() => ids.forEach((id) => run(`DELETE FROM ${mod.table} WHERE ${mod.pk} = ?`, id)));
+  tx(() => ids.forEach((id) => {
+    // 商品删掉时把它的场次关联一并清掉，否则关联表会留下指向不存在商品的孤儿行
+    if (moduleName === 'goods') run('DELETE FROM specialarea_goods WHERE goods_id = ?', Number(id));
+    run(`DELETE FROM ${mod.table} WHERE ${mod.pk} = ?`, id);
+  }));
   res.json(ok([], '删除成功'));
 });
 

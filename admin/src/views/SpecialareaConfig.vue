@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>抢购专场配置</h2>
-        <div class="desc">设置该专场的开放日期、抢购时段、限购与转拍时限</div>
+        <div class="desc">设置该专场的开放日期、抢购时段、限购与转拍时限，并关联本场售卖的商品</div>
       </div>
       <el-button @click="$router.back()">返回列表</el-button>
     </div>
@@ -63,13 +63,135 @@
         </el-form-item>
       </el-form>
     </div>
+
+    <!-- 关联商品：商品不再自带场次，这里才是「本场卖什么」的唯一入口 -->
+    <div class="panel related" v-loading="goodsLoading">
+      <div class="rel-head">
+        <div>
+          <h3>
+            关联商品
+            <span class="rel-count">{{ goodsList.length }} 件</span>
+          </h3>
+          <div class="hint rel-hint">
+            本场次售卖的商品都在这里维护。一件商品可以同时关联多个场次；
+            没关联任何场次的商品，相当于首页/分类里随时可买的普通商品，不受场次时段限制。
+          </div>
+        </div>
+        <el-button type="primary" plain @click="openPicker">+ 关联商品</el-button>
+      </div>
+
+      <el-table :data="goodsList" style="width: 100%" empty-text="这个场次还没有关联任何商品">
+        <el-table-column label="图片" width="76">
+          <template #default="{ row }">
+            <img v-if="row.good_thumb" :src="row.good_thumb" class="rel-thumb" />
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="商品" min-width="200">
+          <template #default="{ row }">
+            <div class="rel-name">{{ row.goods_name }}</div>
+            <div class="rel-no">{{ row.goods_no || '—' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="售卖价" width="110">
+          <template #default="{ row }">
+            <span class="money">¥{{ Number(row.goods_min_price || 0).toFixed(2) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="库存" width="84">
+          <template #default="{ row }">{{ Number(row.stock_num || 0) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="96">
+          <template #default="{ row }">
+            <span class="tag-status" :class="statusClass(row.goods_status)">{{ statusText(row.goods_status) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="其它场次" min-width="130">
+          <template #default="{ row }">
+            <span v-if="row.other_areas">{{ row.other_areas }}</span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="90" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="danger" plain @click="removeGoods(row)">移除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <!-- 关联商品选择弹窗 -->
+    <el-dialog v-model="pickerDlg" title="关联商品到本场次" width="760px" destroy-on-close @opened="focusPicker">
+      <div class="pick-bar">
+        <el-input
+          v-model="pickKeyword"
+          placeholder="搜索商品名称 / 编码"
+          clearable
+          style="width: 250px"
+          @keyup.enter="loadCandidates"
+          @clear="loadCandidates"
+        />
+        <el-button @click="loadCandidates">搜索</el-button>
+        <div class="spacer" />
+        <span class="muted">已选 {{ picked.length }} 件</span>
+      </div>
+
+      <el-table
+        ref="pickTableRef"
+        :data="candidates"
+        height="380"
+        v-loading="pickLoading"
+        row-key="goods_id"
+        empty-text="没有找到商品"
+        @selection-change="picked = $event"
+      >
+        <el-table-column type="selection" width="44" :selectable="(row) => !row.in_area" />
+        <el-table-column label="图片" width="66">
+          <template #default="{ row }">
+            <img v-if="row.good_thumb" :src="row.good_thumb" class="rel-thumb" />
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="商品" min-width="190">
+          <template #default="{ row }">
+            <div class="rel-name">{{ row.goods_name }}</div>
+            <div class="rel-no">{{ row.goods_no || '—' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="售卖价" width="104">
+          <template #default="{ row }">¥{{ Number(row.goods_min_price || 0).toFixed(2) }}</template>
+        </el-table-column>
+        <el-table-column label="库存" width="76">
+          <template #default="{ row }">{{ Number(row.stock_num || 0) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <span class="tag-status" :class="statusClass(row.goods_status)">{{ statusText(row.goods_status) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="归属" min-width="150">
+          <template #default="{ row }">
+            <span v-if="row.in_area" class="tag-status tag-ok">已在本场</span>
+            <span v-else-if="row.other_areas" class="muted">已在 {{ row.other_areas }}</span>
+            <span v-else class="muted">未关联</span>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <el-button @click="pickerDlg = false">取消</el-button>
+        <el-button type="primary" :loading="picking" :disabled="!picked.length" @click="confirmPick">
+          确认关联{{ picked.length ? `（${picked.length}）` : '' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { adminApi } from '../api.js';
 import http from '../api.js';
 import ImageUploader from '../components/ImageUploader.vue';
@@ -178,7 +300,102 @@ async function save() {
   }
 }
 
-onMounted(load);
+// ---------- 关联商品 ----------
+const goodsList = ref([]);
+const goodsLoading = ref(false);
+const pickerDlg = ref(false);
+const pickKeyword = ref('');
+const candidates = ref([]);
+const picked = ref([]);
+const picking = ref(false);
+const pickLoading = ref(false);
+const pickTableRef = ref(null);
+
+const STATUS_TEXT = { 10: '上架', 20: '下架', 30: '流拍' };
+const statusText = (v) => STATUS_TEXT[Number(v)] || '—';
+const statusClass = (v) => (Number(v) === 10 ? 'tag-ok' : Number(v) === 30 ? 'tag-warn' : 'tag-off');
+
+async function loadGoods() {
+  const id = Number(route.params.id);
+  if (!id) return;
+  goodsLoading.value = true;
+  try {
+    const r = await http.get(`/specialarea/${id}/goods`);
+    goodsList.value = r.code === 1 ? (r.data?.list || []) : [];
+  } catch {
+    goodsList.value = [];
+  } finally {
+    goodsLoading.value = false;
+  }
+}
+
+function openPicker() {
+  pickerDlg.value = true;
+  pickKeyword.value = '';
+  picked.value = [];
+  loadCandidates();
+}
+
+function focusPicker() {
+  pickTableRef.value?.clearSelection();
+}
+
+async function loadCandidates() {
+  const id = Number(route.params.id);
+  if (!id) return;
+  pickLoading.value = true;
+  try {
+    const r = await http.get(`/specialarea/${id}/pick-goods`, { params: { keyword: pickKeyword.value } });
+    candidates.value = r.code === 1 ? (r.data || []) : [];
+  } catch {
+    candidates.value = [];
+  } finally {
+    pickLoading.value = false;
+  }
+}
+
+async function confirmPick() {
+  const id = Number(route.params.id);
+  if (!id || !picked.value.length) return;
+  picking.value = true;
+  try {
+    const r = await http.post('/specialarea/goods/add', {
+      specialarea_id: id,
+      goods_ids: picked.value.map((g) => g.goods_id),
+    });
+    if (r.code === 1) {
+      ElMessage.success(r.msg || '已关联');
+      pickerDlg.value = false;
+      picked.value = [];
+      loadGoods();
+    } else ElMessage.warning(r.msg);
+  } finally {
+    picking.value = false;
+  }
+}
+
+async function removeGoods(row) {
+  try {
+    await ElMessageBox.confirm(
+      `把「${row.goods_name}」从本场次移除？商品本身不会被删除，只是不再在本场售卖。`,
+      '移除关联',
+      { type: 'warning', confirmButtonText: '移除', cancelButtonText: '取消' },
+    );
+  } catch {
+    return;
+  }
+  const id = Number(route.params.id);
+  const r = await http.post('/specialarea/goods/remove', { specialarea_id: id, goods_ids: [row.goods_id] });
+  if (r.code === 1) {
+    ElMessage.success('已移除');
+    loadGoods();
+  } else ElMessage.warning(r.msg);
+}
+
+onMounted(() => {
+  load();
+  loadGoods();
+});
 </script>
 
 <style scoped>
@@ -243,4 +460,26 @@ onMounted(load);
   background: #f4f6f9;
   border: 1px solid #eef0f3;
 }
+
+/* 关联商品 */
+.related { margin-top: 16px; }
+.rel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.rel-head h3 { margin: 0; font-size: 15px; font-weight: 600; color: #1f2430; }
+.rel-count {
+  margin-left: 8px;
+  padding: 1px 9px;
+  border-radius: 20px;
+  background: #fff1ee;
+  color: #ff513a;
+  font-size: 12px;
+  font-weight: 600;
+}
+.rel-hint { margin-top: 6px; max-width: 660px; }
+.rel-thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; background: #f4f6f9; }
+.rel-name { font-size: 13.5px; color: #1f2430; line-height: 1.4; }
+.rel-no { font-size: 12px; color: #a8adb7; margin-top: 2px; }
+.money { font-variant-numeric: tabular-nums; color: #ff513a; font-weight: 600; }
+.muted { color: #a8adb7; font-size: 12.5px; }
+.pick-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.spacer { flex: 1; }
 </style>

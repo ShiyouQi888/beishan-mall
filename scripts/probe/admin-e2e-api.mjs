@@ -91,14 +91,14 @@ async function main() {
     const modules = await api('/admin/api/modules', { token: at });
     ok(modules.code === 1, '模块注册表可读');
     const modKeys = Object.keys(modules.data?.modules || modules.data || {});
-    ok(modKeys.length >= 17, '模块数量完整', `${modKeys.length} 个`);
+    ok(modKeys.length >= 16, '模块数量完整', `${modKeys.length} 个`);
 
     // ================= 2. 通用列表与详情 =================
-    section('[2] 17 个模块的列表与详情');
+    section('[2] 16 个模块的列表与详情');
     const listCases = [
       ['goods', 'goods_id'], ['category', 'category_id'], ['specialarea', 'specialarea_id'],
       ['member', 'member_id'], ['orders', 'order_id'], ['certification', 'certification_id'],
-      ['grade', 'grade_id'], ['report', 'report_id'], ['delivery', 'template_id'],
+      ['recycle', 'recycle_id'], ['delivery', 'template_id'],
       ['energy', 'energy_id'], ['withdraw', 'withdraw_id'], ['settle', 'id'],
       ['banner', 'banner_id'], ['navigation', 'id'], ['notice', 'id'],
       ['storeuser', 'store_user_id'], ['role', 'role_id'],
@@ -121,8 +121,14 @@ async function main() {
     ok((pageLimit.data?.data || []).length <= 100, 'limit 上限被钳制（≤100）', `${(pageLimit.data?.data || []).length} 条`);
     const searchRes = await api('/admin/api/goods/list?keyword=玉&page=1&limit=10', { token: at });
     ok(searchRes.code === 1, '列表关键字搜索', searchRes.msg);
-    const filterRes = await api('/admin/api/goods/list?type=2&page=1&limit=20', { token: at });
-    ok((filterRes.data?.data || []).every((x) => Number(x.type) === 2), '列表按字段筛选（goods.type=2）');
+    const filterRes = await api('/admin/api/goods/list?goods_status=10&page=1&limit=20', { token: at });
+    ok((filterRes.data?.data || []).every((x) => Number(x.goods_status) === 10), '列表按字段筛选（goods_status=10）');
+    // 商品不再自带场次：按场次筛选走关联表，返回的每一条都必须真的关联了该场
+    const areaId = (await api('/admin/api/specialarea/list?page=1&limit=1', { token: at })).data?.data?.[0]?.specialarea_id;
+    const areaFilter = await api(`/admin/api/goods/list?area_id=${areaId}&page=1&limit=50`, { token: at });
+    ok((areaFilter.data?.data || []).length > 0
+      && (areaFilter.data?.data || []).every((x) => (x._area_ids || []).includes(Number(areaId))),
+      '列表按关联场次筛选');
 
     // 敏感字段不外泄
     const memberList = await api('/admin/api/member/list?limit=10', { token: at });
@@ -133,11 +139,10 @@ async function main() {
     ok(!('password' in ((userList.data?.data || [])[0] || {})), '管理员列表不返回密码');
 
     // ================= 3. 通用新增 / 编辑 =================
-    section('[3] 通用新增与编辑（11 个可写模块）');
+    section('[3] 通用新增与编辑（9 个可写模块）');
     const seedMeta = {
       category: { name: '冒烟分类', type: 2, sort: 900 },
       specialarea: { title_main: '冒烟场次', start_time: 0, end_time: 86399, open_days: '1,2,3,4,5,6,7', buy_num: 3, transposition_hours: 10 },
-      grade: { name: '冒烟等级', drive_num: 0, team_valid: 0, team_water: 0, team_award: 0 },
       delivery: { name: '冒烟运费模板', type: 1, first_num: 1, first_price: 10, add_num: 1, add_price: 5, is_open: 10, sort: 900 },
       banner: { type_id: 1, file_path: '/uploads/demo-1.svg', link_url: '#', sort: 900 },
       navigation: { title: '冒烟导航', icon_name: 'home', link_url: '/loot', type: 1, sort: 900, disabled: 10 },
@@ -149,7 +154,7 @@ async function main() {
     };
     const pkMap = {
       goods: 'goods_id', category: 'category_id', specialarea: 'specialarea_id', member: 'member_id',
-      certification: 'certification_id', grade: 'grade_id', report: 'report_id', delivery: 'template_id',
+      certification: 'certification_id', delivery: 'template_id',
       energy: 'energy_id', withdraw: 'withdraw_id', settle: 'id', banner: 'banner_id',
       navigation: 'id', notice: 'id', storeuser: 'store_user_id', role: 'role_id',
     };
@@ -163,7 +168,7 @@ async function main() {
     // 编辑（用正确的业务主键回写，避免误走插入分支）
     const editCases = [
       ['category', { name: '冒烟分类改' }], ['specialarea', { title_main: '冒烟场次改' }],
-      ['grade', { name: '冒烟等级改' }], ['delivery', { name: '冒烟模板改' }],
+      ['delivery', { name: '冒烟模板改' }],
       ['navigation', { title: '冒烟导航改' }], ['notice', { title: '冒烟公告改' }],
       ['banner', { sort: 901 }],
       ['role', { description: '冒烟测试改' }], ['member', { nick_name: '冒烟会员改' }],
@@ -198,8 +203,8 @@ async function main() {
 
     // ================= 4. 业务记录不可删除 =================
     section('[4] 业务记录的删除保护');
-    // 订单/流水/提现/结算/实名/举报：通用删除直接禁止
-    for (const mod of ['orders', 'energy', 'withdraw', 'settle', 'certification', 'report']) {
+    // 订单/流水/提现/结算/实名：通用删除直接禁止
+    for (const mod of ['orders', 'energy', 'withdraw', 'settle', 'certification']) {
       const r = await api(`/admin/api/${mod}/remove`, { method: 'POST', token: at, body: { id: 1 } });
       ok(r.code === 0 && /审计/.test(r.msg), `禁止删除：${mod}`, r.msg);
     }
@@ -214,7 +219,7 @@ async function main() {
     const buyerToken = (await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13800000001', password: '13800000001' } })).data?.token;
     const buyerMid = buyerIdOf(db);
     const pickGoods = () => db.prepare(
-      'SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND IFNULL(is_split,0) = 0 AND member_id <> ? LIMIT 1',
+      'SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND member_id <> ? LIMIT 1',
     ).get(buyerMid)?.goods_id;
     const gid = pickGoods();
     ok(!!gid, '找到可用于订单测试的商品');
@@ -256,9 +261,6 @@ async function main() {
     ok(imp.code === 1 && imp.data?.okCount === 1, '批量导入订单', imp.msg);
     const impBad = await api('/admin/api/orders/import', { method: 'POST', token: at, body: { rows: [{ goods_id: 999999, member_id: 3 }] } });
     ok(impBad.data?.failCount === 1, '导入失败行返回原因', JSON.stringify(impBad.data?.errors?.[0]));
-    const splitO = await api('/admin/api/orders/split', { method: 'POST', token: at, body: { order_id: imp.data.created[0].order_id, split_num: 2 } });
-    ok(splitO.code === 1 && splitO.data?.parts === 2, '后台拆分订单', splitO.msg);
-
     // ================= 6. 会员专用操作 =================
     section('[6] 会员：调账 / 提前抢购 / 清佣金 / 流水 / 团队订单');
     const mid = created.member;
@@ -289,24 +291,8 @@ async function main() {
     const to = await api('/admin/api/member/team-orders?member_id=1', { token: at });
     ok(to.code === 1 && to.data?.team_count >= 1, '团队订单视图', `团队 ${to.data?.team_count} 人`);
 
-    // ================= 7. 商品拆分 =================
-    section('[7] 商品拆分');
-    const splitGoodsTarget = db.prepare('SELECT goods_id, goods_min_price, line_price FROM goods WHERE goods_status = 10 AND IFNULL(is_split,0) = 0 AND type = 1 LIMIT 1').get();
-    if (splitGoodsTarget) {
-      const gs = await api('/admin/api/goods/split', { method: 'POST', token: at, body: { goods_id: splitGoodsTarget.goods_id, parts: 5 } });
-      ok(gs.code === 1, '后台拆分商品', gs.msg);
-      const gRow = db.prepare('SELECT is_split, split_total, stock_num FROM goods WHERE goods_id = ?').get(splitGoodsTarget.goods_id);
-      eq(gRow.is_split, 1, '拆分标记 is_split=1');
-      eq(gRow.split_total, 5, '拆分份数落库');
-      eq(gRow.stock_num, 5, '库存置为份数');
-      const gsBad = await api('/admin/api/goods/split', { method: 'POST', token: at, body: { goods_id: splitGoodsTarget.goods_id, parts: 2 } });
-      ok(gsBad.code === 0, '已拆分商品不可重复拆分', gsBad.msg);
-    } else {
-      ok(true, '无可拆分商品（跳过）');
-    }
-
     // ================= 7.5 商品复制 =================
-    section('[7.5] 商品复制');
+    section('[7] 商品复制');
     {
       // 挑一件会员持有的商品：复制出来的必须归平台并下架，不能凭空空投给会员
       const src = db.prepare('SELECT * FROM goods WHERE type = 1 AND member_id > 0 ORDER BY goods_id LIMIT 1').get();
@@ -331,98 +317,13 @@ async function main() {
       }
     }
 
-    // ================= 8. 流拍：扫描 / 回收 / 指派 / 释放 =================
-    section('[8] 流拍：扫描 / 平台回收 / 指派会员 / 释放');
-
-    /** 直接构造 3 条「不同商品」的已支付订单作为夹具，避免受前面测试数据影响 */
-    const sbCandidates = [];
-    {
-      const gs = db.prepare(
-        `SELECT goods_id, goods_name, member_id, goods_min_price FROM goods
-         WHERE goods_status = 10 AND member_id > 0 ORDER BY goods_id LIMIT 3`,
-      ).all();
-      for (const g of gs) {
-        const price = Number(g.goods_min_price);
-        const info = db.prepare(
-          `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, type, price, num,
-             total_price, status, pay_status, create_time)
-           VALUES (?,?,?,?,?,1,?,1,?,10,10,datetime('now','localtime'))`,
-        ).run(`SMOKE-SB-${g.goods_id}`, g.member_id, g.member_id, g.goods_id, g.goods_name, price, price);
-        sbCandidates.push({ order_id: Number(info.lastInsertRowid), goods_id: g.goods_id, member_id: g.member_id });
-      }
-    }
-    ok(sbCandidates.length >= 3, '准备 3 个不同商品的流拍用例数据', `${sbCandidates.length} 组`);
-
-    /** 构造一笔「已转拍挂着但没卖掉」的订单，返回本次扫描新生成的流拍单 */
-    const makeStreambeat = async (cand) => {
-      if (!cand) return null;
-      db.prepare('UPDATE goods SET member_id = ?, goods_status = 10 WHERE goods_id = ?').run(cand.member_id, cand.goods_id);
-      db.prepare("UPDATE orders SET consignment_status = 10, transposition_time = '2026-10-28 10:00:00' WHERE order_id = ?").run(cand.order_id);
-      const maxBefore = Number(db.prepare('SELECT IFNULL(MAX(order_id),0) v FROM orders WHERE type = 5').get().v);
-      await api('/admin/api/streambeat/scan', { method: 'POST', token: at, body: { date: '2026-10-28' } });
-      return db.prepare('SELECT * FROM orders WHERE type = 5 AND order_id > ? ORDER BY order_id DESC LIMIT 1').get(maxBefore) || null;
-    };
-
-    // --- 8.1 扫描 + 平台回收（归属不能在回收前被改动）---
-    const sb1 = await makeStreambeat(sbCandidates[0]);
-    ok(!!sb1 && Number(sb1.status) === 50, '流拍扫描生成本次记录');
-    if (sb1) {
-      const priceNow = Number(db.prepare('SELECT goods_min_price p FROM goods WHERE goods_id = ?').get(sb1.goods_id).p);
-      const ownerId = sb1.member_id;
-      const balBefore = Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(ownerId).amount);
-      const recycle = await api('/admin/api/streambeat/recycle', { method: 'POST', token: at, body: { order_id: sb1.order_id } });
-      ok(recycle.code === 1, '平台回收', recycle.msg);
-      num(recycle.data?.price, priceNow, '回收价 = 当前挂牌价');
-      eq(recycle.data?.owner, ownerId, '回收对象 = 挂单持有人');
-      const balAfter = Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(ownerId).amount);
-      num(balAfter, money(balBefore + priceNow), `回收款到账（${balBefore} + ${priceNow} → ${balAfter}）`);
-      const g = db.prepare('SELECT member_id, goods_status FROM goods WHERE goods_id = ?').get(sb1.goods_id);
-      eq(g.member_id, 0, '商品转平台持仓');
-      eq(g.goods_status, 20, '回收后商品下架');
-      eq(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(sb1.order_id).status, 70, '流拍单置为已回收');
-      const again = await api('/admin/api/streambeat/recycle', { method: 'POST', token: at, body: { order_id: sb1.order_id } });
-      ok(again.code === 0, '不可重复回收', again.msg);
-    }
-
-    // --- 8.2 指派会员（会转移商品归属，必须单独用一条流拍单）---
-    const sb2 = await makeStreambeat(sbCandidates[1]);
-    ok(!!sb2, '构造第二条流拍单用于指派');
-    if (sb2) {
-      const sbMembers = await api(`/admin/api/streambeat/members?keyword=${encodeURIComponent('1380')}`, { token: at });
-      ok(sbMembers.code === 1, '可指派会员列表', sbMembers.msg);
-      const assign = await api('/admin/api/streambeat/assign', { method: 'POST', token: at, body: { order_id: sb2.order_id, member_id: mid } });
-      ok(assign.code === 1, '流拍指派会员', assign.msg);
-      eq(db.prepare('SELECT member_id FROM goods WHERE goods_id = ?').get(sb2.goods_id).member_id, mid, '指派后商品归属转移');
-      eq(db.prepare('SELECT goods_status FROM goods WHERE goods_id = ?').get(sb2.goods_id).goods_status, 10, '指派后商品恢复上架');
-    }
-
-    // --- 8.3 释放 ---
-    const sb3 = await makeStreambeat(sbCandidates[2]);
-    ok(!!sb3, '构造第三条流拍单用于释放');
-    if (sb3) {
-      const rel = await api('/admin/api/streambeat/release', { method: 'POST', token: at, body: { order_id: sb3.order_id } });
-      ok(rel.code === 1, '释放流拍', rel.msg);
-      eq(db.prepare('SELECT goods_status FROM goods WHERE goods_id = ?').get(sb3.goods_id).goods_status, 10, '释放后商品恢复上架');
-      eq(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(sb3.order_id).status, 60, '流拍单置为已释放');
-    }
-
-    // ================= 9. 举报 / 补发奖 / 实名 / 提现审核 =================
-    section('[9] 举报审核、补发直推奖、实名审核、提现审核');
-    const repInsert = db.prepare(
-      `INSERT INTO order_report (member_id, order_id, goods_id, reason, content, status, create_time)
-       VALUES (?,?,?,?,?,0,datetime('now','localtime'))`,
-    ).run(buyerIdOf(db), tOid, gid, '冒烟举报', '内容');
-    const repId = Number(repInsert.lastInsertRowid);
-    const repList = await api('/admin/api/report/list?page=1&limit=5', { token: at });
-    ok(repList.code === 1 && (repList.data?.data || []).some((x) => x.report_id === repId), '举报列表可读');
-    const repAudit = await api('/admin/api/report/audit', { method: 'POST', token: at, body: { report_id: repId, pass: true, result: '冒烟已核实' } });
-    ok(repAudit.code === 1, '举报审核', repAudit.msg);
-    eq(db.prepare('SELECT status FROM order_report WHERE report_id = ?').get(repId).status, 10, '举报状态流转为已处理');
+    // ================= 9. 补发奖 / 实名 / 提现审核 =================
+    section('[8] 补发直推奖、实名审核、提现审核');
 
     // 补发直推奖需要一个「有上级」的买家订单
     const subToken = (await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13900003333', password: '123456' } })).data?.token;
     const subGid = db.prepare(
-      `SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND IFNULL(is_split,0) = 0
+      `SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1
        AND member_id NOT IN (?, ?) ORDER BY goods_id LIMIT 1`,
     ).get(buyerMid, created.member)?.goods_id;
     // 补发测试需要买得起：先把余额补足
@@ -481,7 +382,7 @@ async function main() {
     num(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(mid).amount, money(beforeReject + 300), '驳回后金额退回');
 
     // ================= 10. 设置组 =================
-    section('[10] 设置组读写（7 组）');
+    section('[9] 设置组读写（7 组）');
     const groups = ['store', 'trade', 'pay', 'storage', 'poster', 'prompt', 'nav'];
     for (const g of groups) {
       const r = await api(`/admin/api/setting/${g}`, { token: at });
@@ -500,7 +401,7 @@ async function main() {
     ok(badGroup.code === 0, '不存在的设置组被拒', badGroup.msg);
 
     // ================= 11. 权限：菜单 / 节点 / 角色 =================
-    section('[11] 权限：菜单下发 / 节点树 / 角色授权');
+    section('[10] 权限：菜单下发 / 节点树 / 角色授权');
     const menu = await api('/admin/api/menu', { token: at });
     const menuCount = (menu.data?.menus || []).reduce((s, g) => s + g.items.length, 0);
     ok(menu.code === 1 && menuCount >= 30, '超管菜单全量下发', `${(menu.data?.menus || []).length} 组 / ${menuCount} 项`);
@@ -539,7 +440,7 @@ async function main() {
     ok(denySetting.code !== 1, '受限角色访问未授权设置被拒', denySetting.msg);
 
     // ================= 12. 统计与运维 =================
-    section('[12] 仪表盘、统计、系统信息、缓存');
+    section('[11] 仪表盘、统计、系统信息、缓存');
     const dash = await api('/admin/api/dashboard', { token: at });
     ok(dash.code === 1, '仪表盘数据', dash.msg);
     const statsGoods = await api('/admin/api/stats/goods', { token: at });
@@ -548,31 +449,26 @@ async function main() {
     ok(statsOrders.code === 1, '今日订单统计', statsOrders.msg);
     const sysinfo = await api('/admin/api/sysinfo', { token: at });
     ok(sysinfo.code === 1 && sysinfo.data?.counts?.member >= 1, '系统信息', JSON.stringify(sysinfo.data?.counts || {}).slice(0, 60));
+    const rnBase = await api('/admin/api/notifications/recycles', { token: at });
+    ok(rnBase.code === 1 && Number.isInteger(rnBase.data?.latest_id), '回收通知基线可读', rnBase.msg);
+    const rnNew = await api('/admin/api/notifications/recycles?after_id=0', { token: at });
+    ok(rnNew.code === 1 && Array.isArray(rnNew.data?.items), '回收通知增量可读', rnNew.msg);
     const cache = await api('/admin/api/cache/clear', { method: 'POST', token: at });
     ok(cache.code === 1, '清理缓存', cache.msg);
-    for (const opt of ['grade', 'role', 'category', 'specialarea']) {
+    for (const opt of ['role', 'category', 'specialarea']) {
       const r = await api(`/admin/api/options/${opt}`, { token: at });
       ok(r.code === 1, `下拉选项可读：${opt}`, r.msg);
     }
 
-    // ================= 13. 差价结算（已停用生成） =================
-    section('[13] 差价结算：生成已停用，只读对账还在');
-    // 成交即入账，再生成会员间付款单会重复收款 → 后端已停用，这里守住这条线
+    // ================= 13. 差价对账已下线 =================
+    section('[12] 差价对账：接口与页面已全部删除');
     const srun = await api('/admin/api/settle/run', { method: 'POST', token: at, body: { specialarea_id: 0 } });
-    ok(srun.code === 0 && /停用/.test(srun.msg), '执行结算已被停用', srun.msg);
-
+    ok(srun.code !== 1, '后台差价对账接口已删除', srun.msg);
     const batches = await api('/admin/api/settle/batches', { token: at });
-    ok(batches.code === 1, '结算批次列表仍可读（对账用）');
-    const accounts = await api('/admin/api/settle/accounts?batch_id=0', { token: at });
-    ok(accounts.code === 1, '中账接口可读');
-    const matches = await api('/admin/api/settle/matches?batch_id=0', { token: at });
-    ok(matches.code === 1, '匹配单接口可读');
+    ok(batches.code !== 1, '结算批次接口已删除', batches.msg);
 
-    // 会员端三个接口已删除，确认真的下线了（不再是「有接口没入口」的半死状态）
-    const mySettle = await api('/api/order/mySettle', { token: buyerToken });
-    ok(mySettle.code !== 1 && /不存在/.test(mySettle.msg), '会员端结算接口已删除', mySettle.msg);
     // ================= 14. 文件管理 =================
-    section('[14] 文件管理：分组 / 上传 / 改名 / 移动 / 引用保护 / 删除');
+    section('[13] 文件管理：分组 / 上传 / 改名 / 移动 / 引用保护 / 删除');
     const mg = await api('/admin/api/media/groups', { token: at });
     ok(mg.code === 1 && typeof mg.data?.total === 'number', '素材库可读', `共 ${mg.data?.total} 个文件`);
     const noAuthMedia = await fetch(`${BASE}/admin/api/media/list`).then((r) => r.json());
@@ -632,7 +528,7 @@ async function main() {
     ok((await api('/admin/api/media/group/remove', { method: 'POST', token: at, body: { group_id: mgid } })).code === 1, '删除分组');
 
     // ================= 15. 分类：一键首页显示 =================
-    section('[15] 分类：一键上/下首页');
+    section('[14] 分类：一键上/下首页');
     const homeOn = await api('/admin/api/category/home-show-all', { method: 'POST', token: at, body: { value: 10 } });
     ok(homeOn.code === 1 && Number(homeOn.data?.count) > 0, '一键全部上首页', homeOn.msg);
     const homeCats = await api('/api/goods/getCategory?home=1');
@@ -651,7 +547,7 @@ async function main() {
     await api('/admin/api/category/home-show-all', { method: 'POST', token: at, body: { value: 10 } });
 
     // ================= 16. 数据一致性 =================
-    section('[16] 数据一致性');
+    section('[15] 数据一致性');
     eq(db.prepare('SELECT COUNT(*) c FROM member WHERE amount < 0').get().c, 0, '没有会员出现负余额');
     eq(db.prepare('SELECT COUNT(*) c FROM orders o LEFT JOIN goods g ON g.goods_id = o.goods_id WHERE g.goods_id IS NULL').get().c, 0, '没有孤儿订单');
     ok(db.prepare('SELECT COUNT(*) c FROM store_role_node WHERE role_id NOT IN (SELECT role_id FROM store_role)').get().c === 0, '没有孤儿权限绑定');

@@ -80,17 +80,16 @@ async function main() {
       await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: mid, field: 'amount', value: 50000000, remark: '库存件数测试' } });
     }
 
-    // ---------------- 造一件「库存 100、没点拆分」的商品：完全复刻用户的操作 ----------------
-    section('[1] 后台把库存填成 100（不点拆分）');
+    // ---------------- 造一件「库存 100」的商品：完全复刻用户的操作 ----------------
+    section('[1] 后台把库存填成 100');
     const src = db.prepare(
-      'SELECT * FROM goods WHERE type = 1 AND goods_status = 10 AND IFNULL(is_split,0) = 0 AND member_id NOT IN (1,4) ORDER BY goods_id LIMIT 1',
+      'SELECT * FROM goods WHERE type = 1 AND goods_status = 10 AND member_id NOT IN (1,4) ORDER BY goods_id LIMIT 1',
     ).get();
     ok(!!src, '找到一件干净的整件商品');
     db.prepare("UPDATE goods SET stock_num = 100, area_date = '', sales_actual = 0 WHERE goods_id = ?").run(src.goods_id);
     const holder = Number(src.member_id);
     const before = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(src.goods_id);
-    ok(Number(before.is_split) === 0 && Number(before.stock_num) === 100, '初始就是「未拆分 + 库存 100」',
-      `is_split=${before.is_split} stock=${before.stock_num}`);
+    ok(Number(before.stock_num) === 100, '初始库存 100', `stock=${before.stock_num}`);
 
     const read = () => db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(src.goods_id);
     const buy = async (token, num = 1) => {
@@ -109,8 +108,6 @@ async function main() {
     ok(Number(after1.stock_num) === 99, '库存 100 → 99', `stock=${after1.stock_num}`);
     ok(Number(after1.member_id) === holder, '整件仍归原持有人', `holder=${after1.member_id}`);
     ok(Number(after1.sales_actual) === 1, '销量 +1', `sales=${after1.sales_actual}`);
-    ok(Number(after1.is_split) === 0, '没有借用「拆分」标记来记库存（拆分是另一件事）',
-      `is_split=${after1.is_split}`);
     ok(Number(after1.stock_total) === 100, '名额记为 100，不随成交变化', `stock_total=${after1.stock_total}`);
 
     // 前台还能看到、还能点
@@ -157,7 +154,7 @@ async function main() {
     // ---------------- 库存 1 的商品仍是转拍语义 ----------------
     section('[7] 库存 1 的商品维持「成交即转给买家 + 下架」');
     const single = db.prepare(
-      "SELECT * FROM goods WHERE type = 1 AND goods_status = 10 AND IFNULL(is_split,0) = 0 AND IFNULL(stock_num,0) = 1 AND member_id NOT IN (1,4) LIMIT 1",
+      "SELECT * FROM goods WHERE type = 1 AND goods_status = 10 AND IFNULL(stock_num,0) = 1 AND member_id NOT IN (1,4) LIMIT 1",
     ).get();
     if (single) {
       db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(single.goods_id);
@@ -167,20 +164,17 @@ async function main() {
         const s = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(single.goods_id);
         ok(Number(s.goods_status) === 20, '单件商品成交后下架');
         ok(Number(s.member_id) === 4, '单件商品归买家 B', `holder=${s.member_id}`);
-        ok(Number(s.is_split) === 0, '单件商品不会被误标成按份卖');
       } else {
-        ok(true, '跳过（单件商品不可买）');
         ok(true, '跳过（单件商品不可买）');
         ok(true, '跳过（单件商品不可买）');
       }
     } else {
       ok(true, '跳过（没有库存 1 的干净商品）');
       ok(true, '跳过（没有库存 1 的干净商品）');
-      ok(true, '跳过（没有库存 1 的干净商品）');
     }
 
     // ---------------- 启动迁移：存量多库存商品 ----------------
-    section('[8] 启动迁移会把存量「库存 >1 未拆分」的商品归一化');
+    section('[8] 启动迁移会把存量多库存商品的名额补齐');
     const legacy = db.prepare(
       'SELECT * FROM goods WHERE type = 1 AND IFNULL(stock_total,0) > 1 LIMIT 1',
     ).get();
@@ -190,7 +184,7 @@ async function main() {
     const pair = db.prepare('SELECT goods_id FROM goods WHERE type = 1 ORDER BY goods_id DESC LIMIT 2').all();
     for (const row of pair) {
       // 名额留 2 个：抢走 1 个后商品仍在架，第二次下单才会真的撞上限购而不是「已下架」
-      db.prepare("UPDATE goods SET goods_status = 10, stock_num = 2, stock_total = 2, is_split = 0, area_date = '', member_id = 0 WHERE goods_id = ?")
+      db.prepare("UPDATE goods SET goods_status = 10, stock_num = 2, stock_total = 2, area_date = '', member_id = 0 WHERE goods_id = ?")
         .run(row.goods_id);
     }
     db.prepare('UPDATE specialarea SET buy_num = 1').run();

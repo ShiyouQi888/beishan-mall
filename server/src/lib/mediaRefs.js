@@ -26,6 +26,5 @@ export function usagesOf(path) {
   push(all('SELECT nick_name FROM member WHERE avatar_url = ? LIMIT 2', path), (x) => `会员「${x.nick_name}」`);
   push(all('SELECT nick_name FROM store_user WHERE avatar = ? LIMIT 2', path), (x) => `管理员「${x.nick_name}」`);
   push(all('SELECT real_name FROM member_certification WHERE front_image = ? OR back_image = ? OR hand_image = ? LIMIT 2', path, path, path), (x) => `实名认证「${x.real_name}」`);
-  push(all('SELECT match_id FROM settle_match WHERE voucher = ? LIMIT 2', path), (x) => `结算凭证 #${x.match_id}`);
   return out;
 }

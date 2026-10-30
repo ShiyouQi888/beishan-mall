@@ -72,11 +72,12 @@
                   <b>¥{{ notificationAmount(item) }}</b>
                 </button>
               </div>
-              <div v-else class="notification-empty">新订单或提现申请会显示在这里</div>
+              <div v-else class="notification-empty">新订单、提现申请或系统回收会显示在这里</div>
               <div class="notification-panel__foot">
                 <span v-if="!canUseSpeech">当前浏览器不支持语音播报</span>
                 <button v-if="orderListPath" type="button" @click="router.push(orderListPath)">查看订单</button>
                 <button v-if="withdrawListPath" type="button" @click="router.push(withdrawListPath)">查看提现</button>
+                <button v-if="recycleListPath" type="button" @click="router.push(recycleListPath)">查看回收</button>
                 <button v-if="notificationList.length" type="button" @click="clearNotifications">清空</button>
               </div>
             </div>
@@ -212,7 +213,9 @@ const orderListPath = computed(() => {
   return paths.has('/orders') ? '/orders' : paths.has('/orders/shop') ? '/orders/shop' : '';
 });
 const withdrawListPath = computed(() => (visibleMenuPaths().has('/withdraw') ? '/withdraw' : ''));
-const canReceiveNotifications = computed(() => Boolean(orderListPath.value || withdrawListPath.value));
+const recycleListPath = computed(() => (visibleMenuPaths().has('/recycle') ? '/recycle' : ''));
+const canReceiveNotifications = computed(() =>
+  Boolean(orderListPath.value || withdrawListPath.value || recycleListPath.value));
 const menuIcon = (icon = '') => {
   const paths = String(icon).replace(/<\/?svg\b[^>]*>/gi, '');
   return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
@@ -237,11 +240,13 @@ function notificationTargets() {
   if (paths.has('/orders')) targets.push({ key: 'orders:all', kind: 'order', idField: 'order_id', type: 0 });
   else if (paths.has('/orders/shop')) targets.push({ key: 'orders:shop', kind: 'order', idField: 'order_id', type: 3 });
   if (paths.has('/withdraw')) targets.push({ key: 'withdrawals', kind: 'withdrawal', idField: 'withdraw_id' });
+  if (paths.has('/recycle')) targets.push({ key: 'recycles', kind: 'recycle', idField: 'recycle_id' });
   return targets;
 }
 
 function notificationRoute(item) {
   if (item.kind === 'withdrawal') return withdrawListPath.value || '/';
+  if (item.kind === 'recycle') return recycleListPath.value || '/';
   const paths = visibleMenuPaths();
   if ((Number(item.type) === 3 || Number(item.type) === 4) && paths.has('/orders/shop')) return '/orders/shop';
   return orderListPath.value || '/';
@@ -280,6 +285,7 @@ function openNotification(item) {
 }
 
 function notificationTitle(item) {
+  if (item.kind === 'recycle') return `${item.goods_name || '商品'} 到顶回收`;
   if (item.kind === 'withdrawal') {
     const member = item.nick_name || `会员 #${item.member_id}`;
     return `${member} 提交了提现申请`;
@@ -288,12 +294,18 @@ function notificationTitle(item) {
 }
 
 function notificationDescription(item) {
+  if (item.kind === 'recycle') {
+    const who = item.nick_name || `会员 #${item.member_id}`;
+    const state = Number(item.status) === 10 ? '已自动结算' : '待处理';
+    return `${who} · 买入 ¥${Number(item.buy_price || 0).toFixed(2)} · ${state} · ${item.create_time}`;
+  }
   return item.kind === 'withdrawal'
     ? `提现申请 · ${item.create_time}`
     : `${item.order_no} · ${item.create_time}`;
 }
 
 function notificationAmount(item) {
+  if (item.kind === 'recycle') return Number(item.recycle_price || 0).toFixed(2);
   return Number(item.kind === 'withdrawal' ? item.amount : item.total_price || 0).toFixed(2);
 }
 
@@ -308,17 +320,26 @@ function notifyNewItems(items) {
   unreadNotificationCount.value += ordered.length;
 
   const withdrawalCount = ordered.filter((item) => item.kind === 'withdrawal').length;
+  const recycleCount = ordered.filter((item) => item.kind === 'recycle').length;
   const member = newest.nick_name || `会员 #${newest.member_id}`;
   const message = ordered.length === 1
     ? newest.kind === 'withdrawal'
       ? `${member}提交了提现申请，金额 ${Number(newest.amount || 0).toFixed(2)} 元。`
-      : `收到新订单，${newest.goods_name || '商品'}，金额 ${Number(newest.total_price || 0).toFixed(2)} 元。`
-    : `收到 ${ordered.length} 条新消息${withdrawalCount ? `，其中提现申请 ${withdrawalCount} 笔` : ''}，请及时处理。`;
+      : newest.kind === 'recycle'
+        ? `新的系统回收：${newest.goods_name || '商品'}，回收价 ${Number(newest.recycle_price || 0).toFixed(2)} 元，原持有人${member}。`
+        : `收到新订单，${newest.goods_name || '商品'}，金额 ${Number(newest.total_price || 0).toFixed(2)} 元。`
+    : `收到 ${ordered.length} 条新消息${
+      [recycleCount ? `系统回收 ${recycleCount} 笔` : '', withdrawalCount ? `提现申请 ${withdrawalCount} 笔` : '']
+        .filter(Boolean).length
+        ? `，其中${[recycleCount ? `系统回收 ${recycleCount} 笔` : '', withdrawalCount ? `提现申请 ${withdrawalCount} 笔` : ''].filter(Boolean).join('、')}`
+        : ''
+    }，请及时处理。`;
   speak(message);
+  const recycleOnly = recycleCount === ordered.length;
   ElNotification({
-    title: '新业务消息',
+    title: recycleOnly ? '系统回收提醒' : '新业务消息',
     message,
-    type: 'success',
+    type: recycleOnly ? 'warning' : 'success',
     duration: 8000,
     onClick: () => openNotification({ ...newest, route: notificationRoute(newest) }),
   });
@@ -339,7 +360,9 @@ async function pollNotifications() {
       try {
         const request = target.kind === 'withdrawal'
           ? adminApi.withdrawalNotifications(params)
-          : adminApi.orderNotifications(params);
+          : target.kind === 'recycle'
+            ? adminApi.recycleNotifications(params)
+            : adminApi.orderNotifications(params);
         const result = await request;
         const data = result.data || {};
         const latestId = Number(data.latest_id) || 0;

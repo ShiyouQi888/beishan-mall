@@ -164,21 +164,16 @@ try {
   // ---------- 全部列表/内容页 ----------
   const pages = [
     ['/', '控制面板'],
-    ['/goods', '抢购商品'],
-    ['/shop-goods', '商城商品'],
+    ['/goods', '商品管理'],
     ['/category', '商品分类'],
     ['/specialarea', '抢购场次'],
     ['/orders', '全部订单'],
     ['/orders/shop', '商城订单'],
-    ['/streambeat', '流拍订单'],
-    ['/report', '举报处理'],
     ['/delivery', '运费模板'],
     ['/settle', '结算账目'],
-    ['/settlement', '差价结算'],
     ['/energy', '佣金记录'],
     ['/withdraw', '提现审核'],
     ['/member', '会员列表'],
-    ['/member-grade', '会员等级'],
     ['/certification', '实名认证'],
     ['/banner', '广告管理'],
     ['/navigation', '菜单配置'],
@@ -260,8 +255,6 @@ try {
     ok((await count('.el-table__row')) > 0, '订单列表有数据');
     const hasDeliver = await has('发货');
     ok(hasDeliver || (await count('.el-button') > 0), '订单行操作按钮渲染');
-    await go('/streambeat', 1500);
-    ok(await has('流拍'), '流拍订单页渲染');
   });
 
   await section('[5] 7 个设置组表单', async () => {
@@ -281,13 +274,6 @@ try {
     ok(await has('转拍涨价率'), '交易设置含转拍涨价率');
     ok(await has('转拍上架费'), '交易设置含转拍上架费');
     await shot('setting-trade');
-  });
-
-  await section('[6] 结算页', async () => {
-    await go('/settlement', 1600);
-    ok(await has('差价结算') || await has('批次'), '差价结算页渲染');
-    ok((await count('button')) > 0, '结算页有操作按钮');
-    await shot('settlement');
   });
 
   await section('[7] 权限弹窗（角色分配权限）', async () => {

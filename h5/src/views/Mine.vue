@@ -14,7 +14,6 @@
           <div class="mine__user-info">
             <div class="nick">{{ me.nickName || '点击登录' }}</div>
             <div class="tags">
-              <span class="tag">{{ me.identity_vip_value || '普通会员' }}</span>
               <span class="tag tag--id" v-if="me.is_certification === 1">已实名</span>
             </div>
           </div>

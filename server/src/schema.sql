@@ -41,17 +41,6 @@ CREATE TABLE IF NOT EXISTS store_role_node (
   PRIMARY KEY (role_id, node_id)
 );
 
--- ---------- 会员等级配置（对齐原站 setting/grade） ----------
-CREATE TABLE IF NOT EXISTS member_grade (
-  grade_id    INTEGER PRIMARY KEY,
-  name        TEXT NOT NULL,
-  drive_num   INTEGER DEFAULT 0,      -- 升级所需直推人数
-  team_valid  INTEGER DEFAULT 0,      -- 升级所需团队有效人数
-  team_water  REAL DEFAULT 0,         -- 升级所需团队流水（万元）
-  team_award  REAL DEFAULT 0,         -- 团队奖励比例（%）
-  create_time TEXT
-);
-
 -- ---------- 会员 ----------
 CREATE TABLE IF NOT EXISTS member (
   member_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,10 +53,7 @@ CREATE TABLE IF NOT EXISTS member (
   child_id       TEXT DEFAULT '',         -- 直属下级ID，逗号分隔
   path           TEXT DEFAULT '',         -- 层级路径 /1/4/411/
   level          INTEGER DEFAULT 1,       -- 团队深度
-  grade_id       INTEGER DEFAULT 1,       -- 会员等级（对应 member_grade）
-  team_water     REAL DEFAULT 0,          -- 累计团队流水
   invitation_code TEXT DEFAULT '',
-  identity_vip   INTEGER DEFAULT 0,       -- 会员等级（兼容旧字段）
   is_valid       INTEGER DEFAULT 10,      -- 10有效 20无效
   amount         REAL DEFAULT 0,          -- 账户余额
   score          INTEGER DEFAULT 0,       -- 积分
@@ -174,26 +160,42 @@ CREATE TABLE IF NOT EXISTS goods (
   images         TEXT DEFAULT '',         -- JSON 数组
   detail         TEXT DEFAULT '',         -- 富文本详情
   category_id    INTEGER DEFAULT 0,
-  specialarea_id INTEGER DEFAULT 0,
+  specialarea_id INTEGER DEFAULT 0,       -- 已废弃：仅供旧读法兜底，真实归属见 specialarea_goods
   area_date      TEXT DEFAULT '',         -- 本轮上架落在哪一天的场次（YYYY-MM-DD；空=不限，老数据兼容）
   member_id      INTEGER DEFAULT 0,       -- 现持有人
   goods_min_price REAL DEFAULT 0,         -- 售卖价
+  base_price     REAL DEFAULT 0,          -- 基准价（首次上架价）：色块水位从这里起算，转拍不改
+  price_cap      REAL DEFAULT 0,          -- 价格上限（元）：最高能卖多少钱，0 = 不限；到顶后禁止转拍
+  recycled       INTEGER DEFAULT 0,       -- 1 = 已被系统回收封顶：前台不再展示，只有后台改回上架才重新流通
   line_price     REAL DEFAULT 0,          -- 市场价/划线价
   stock_num      INTEGER DEFAULT 0,
   sales_actual   INTEGER DEFAULT 0,
-  goods_status   INTEGER DEFAULT 10,      -- 10上架 20下架 30流拍
+  goods_status   INTEGER DEFAULT 10,      -- 10上架 20下架
   is_sell        INTEGER DEFAULT 10,      -- 是否在售
-  is_split       INTEGER DEFAULT 0,       -- 是否拆分商品（按份出售）
-  split_total    INTEGER DEFAULT 0,       -- 拆分总份数
   turn_beat_num  INTEGER DEFAULT 0,       -- 转拍次数
   goods_sort     INTEGER DEFAULT 100,
-  type           INTEGER DEFAULT 1,       -- 1抢购商品 2商城商品
+  type           INTEGER DEFAULT 1,       -- 已废弃：商品不再区分抢购/商城，保留列仅为兼容历史数据
   score_price    INTEGER DEFAULT 0,       -- 积分商品所需积分
   create_time    TEXT,
   update_time    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_goods_area ON goods(specialarea_id);
 CREATE INDEX IF NOT EXISTS idx_goods_member ON goods(member_id);
+
+-- 商品 ↔ 场次 关联（多对多，唯一数据源）
+-- 商品本身不再维护「场次」字段：一件商品属于哪些场次，完全由这张表决定；
+-- 同一件商品可以同时挂在多个场次下（例如同一批货上午场、下午场都放）。
+-- goods.specialarea_id 自本版起降级为「首个关联场次」的只读镜像，仅供老代码兜底。
+CREATE TABLE IF NOT EXISTS specialarea_goods (
+  area_goods_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+  specialarea_id INTEGER NOT NULL,
+  goods_id       INTEGER NOT NULL,
+  sort           INTEGER DEFAULT 100,
+  create_time    TEXT,
+  UNIQUE (specialarea_id, goods_id)
+);
+CREATE INDEX IF NOT EXISTS idx_areagoods_area ON specialarea_goods(specialarea_id);
+CREATE INDEX IF NOT EXISTS idx_areagoods_goods ON specialarea_goods(goods_id);
 
 -- ---------- 订单 ----------
 CREATE TABLE IF NOT EXISTS orders (
@@ -205,7 +207,7 @@ CREATE TABLE IF NOT EXISTS orders (
   goods_name    TEXT DEFAULT '',
   goods_thumb   TEXT DEFAULT '',
   specialarea_id INTEGER DEFAULT 0,
-  type          INTEGER DEFAULT 1,        -- 1抢购 2寄卖 3商城 4寄买 5流拍
+  type          INTEGER DEFAULT 1,        -- 1抢购 2寄卖 3商城 4寄买（5=流拍已下线）
   price         REAL DEFAULT 0,
   num           INTEGER DEFAULT 1,
   total_price   REAL DEFAULT 0,
@@ -239,6 +241,29 @@ CREATE TABLE IF NOT EXISTS order_log (
   remark     TEXT DEFAULT '',
   create_time TEXT
 );
+
+-- 系统回收：商品涨到价格上限、持有人无法再转拍时，平台按「买入价 + 一轮涨幅」接盘结算
+-- 只管「价格封顶导致无法流通」；场次到期没人买的商品由 lib/expire.js 自动下架退回，不产生台账
+CREATE TABLE IF NOT EXISTS goods_recycle (
+  recycle_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  goods_id      INTEGER NOT NULL,
+  order_id      INTEGER DEFAULT 0,       -- 持有人买入的那笔订单
+  member_id     INTEGER NOT NULL,        -- 原持有人
+  goods_name    TEXT DEFAULT '',
+  good_thumb    TEXT DEFAULT '',
+  base_price    REAL DEFAULT 0,          -- 基准价
+  cap_price     REAL DEFAULT 0,          -- 价格上限
+  buy_price     REAL DEFAULT 0,          -- 持有人买入价（订单成交价）
+  increase_rate REAL DEFAULT 0,          -- 结算时使用的涨幅（%）
+  recycle_price REAL DEFAULT 0,          -- 结算给持有人的金额
+  profit        REAL DEFAULT 0,          -- 持有人拿到的收益（回收价 − 买入价）
+  status        INTEGER DEFAULT 10,      -- 10已结算 20待处理（开关关闭/超日限额）
+  remark        TEXT DEFAULT '',
+  create_time   TEXT,
+  settle_time   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_recycle_member ON goods_recycle(member_id);
+CREATE INDEX IF NOT EXISTS idx_recycle_status ON goods_recycle(status);
 
 -- ---------- 财务 ----------
 -- 佣金 / 能量值 / 积分 变更流水
@@ -427,70 +452,6 @@ CREATE TABLE IF NOT EXISTS region (
   level INTEGER DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_region_pid ON region(pid);
-
--- ---------- 场次结算（差价匹配） ----------
--- 原站机制：场次结束后统计每人买入/卖出金额，做差价匹配，生成付款单线下转账
-CREATE TABLE IF NOT EXISTS settle_batch (
-  batch_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  specialarea_id INTEGER DEFAULT 0,
-  batch_date     TEXT DEFAULT '',        -- 结算归属日期
-  total_buy      REAL DEFAULT 0,         -- 全场买入合计
-  total_sell     REAL DEFAULT 0,         -- 全场卖出合计
-  total_fee      REAL DEFAULT 0,         -- 全场上架费合计
-  member_count   INTEGER DEFAULT 0,
-  status         INTEGER DEFAULT 0,      -- 0待结算 10已结算
-  create_time    TEXT
-);
-
--- 中账：每个会员一条结算账目
-CREATE TABLE IF NOT EXISTS settle_account (
-  account_id     INTEGER PRIMARY KEY AUTOINCREMENT,
-  batch_id       INTEGER NOT NULL,
-  member_id      INTEGER NOT NULL,
-  buy_amount     REAL DEFAULT 0,         -- 抢购金额（买入）
-  consignment_amount REAL DEFAULT 0,     -- 寄卖金额（卖出）
-  listing_fee_amount REAL DEFAULT 0,     -- 上架费
-  listing_fee_percentage REAL DEFAULT 0, -- 上架费率
-  coupon_reward  REAL DEFAULT 0,         -- 优惠券奖励
-  balance        REAL DEFAULT 0,         -- 收支差额（正=应收，负=应付）
-  buy_order_ids  TEXT DEFAULT '',        -- 买单ID列表
-  sell_order_ids TEXT DEFAULT '',        -- 卖单ID列表
-  create_time    TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_sa_batch ON settle_account(batch_id);
-
--- 小账：差价匹配后的付款单（线下转账 + 凭证确认）
-CREATE TABLE IF NOT EXISTS settle_match (
-  match_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  batch_id       INTEGER NOT NULL,
-  payer_id       INTEGER NOT NULL,       -- 付款方
-  payee_id       INTEGER NOT NULL,       -- 收款方
-  amount         REAL DEFAULT 0,
-  pay_status     INTEGER DEFAULT 0,      -- 0待付款 10待确认 20已完成
-  voucher        TEXT DEFAULT '',        -- 付款凭证
-  pay_time       TEXT DEFAULT '',
-  confirm_time   TEXT DEFAULT '',
-  remark         TEXT DEFAULT '',
-  create_time    TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_sm_batch ON settle_match(batch_id);
-CREATE INDEX IF NOT EXISTS idx_sm_payer ON settle_match(payer_id, pay_status);
-
--- ---------- 举报 ----------
-CREATE TABLE IF NOT EXISTS order_report (
-  report_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-  order_id    INTEGER DEFAULT 0,
-  member_id   INTEGER NOT NULL,        -- 举报人
-  target_id   INTEGER DEFAULT 0,       -- 被举报会员
-  goods_id    INTEGER DEFAULT 0,
-  reason      TEXT DEFAULT '',
-  content     TEXT DEFAULT '',
-  images      TEXT DEFAULT '',
-  status      INTEGER DEFAULT 0,       -- 0待处理 10已处理 20已驳回
-  result      TEXT DEFAULT '',
-  create_time TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_report_status ON order_report(status);
 
 -- ---------- 运费模板 ----------
 CREATE TABLE IF NOT EXISTS delivery_template (

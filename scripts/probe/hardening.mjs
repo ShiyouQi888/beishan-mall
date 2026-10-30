@@ -1,4 +1,4 @@
-// 安全加固回归：密码哈希升级、角色提权封锁、超管标记、举报归属、素材死链清理
+// 安全加固回归：密码哈希升级、角色提权封锁、超管标记、素材死链清理
 // 独立库（hardening.db / 3432）
 // 用法: node scripts/probe/hardening.mjs
 import { spawn } from 'node:child_process';
@@ -169,41 +169,7 @@ async function main() {
     const delSuper = await api('/admin/api/storeuser/remove', { method: 'POST', token: at, body: { ids: [superUserId] } });
     ok(delSuper.code !== 1, '不能删除超管账号', delSuper.msg);
 
-    // ---------------- 5. 举报归属 ----------------
-    section('[5] 举报必须是自己参与的订单');
-    const buyerA = (await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13822367845', password: 'legacy123' } })).data.token;
-    const buyerB = (await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13800000004', password: '13800000004' } })).data?.token;
-    ok(!!buyerA && !!buyerB, '两个会员登录成功');
-
-    await api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'trade', values: { service_charge: '0' } } });
-    db.prepare('UPDATE specialarea SET start_time = 0, end_time = 86399, buy_num = 99, open_days = ?').run('1,2,3,4,5,6,7');
-    const midA2 = db.prepare("SELECT member_id id FROM member WHERE mobile='13822367845'").get().id;
-    const midB2 = db.prepare("SELECT member_id id FROM member WHERE mobile='13800000004'").get().id;
-    for (const m of [midA2, midB2]) {
-      await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: m, field: 'amount', value: 500000, remark: '举报测试' } });
-    }
-    const g = db.prepare(
-      "SELECT goods_id FROM goods WHERE type = 1 AND goods_status = 10 AND IFNULL(area_date,'') = '' AND member_id NOT IN (?,?) ORDER BY goods_id LIMIT 1",
-    ).get(midA2, midB2);
-    const ord = await api('/api/order/toAddOrder', { method: 'POST', token: buyerA, body: { goods_id: g.goods_id, num: 1, pay_type: 1 } });
-    ok(ord.code === 1, 'A 下单', ord.msg);
-
-    const outsider = await api('/api/order/toOrderReport', {
-      method: 'POST', token: buyerB, body: { order_id: ord.data.order_id, reason: '虚假交易', content: '路人举报' },
-    });
-    ok(outsider.code !== 1 && /无权/.test(outsider.msg || ''), '第三方不能举报别人的订单', outsider.msg);
-
-    const own = await api('/api/order/toOrderReport', {
-      method: 'POST', token: buyerA, body: { order_id: ord.data.order_id, reason: '虚假交易', content: '本人举报' },
-    });
-    ok(own.code === 1, '本人可以举报自己的订单', own.msg);
-
-    const dup = await api('/api/order/toOrderReport', {
-      method: 'POST', token: buyerA, body: { order_id: ord.data.order_id, reason: '价格欺诈', content: '再举报一次' },
-    });
-    ok(dup.code !== 1 && /已举报/.test(dup.msg || ''), '同一订单不能重复举报（未处理前）', dup.msg);
-
-    // ---------------- 6. 素材死链清理 ----------------
+    // ---------------- 5. 素材死链清理 ----------------
     section('[6] 素材库清掉「文件已不存在」的死链');
     const { UPLOAD_DIR } = await import('../../server/src/lib/uploadStorage.js');
     // 造两条记录：一条磁盘上有文件，一条只有记录

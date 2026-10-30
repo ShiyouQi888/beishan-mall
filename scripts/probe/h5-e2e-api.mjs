@@ -149,7 +149,7 @@ async function main() {
 
     const lootTarget = db.prepare(
       `SELECT g.goods_id, g.goods_min_price FROM goods g
-       WHERE g.goods_status = 10 AND g.type = 1 AND IFNULL(g.is_split,0) = 0
+       WHERE g.goods_status = 10 AND g.type = 1
        ORDER BY g.goods_id LIMIT 1`,
     ).get();
     const lootDetail = await api(`/api/goods/getLootDetails?goods_id=${lootTarget.goods_id}`);
@@ -460,9 +460,9 @@ async function main() {
     const listOn = await api('/api/score/getScoreShopList?page=1&limit=5', { token: newToken });
     ok(listOn.code === 1, '重新开启后列表恢复', listOn.msg);
 
-    // ========== 结算（会员端已下线） ==========
-    section('[13] 差价结算：会员端已下线，后台已停用生成');
-    // 成交即入账，会员间再结一次就是重复收款 → 页面与接口都删了，这里守住不回归
+    // ========== 会员间结算：已整体下线 ==========
+    section('[13] 会员间结算：接口与后台对账都已删除');
+    // 成交即入账，会员之间再结一次就是重复收款 → 页面与接口全删了，这里守住不回归
     const mySettle = await api('/api/order/mySettle', { token: newToken });
     ok(mySettle.code !== 1 && /不存在/.test(mySettle.msg), '我的结算待办接口已删除', mySettle.msg);
     const settleVoucher = await api('/api/order/settleVoucher', { method: 'POST', token: newToken, body: { match_id: 1, voucher: '/uploads/x.png' } });
@@ -470,7 +470,8 @@ async function main() {
     const settleConfirm = await api('/api/order/settleConfirm', { method: 'POST', token: newToken, body: { match_id: 1 } });
     ok(settleConfirm.code !== 1, '确认收款接口已删除', settleConfirm.msg);
     const settleRun = await api('/admin/api/settle/run', { method: 'POST', token: at, body: { specialarea_id: 0 } });
-    ok(settleRun.code === 0 && /停用/.test(settleRun.msg), '后台执行结算已停用', settleRun.msg);
+    ok(settleRun.code !== 1, '后台差价对账接口已删除', settleRun.msg);
+
     // ========== 设置 ==========
     section('[14] 设置：昵称、登录密码、支付密码');
     const nick = await api('/api/member/editMember', { method: 'POST', token: newToken, body: { nickName: '改名后的我' } });

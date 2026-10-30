@@ -30,15 +30,15 @@ const OFFICIAL = {
 
 /** 交易与资金：连带结算三类账目 */
 const TRADE_TABLES = [
-  'order_log', 'order_report', 'orders',
+  'order_log', 'orders', 'goods_recycle',
   'finance_energy', 'finance_withdraw',
-  'settle_pay', 'settle_match', 'settle_account', 'settle_batch',
+  'settle_pay',
 ];
 /** 会员侧的附属数据 */
 const MEMBER_TABLES = ['member_address', 'member_card', 'member_certification', 'member_msg'];
 
 export const SCOPES = {
-  trade: { label: '订单与资金', desc: '订单、订单日志、举报、资金流水、提现、结算批次/账目/匹配' },
+  trade: { label: '订单与资金', desc: '订单、订单日志、资金流水、提现、结算账目' },
   member: { label: '会员与团队', desc: '除官方账号外全部会员，及其地址、收款卡、实名、站内消息' },
   goods: { label: '商品复位', desc: '商品不删除，只把持有人改回官方、流转次数与销量归零、全部重新上架' },
   media: { label: '未引用的素材', desc: '只删没人用的图片，商品/广告/配置正在用的会保留' },
@@ -126,9 +126,9 @@ export function resetData(scopes) {
         if (!official) {
           const info = run(
             `INSERT INTO member (nick_name, mobile, password, p_id, path, level, invitation_code,
-               identity_vip, is_valid, amount, score, e_card_number, is_certification, disabled,
+               is_valid, amount, score, e_card_number, is_certification, disabled,
                client_type, create_time, update_time)
-             VALUES (?,?,?,0,'/',1,?,0,10,0,0,0,0,10,3,datetime('now','localtime'),datetime('now','localtime'))`,
+             VALUES (?,?,?,0,'/',1,?,10,0,0,0,0,10,3,datetime('now','localtime'),datetime('now','localtime'))`,
             OFFICIAL.nick, OFFICIAL.mobile, hashPwd(OFFICIAL.password), OFFICIAL.code,
           );
           official = get('SELECT * FROM member WHERE member_id = ?', Number(info.lastInsertRowid));
@@ -141,7 +141,7 @@ export function resetData(scopes) {
           `UPDATE member SET nick_name = ?, mobile = ?, invitation_code = ?,
              p_id = 0, path = '/', level = 1, child_id = '', amount = 0, e_card_number = 0,
              score = 0, is_certification = 0, is_advance = 0, advance_count = 0,
-             identity_vip = 0, is_valid = 10, disabled = 10, pay_password = '', pay_setting = ''
+             is_valid = 10, disabled = 10, pay_password = '', pay_setting = ''
            WHERE member_id = ?`,
           OFFICIAL.nick, OFFICIAL.mobile, OFFICIAL.code, keptMemberId,
         );
@@ -153,7 +153,7 @@ export function resetData(scopes) {
         }
         n = Number(run(
           `UPDATE goods SET member_id = ?, goods_status = 10, stock_num = 1,
-             is_split = 0, split_total = 0, turn_beat_num = 0, sales_actual = 0, is_sell = 10
+             turn_beat_num = 0, sales_actual = 0, is_sell = 10
            WHERE 1 = 1`,
           holder,
         ).changes || 0);

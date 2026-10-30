@@ -122,7 +122,7 @@ async function main() {
 
     section('[4] 已结束的场次不能下单');
     const closedOrder = await api('/api/order/toAddOrder', { method: 'POST', token: mToken, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
-    ok(closedOrder.code === 0 && /不在该场次抢购时间内/.test(closedOrder.msg), '窗口外下单被拒', closedOrder.msg);
+    ok(closedOrder.code === 0 && /不在该场次抢购时间内|已结束|开抢/.test(closedOrder.msg), '窗口外下单被拒', closedOrder.msg);
 
     section('[5] 非开放日不能下单');
     const jsDay = new Date().getDay();

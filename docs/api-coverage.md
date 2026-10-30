@@ -5,6 +5,9 @@
 
 图例：✅ 已实现 ｜ ⚠️ 部分实现/语义不同 ｜ ❌ 未实现
 
+> **2026-10-31 更新**：举报处理、流拍订单、差价对账、会员等级四个模块已整体下线
+> （代码、接口、页面、数据表均已删除）。下文带「已下线」的条目仅作历史对照。
+
 ---
 
 ## 一、通用 CRUD（原站 ~60 个接口 → 我方 4 个）
@@ -34,9 +37,9 @@
 
 | 原站 | 功能 | 状态 |
 |---|---|---|
-| `goods.goods/getstatistics` | 商品金额统计（总量/上架/下架/流拍） | ✅ `/stats/goods` + 列表页统计卡片 |
+| `goods.goods/getstatistics` | 商品金额统计（总量/上架/下架） | ✅ `/stats/goods` + 列表页统计卡片 |
 | `goods.goods/operation` | 批量操作 | ⚠️ 仅单条编辑 |
-| `goods.split/getstatistics` | 拆分商品统计 | ✅ 复用 `/stats/goods`（含拆分库存折算） |
+| `goods.split/getstatistics` | 拆分商品统计 | ✅ 复用 `/stats/goods`（按「单价 × 库存」统计） |
 | `goods.shop/*` | 商城商品（独立菜单） | ⚠️ 合并在 goods 模块，无独立入口 |
 
 ---
@@ -47,12 +50,12 @@
 |---|---|---|
 | `order.order/details` | 订单详情 | ✅ |
 | `order.order/importorder` | 导入订单 | ✅ `/orders/import`（逐行校验，失败行返回原因） |
-| `order.order/setnumsplitorder` | 拆分订单 | ✅ `/orders/split` |
+| `order.order/setnumsplitorder` | 拆分订单 | ❌ 已下线（2026-10-31） |
 | `order.order/team_list`、`team_failed` | 团队/拼团订单 | ✅ `/member/team-orders` |
-| `order.consignment/informant_list` | **举报列表** | ✅ `report` 模块 + `/report/audit` |
+| `order.consignment/informant_list` | **举报列表** | ❌ 已下线 |
 | `order.goods/set_goods_order` | 设置寄买订单 | ✅ `/orders/set-goods-order` |
-| `order.goods/toreleaseorder` | 释放订单 | ✅ 流拍释放 + 指派订单 |
-| `order.streambeat/assignorder`、`toassignorder`、`getmemberlist` | **指派订单** | ✅ `/streambeat/assign`、`/streambeat/members` |
+| `order.goods/toreleaseorder` | 释放订单 | ❌ 已下线（改为场次到期自动下架） |
+| `order.streambeat/assignorder`、`toassignorder`、`getmemberlist` | **指派订单** | ❌ 已下线 |
 
 ---
 
@@ -60,8 +63,8 @@
 
 | 原站 | 功能 | 状态 |
 |---|---|---|
-| `order.pay/large`、`medium`、`small` | 三类账目列表 | ✅ `/settle/*`（差价结算，语义已对齐） |
-| `order.pay/generate_pay_large`、`medium`、`small` | 生成三类账目 | ✅ `/settle/run` |
+| `order.pay/large`、`medium`、`small` | 三类账目列表 | ❌ 已下线（只保留 `/settle` 结算账目） |
+| `order.pay/generate_pay_large`、`medium`、`small` | 生成三类账目 | ❌ 已下线（成交即入账） |
 | `order.pay/grant_drive_award` | **发放直推奖** | ✅ `/award/grant`（支持补发，自动防重复） |
 | `order.pay/updatepaystatus` | 更新支付状态 | ✅ `/orders/confirm-pay` |
 | `order.pay/upload_voucher` | 上传凭证 | ⚠️ 仅 H5 端，后台可通过「确认收款」代操作 |
@@ -87,7 +90,7 @@
 | 原站 | 功能 | 状态 |
 |---|---|---|
 | `setting/store`、`trade`、`pay` | 基础配置 | ✅（`auction` 竞拍组已下线：原站只有配置项、无业务逻辑） |
-| `setting/grade` | 会员等级配置 | ✅ 落在 `member_grade` 模块（后台「会员等级」页），**不再重复做协议组** |
+| `setting/grade` | 会员等级配置 | ❌ 已下线（等级体系整体移除） |
 | `setting/specialarea` | 抢购专场配置 | ✅ 独立页面 |
 | `setting/notice` | 公告 | ✅ `notice` 模块 |
 | `setting/poster` | **海报配置** | ✅ `/setting/poster` |
@@ -126,12 +129,9 @@
 | `/stats/goods`、`/stats/today-orders`、`/sysinfo` | 商品列表顶部统计卡片 |
 | `/member/advance`、`/member/clear-commission`、`/member/energy-record` | 会员列表操作 |
 | `/award/grant` | 订单补发直推奖 |
-| `/streambeat/assign`、`/streambeat/members` | 流拍订单指派 |
 | `/cache/clear` | — |
-| `/report/audit` | 举报处理（新菜单） |
 | `delivery` 模块 | 运费模板（新菜单） |
 
-同时把 H5 举报从「写订单日志」改为写入独立 `order_report` 表，后台可审核。
 
 ### 下一轮已补齐（菜单单一数据源 / 权限收口）
 
@@ -143,7 +143,7 @@
 | `GET/POST /role/nodes` | 角色管理 → 分配权限 |
 | `GET /node/tree` | 角色管理 → 分配权限（节点树） |
 | `POST /orders/import` | 订单导入 |
-| `POST /orders/split` | 后台拆分订单 |
+| ~~`POST /orders/split`~~ | 后台拆分订单（已下线） |
 | `GET /member/team-orders` | 团队订单视图 |
 | `POST /orders/set-goods-order` | 设置寄买订单 |
 | `GET/POST /setting/storage`、`/setting/poster`、`/setting/prompt` | 上传配置 / 海报配置 / 须知配置 |
@@ -232,24 +232,16 @@ H5 转拍弹窗已去掉手填输入，改为只读展示：上一手成交价�
 | 改动 | 说明 |
 |---|---|
 | 转拍不再插入 `type=2` | 只做：扣上架费 → 原订单打 `consignment_status=10` → 商品按涨价率重新上架 |
-| 流拍改从原订单推导 | `consignment_status=10 AND type=1 AND 商品仍归该买家 AND goods_status=10 AND 已过场次` |
-| 流拍后关闭挂单 | 原订单 `consignment_status` 归 0，因此不会重复判流拍（幂等） |
+| 到期下架（替代流拍） | `lib/expire.js`：挂在场次、场次结束仍无人买 → 商品下架退回持有人，不生成任何台账 |
+| 到期后关闭挂单标记 | 原订单 `consignment_status` 归 0，持有人可重新转拍（幂等） |
 | 删除后台「寄卖订单」菜单 | 节点表由 `ensureNodes()` 自动清理下线节点及其角色绑定 |
 | 结算显式排除 `type=2` | 兼容历史数据，彻底消除重复计收益的可能 |
 | `ORDER_TYPE` 保留 `2` | 仅为历史订单的类型标签正常显示 |
 
-### 平台回收与「我的店铺」（新一轮）
+### 到顶回收与「我的店铺」（新一轮）
 
-**平台回收**：流拍后若长期无人接盘，后台可把商品按当前挂牌价收归平台。
-
-| 项 | 说明 |
-|---|---|
-| 入口 | 后台「流拍订单」→ 已流拍记录 → **平台回收**（与「释放」并列） |
-| 回收价 | 商品当前挂牌价（含历次涨价）。流拍单的金额也改记挂牌价，便于核对 |
-| 资金 | 按回收价给持有人 `member.amount` 打款，记一条 `type_name='平台回收'` 的流水 |
-| 商品 | 转平台持仓：`member_id=0`、`goods_status=20`（下架）、`is_sell=0` |
-| 防重复 | 流拍单置 `status=70 平台已回收`，重复调用直接拒绝 |
-| 再流通 | 后台把该商品状态改回「上架」即可重新进入场次；成交时因 `seller_id=0` 无人收款 |
+**系统回收**：商品涨到价格上限后无法再转拍，平台按「买入价 + 一轮涨价率」接盘结算（详见 README 业务模型第 6 节）。
+「流拍 + 平台回收」那套已下线，历史 `type=5` 台账在迁移时删除。
 
 **我的店铺**：`GET /api/member/myShop`
 
@@ -286,7 +278,7 @@ H5 转拍弹窗已去掉手填输入，改为只读展示：上一手成交价�
 | 表 | 内容 |
 |---|---|
 | `store_role` | 仅后台角色：`6 超级管理员` / `7 运营` |
-| `member_grade` | 仅会员等级：5 档，可后台动态维护 |
+| `goods_recycle` | 到顶系统回收台账（已结算 / 待处理） |
 
 **不做**
 - `wx.*`、`apps.dealer.*`：未接入真实支付通道

@@ -8,15 +8,15 @@
 //   平级奖        —— 原站配置为 0
 //
 // 平台每轮净收入 = 上架费 − 直推奖 − 团队奖（2.8% − 0.5% = 2.3%）
-import { all, get, run, now } from '../db.js';
-import { isPieceSale } from './split.js';
+import { get, run, now } from '../db.js';
+import { isPieceSale } from './stock.js';
 
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;
 export const money2 = (n) => Number(Number(n).toFixed(2));
 
 /** 上架费率（%），对齐原站 listing_fee_percentage */
 export const listingFeeRate = () => Number(cfg('listing_fee_rate', '2.8'));
-/** 直推奖率（%），对齐原站 grade[drive_award] */
+/** 直推奖率（%），对齐原站实证口径 */
 export const driveAwardRate = () => Number(cfg('drive_award_rate', '0.5'));
 
 /** 计算某金额的上架费 */
@@ -80,14 +80,14 @@ export function settleOrder(o) {
 
   const award = distributeAward(o);
   const scoreAward = awardScore(o);
-  addTeamWater(o.member_id, o.total_price);
 
   return { ok: true, sellerIncome, award, scoreAward };
 }
 
 /**
- * 分销奖励：直推奖 + 团队奖
+ * 分销奖励：只有单级直推奖
  * 基数 = 买单金额（对齐原站「大账买单直推奖」）
+ * 会员等级体系已整体下线，团队奖随之取消（原站五级 team_award 本来就是 0）
  */
 export function distributeAward(o) {
   const base = money2(o.total_price);
@@ -96,7 +96,7 @@ export function distributeAward(o) {
   const buyer = get('SELECT member_id, p_id FROM member WHERE member_id = ?', o.member_id);
   if (!buyer?.p_id) return 0;
 
-  const parent = get('SELECT member_id, p_id, grade_id FROM member WHERE member_id = ?', buyer.p_id);
+  const parent = get('SELECT member_id, p_id FROM member WHERE member_id = ?', buyer.p_id);
   if (!parent) return 0;
 
   let total = 0;
@@ -108,19 +108,6 @@ export function distributeAward(o) {
     if (c > 0) {
       total = money2(total + c);
       payCommission(parent.member_id, c, '直推奖', o.order_no);
-    }
-  }
-
-  // 2) 团队奖（按上级自身等级的 team_award，原站默认 0）
-  const grade = parent.grade_id
-    ? get('SELECT * FROM member_grade WHERE grade_id = ?', parent.grade_id)
-    : null;
-  const teamRate = Number(grade?.team_award || 0);
-  if (teamRate > 0) {
-    const c = money2((base * teamRate) / 100);
-    if (c > 0) {
-      total = money2(total + c);
-      payCommission(parent.member_id, c, '团队奖', o.order_no);
     }
   }
 
@@ -147,7 +134,7 @@ function payCommission(memberId, amount, label, orderNo) {
  * 「卖家收两次钱、后付的人钱货两空」。所以付款/确认收款之前必须再确认一次：
  * 这件货是否还在订单上记的那个卖家手里。
  *
- * 只对需要实物转移的抢购(1)/寄卖(2)单生效；商城库存单与流拍单不适用。
+ * 只对需要实物转移的抢购(1)/寄卖(2)单生效；商城库存单不适用。
  */
 export function goodsStillOwnedBySeller(o) {
   const type = Number(o.type);
@@ -198,56 +185,4 @@ function awardScore(o) {
   }
 
   return total;
-}
-
-/**
- * 团队流水累计 + 等级升级
- * 沿推荐链向上累加业绩，然后逐个检查是否满足升级条件
- */
-function addTeamWater(buyerId, amount) {
-  const buyer = get('SELECT member_id, p_id FROM member WHERE member_id = ?', buyerId);
-  let cur = buyer;
-  for (let i = 0; i < 20 && cur?.p_id; i++) {
-    const p = get('SELECT member_id, p_id, grade_id FROM member WHERE member_id = ?', cur.p_id);
-    if (!p) break;
-    run('UPDATE member SET team_water = team_water + ? WHERE member_id = ?', money2(amount), p.member_id);
-    checkGradeUpgrade(p.member_id);
-    cur = p;
-  }
-}
-
-/** 按 member_grade 的升级条件判定是否可升级（只升不降） */
-function checkGradeUpgrade(memberId) {
-  const m = get('SELECT * FROM member WHERE member_id = ?', memberId);
-  if (!m) return;
-
-  const childCount = m.child_id ? m.child_id.split(',').filter(Boolean).length : 0;
-  // 团队有效人数：path 中包含该会员的所有下级
-  const teamValid = get(
-    "SELECT COUNT(*) c FROM member WHERE path LIKE ? AND is_valid = 10 AND disabled = 10",
-    `%/${memberId}/%`,
-  ).c;
-
-  const grades = allGrades();
-  let target = m.grade_id || 1;
-  for (const g of grades) {
-    if (g.grade_id <= target) continue;
-    const okDrive = childCount >= (g.drive_num || 0);
-    const okValid = teamValid >= (g.team_valid || 0);
-    const okWater = Number(m.team_water || 0) >= Number(g.team_water || 0) * 10000;
-    if (okDrive && okValid && okWater) target = g.grade_id;
-  }
-
-  if (target > (m.grade_id || 1)) {
-    run('UPDATE member SET grade_id = ?, identity_vip = ? WHERE member_id = ?', target, target - 1, memberId);
-    run(
-      'INSERT INTO member_msg (member_id, title, content, create_time) VALUES (?,?,?,?)',
-      memberId, '等级提升',
-      `恭喜您已升级为「${grades.find((x) => x.grade_id === target)?.name || '新等级'}」`, now(),
-    );
-  }
-}
-
-function allGrades() {
-  return all('SELECT * FROM member_grade ORDER BY grade_id');
 }

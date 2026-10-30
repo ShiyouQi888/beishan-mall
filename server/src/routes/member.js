@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { all, get, run, tx, now, today } from '../db.js';
 import { ok, fail, authMember, page, money, cfg, calcNextPrice, priceIncreaseRate, assetUrl } from '../lib/helper.js';
 import { calcListingFee } from '../lib/settle.js';
+import { priceCapOf } from '../lib/priceCap.js';
+import { addDays } from '../lib/sessionWindow.js';
 import { hashPwd, verifyPwd, needsRehash, signMember, randomCode } from '../lib/auth.js';
 
 const r = Router();
@@ -50,8 +52,8 @@ r.post('/registerAnAccount', (req, res) => {
     const myCode = uniqueCode();
     const info = run(
       `INSERT INTO member (nick_name, mobile, password, p_id, path, level, invitation_code,
-        identity_vip, is_valid, disabled, client_type, create_time, update_time)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        is_valid, disabled, client_type, create_time, update_time)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       nickName || `用户${String(phone).slice(-4)}`,
       String(phone).trim(),
       hashPwd(pwdv),
@@ -59,7 +61,7 @@ r.post('/registerAnAccount', (req, res) => {
       parent ? `${parent.path || '/'}${parent.member_id}/` : '/',
       parent ? Number(parent.level || 1) + 1 : 1,
       myCode,
-      0, 10, 10, 3, now(), now(),
+      10, 10, 3, now(), now(),
     );
     const newId = Number(info.lastInsertRowid);
     // 维护上级 child_id（无上级时跳过）
@@ -113,8 +115,6 @@ r.get('/getMemberDetails', authMember, (req, res) => {
       e_card_number: m.e_card_number.toFixed(2),
       rush_amount: m.rush_amount.toFixed(2),
       fy_price: m.fy_price.toFixed(2),
-      identity_vip: m.identity_vip,
-      identity_vip_value: get('SELECT name FROM member_grade WHERE grade_id = ?', (m.grade_id || 1))?.name || '普通会员',
       is_advance: m.is_advance,
       pay_info: m.pay_setting ? JSON.parse(m.pay_setting) : {},
     }),
@@ -192,18 +192,13 @@ r.post('/setSignImage', authMember, (req, res) => {
   res.json(ok([], '设置成功'));
 });
 
-r.get('/getLevelList', (req, res) => {
-  const rows = all('SELECT grade_id, name, team_award FROM member_grade ORDER BY grade_id');
-  res.json(ok(rows.map((x) => ({ id: x.grade_id, name: x.name, desc: `团队奖 ${x.team_award}%` }))));
-});
-
 // 直推列表
 r.get('/getMyIndirection', authMember, (req, res) => {
   const m = req.member;
   const ids = m.child_id ? m.child_id.split(',').filter(Boolean).map(Number) : [];
   const list = ids.length
     ? all(
-        `SELECT member_id, nick_name, mobile, avatar_url, create_time, identity_vip, is_valid
+        `SELECT member_id, nick_name, mobile, avatar_url, create_time, is_valid
          FROM member WHERE member_id IN (${ids.map(() => '?').join(',')}) ORDER BY member_id DESC`,
         ...ids,
       )
@@ -230,7 +225,6 @@ const fmtMember = (x) => ({
   nickName: x.nick_name,
   mobile: x.mobile,
   avatarUrl: x.avatar_url,
-  identity_vip: x.identity_vip,
   create_time: x.create_time,
 });
 
@@ -269,7 +263,7 @@ r.get('/personProfit', authMember, (req, res) => {
       'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 1 AND create_time >= ?',
       m.member_id, from,
     )?.v;
-  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const weekAgo = addDays(today(), -7);
   const monthStart = today().slice(0, 7) + '-01';
   res.json(
     ok({
@@ -445,7 +439,8 @@ r.get('/myShop', authMember, (req, res) => {
   const me = req.member.member_id;
   // 含 20（已下架待转拍）：成交后商品会立刻下架，但持有人仍要能在「我的店铺」里看到它去转拍
   const goodsList = all(
-    `SELECT goods_id, goods_name, good_thumb, goods_min_price, goods_status, turn_beat_num, update_time
+    `SELECT goods_id, goods_name, good_thumb, goods_min_price, goods_status, turn_beat_num, update_time,
+            stock_total, stock_num, base_price, price_cap
      FROM goods WHERE member_id = ? AND goods_status IN (10, 20)
      ORDER BY update_time DESC, goods_id DESC`,
     me,
@@ -458,13 +453,19 @@ r.get('/myShop', authMember, (req, res) => {
        ORDER BY order_id DESC LIMIT 1`,
       g.goods_id, me,
     );
+    // 按件出售的商品（名额 > 1）持有人拿不到整件处置权；
+    // 已达价格上限的商品价格被锁死，后端会拒绝转拍 —— 两种都不给「去转拍」按钮
+    const cap = priceCapOf(g);
+    const pieceSale = Number(g.stock_total) > 1;
+    const transferable = !pieceSale && !cap.reached;
     const myPrice = Number(o?.total_price || 0);
     const listed = Number(o?.consignment_status) === 10;
-    // 已挂牌：商品标价就是下一轮成交价；未挂牌：按涨价率预估
-    const nextPrice = listed ? Number(g.goods_min_price) : calcNextPrice(g.goods_min_price);
+    // 已挂牌：商品标价就是下一轮成交价；未挂牌：按涨价率预估（并受价格上限约束）
+    const rawNext = listed ? Number(g.goods_min_price) : calcNextPrice(g.goods_min_price);
+    const nextPrice = cap.cap_price > 0 ? Math.min(rawNext, cap.cap_price) : rawNext;
     const listingFee = listed ? Number(o?.listing_fee || 0) : calcListingFee(myPrice || g.goods_min_price);
     // 没有买入订单（平台指派/赠送）时无法算收益，返回 null 让前端显示「—」
-    const estNet = myPrice > 0 ? money(nextPrice - myPrice - listingFee) : null;
+    const estNet = transferable && myPrice > 0 ? money(nextPrice - myPrice - listingFee) : null;
     return {
       goods_id: g.goods_id,
       goods_name: g.goods_name,
@@ -479,6 +480,19 @@ r.get('/myShop', authMember, (req, res) => {
       turn_beat_num: Number(g.turn_beat_num || 0),
       order_no: o?.order_no || '',
       update_time: g.update_time,
+      // 按件出售 / 已达价格上限：给前端明确标记，按钮与文案都要跟着变
+      transferable,
+      piece_sale: pieceSale,
+      stock_left: Number(g.stock_num) || 0,
+      stock_total: Number(g.stock_total) || 1,
+      // 价格水位（我的店铺也要能看出「还能涨多少 / 已到顶」）
+      cap_reached: cap.reached,
+      cap_price: cap.cap_price,
+      cap_headroom: cap.headroom,
+      base_price: cap.base_price,
+      increase_pct: cap.pct,
+      cap_ratio: cap.ratio,
+      cap_level: cap.level,
     };
   });
 

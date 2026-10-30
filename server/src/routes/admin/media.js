@@ -31,8 +31,7 @@ function privatePaths() {
   const rows = all(
     `SELECT front_image v FROM member_certification WHERE front_image <> ''
      UNION SELECT back_image FROM member_certification WHERE back_image <> ''
-     UNION SELECT hand_image FROM member_certification WHERE hand_image <> ''
-     UNION SELECT voucher FROM settle_match WHERE voucher <> ''`,
+     UNION SELECT hand_image FROM member_certification WHERE hand_image <> ''`,
   );
   return new Set(rows.map((x) => normPath(x.v)).filter(Boolean));
 }

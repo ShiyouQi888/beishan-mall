@@ -106,7 +106,7 @@ const promises = computed(() => {
 // 也显示「立即抢购」、按钮还能点。不再赌单个字段一定在。
 const isLootGoods = computed(() => (Number(g.value.type) === 2 ? false : !!g.value.specialarea));
 const buyClosed = computed(() => isLootGoods.value && Number(g.value.is_ordinary_order) !== 1);
-// 已抢完：商品被买走或拆份卖光后下架。列表里留一张灰卡片，点进来就是这里 —— 不能下单。
+// 已抢完：商品被买走或一批货卖光后下架。列表里留一张灰卡片，点进来就是这里 —— 不能下单。
 // 优先用后端的 sold_out，字段缺失时退回 goods_status，两者都不会让售罄商品漏过
 const soldOut = computed(() => (g.value.sold_out === undefined
   ? Number(g.value.goods_status ?? 10) !== 10

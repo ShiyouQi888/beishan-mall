@@ -90,7 +90,7 @@ async function main() {
       return r.data?.data || [];
     };
     const pick = (exclude = []) => db.prepare(
-      `SELECT * FROM goods WHERE type = 1 AND goods_status = 10 AND IFNULL(is_split,0) = 0
+      `SELECT * FROM goods WHERE type = 1 AND goods_status = 10
          AND member_id NOT IN (1,4) AND goods_id NOT IN (${exclude.length ? exclude.join(',') : 0})
        ORDER BY goods_id LIMIT 1`,
     ).get();
@@ -214,7 +214,7 @@ async function main() {
       ok(!!row4 && row4.session_state === 'ended', '列表里该商品 session_state=ended（首页/分类据此置灰）',
         row4 && `session_state=${row4.session_state}`);
       const blocked = await api('/api/order/toAddOrder', { method: 'POST', token: buyer, body: { goods_id: g4.goods_id, num: 1, pay_type: 1 } });
-      ok(blocked.code !== 1 && /抢购时间|未开放/.test(blocked.msg || ''), '场次结束后下单被拒', blocked.msg);
+      ok(blocked.code !== 1 && /抢购时间|未开放|已结束|开抢/.test(blocked.msg || ''), '场次结束后下单被拒', blocked.msg);
     } else {
       ok(true, '跳过（该场次无在售商品）');
       ok(true, '跳过（该场次无在售商品）');

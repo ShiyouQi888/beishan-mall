@@ -83,7 +83,7 @@ async function main() {
     // seed 可能给这件商品留了历史订单，先清掉，否则「本场已售」一开始就不是 0
     db.prepare('DELETE FROM orders WHERE goods_id = ?').run(src.goods_id);
     db.prepare(`UPDATE goods SET goods_status = 10, goods_min_price = 1000, line_price = 1200,
-      stock_num = 100, stock_total = 100, sales_actual = 0, is_split = 0, split_total = 0,
+      stock_num = 100, stock_total = 100, sales_actual = 0,
       session_quota = 10, area_date = '', member_id = 0 WHERE goods_id = ?`).run(src.goods_id);
     const GID = src.goods_id;
     const read = () => db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(GID);
