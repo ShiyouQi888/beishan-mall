@@ -717,6 +717,62 @@ r.post('/goods/split', authAdmin, (req, res) => {
   res.json(ok(out, `已拆分为 ${out.parts} 份，每份 ¥${out.per_part.toFixed(2)}`));
 });
 
+/** 按 type 生成下一个商品编码：抢购 GP20260001 / 商城 SP20260001 */
+function nextGoodsNo(type) {
+  const prefix = Number(type) === 2 ? 'SP' : 'GP';
+  const year = String(new Date().getFullYear());
+  const head = `${prefix}${year}`;
+  const rows = all('SELECT goods_no FROM goods WHERE goods_no LIKE ?', `${head}%`);
+  let max = 0;
+  for (const r of rows) {
+    const tail = String(r.goods_no || '').slice(head.length);
+    const n = Number(tail);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${head}${String(max + 1).padStart(4, '0')}`;
+}
+
+/**
+ * 复制商品：以现有商品为模板快速建一条新的。
+ *
+ * 刻意不复制的东西：
+ * - 持有人：新商品归平台，不会凭空空投给某个会员。
+ *   只有原商品本来就归平台时，才跟随原状态直接可售；否则一律先下架，
+ *   等运营确认价格/场次后再手动上架 —— 避免一件没确认的货直接出现在抢购列表里。
+ * - 转拍次数、销量、场次日期：这些都是"这件货的历史"，新商品不该继承。
+ * - 编码：重新按序列生成，goods_no 是唯一标识。
+ */
+r.post('/goods/duplicate', authAdmin, (req, res) => {
+  const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(req.body?.goods_id));
+  if (!g) return res.json(fail('商品不存在'));
+
+  const goodsNo = nextGoodsNo(g.type);
+  const platformOwned = Number(g.member_id) === 0;
+  const status = platformOwned ? Number(g.goods_status) || 20 : 20;
+  const isSell = platformOwned ? Number(g.is_sell) || 0 : 0;
+  const t = now();
+
+  const info = run(
+    `INSERT INTO goods (goods_name, goods_no, good_thumb, images, detail, category_id, specialarea_id, area_date,
+       member_id, goods_min_price, line_price, stock_num, sales_actual, goods_status, is_sell,
+       is_split, split_total, turn_beat_num, goods_sort, type, score_price, create_time, update_time)
+     VALUES (?,?,?,?,?,?,?,'',0,?,?,?,0,?,?,?,?,0,?,?,?,?,?)`,
+    `${g.goods_name}（副本）`, goodsNo, g.good_thumb || '', g.images || '', g.detail || '',
+    Number(g.category_id) || 0, Number(g.specialarea_id) || 0,
+    Number(g.goods_min_price) || 0, Number(g.line_price) || 0,
+    Number(g.stock_num) || 0, status, isSell,
+    Number(g.is_split) || 0, Number(g.split_total) || 0,
+    Number(g.goods_sort) || 100, Number(g.type) || 1, Number(g.score_price) || 0,
+    t, t,
+  );
+
+  const newId = Number(info.lastInsertRowid);
+  const tip = platformOwned && status === 10
+    ? '已复制，可直接编辑或下架'
+    : '已复制并设为下架，确认价格与场次后再上架';
+  res.json(ok({ goods_id: newId, goods_no: goodsNo }, tip));
+});
+
 r.post('/streambeat/scan', authAdmin, (req, res) => {
   const { specialarea_id = 0, date = '' } = req.body || {};
   const out = scanStreambeat(Number(specialarea_id), date);

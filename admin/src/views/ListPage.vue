@@ -166,7 +166,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 300 : modKey === 'scoreExchange' ? 260 : 210" fixed="right">
+        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 300 : modKey === 'scoreExchange' ? 260 : modKey === 'goods' ? 280 : 210" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <template v-if="modKey === 'orders'">
@@ -234,6 +234,7 @@
               </template>
               <template v-else-if="modKey === 'goods'">
                 <el-button size="small" @click="openEdit(row)">编辑</el-button>
+                <el-button size="small" plain @click="duplicateGoods(row)">复制</el-button>
                 <el-button v-if="!row.is_split" size="small" type="success" @click="openSplit(row)">拆分</el-button>
                 <el-button v-else size="small" disabled>已拆分</el-button>
                 <el-button size="small" type="danger" plain @click="removeOne(row)">删除</el-button>
@@ -911,6 +912,15 @@ async function save() {
   } catch {
   } finally {
     saving.value = false;
+  }
+}
+
+// 以现有商品为模板复制一条新的：图片/详情/价格/分类都带过来，编码与历史归零
+async function duplicateGoods(row) {
+  const r = await adminApi.duplicateGoods(row.goods_id);
+  if (r?.code === 1) {
+    ElMessage.success(r.msg || '已复制');
+    load();
   }
 }
 

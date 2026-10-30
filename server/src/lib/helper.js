@@ -107,6 +107,12 @@ function adminRequestAllowed(req, allowedPaths) {
       type = Number(get('SELECT type FROM goods WHERE goods_id = ?', Number(req.body?.goods_id))?.type || 0);
       return has(type === 2 ? '/shop-goods' : '/goods');
     }
+    // 复制商品：按源商品的类型判定该走「抢购商品」还是「商城商品」权限
+    if (path === '/goods/duplicate') {
+      type = Number(get('SELECT type FROM goods WHERE goods_id = ?', Number(req.body?.goods_id))?.type || 0);
+      if (!type) return false;
+      return has(type === 2 ? '/shop-goods' : '/goods');
+    }
     if (!type && (path.endsWith('/detail') || path.endsWith('/save'))) {
       const id = req.query.id || req.body?.goods_id || req.body?.goodsId;
       if (id) type = Number(get('SELECT type FROM goods WHERE goods_id = ?', Number(id))?.type || 0);

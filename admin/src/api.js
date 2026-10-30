@@ -68,6 +68,7 @@ export const adminApi = {
   auditOrder: (d) => http.post('/orders/audit', d),
   importOrders: (rows) => http.post('/orders/import', { rows }),
   splitOrder: (d) => http.post('/orders/split', d),
+  duplicateGoods: (goods_id) => http.post('/goods/duplicate', { goods_id }),
   teamOrders: (memberId) => http.get('/member/team-orders', { params: { member_id: memberId } }),
   advanceMember: (d) => http.post('/member/advance', d),
   scanStreambeat: (d = {}) => http.post('/streambeat/scan', d),

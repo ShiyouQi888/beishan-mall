@@ -305,6 +305,32 @@ async function main() {
       ok(true, '无可拆分商品（跳过）');
     }
 
+    // ================= 7.5 商品复制 =================
+    section('[7.5] 商品复制');
+    {
+      // 挑一件会员持有的商品：复制出来的必须归平台并下架，不能凭空空投给会员
+      const src = db.prepare('SELECT * FROM goods WHERE type = 1 AND member_id > 0 ORDER BY goods_id LIMIT 1').get();
+      if (src) {
+        const dup = await api('/admin/api/goods/duplicate', { method: 'POST', token: at, body: { goods_id: src.goods_id } });
+        ok(dup.code === 1, '复制商品成功', dup.msg);
+        const c = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(dup.data.goods_id);
+        ok(/（副本）$/.test(c.goods_name), '名称带「（副本）」后缀', c.goods_name);
+        ok(c.goods_no && c.goods_no !== src.goods_no, '商品编码重新生成', c.goods_no);
+        ok(Number(c.member_id) === 0, '新商品归平台（不空投给原持有人）', `member_id=${c.member_id}`);
+        ok(Number(c.goods_status) === 20 && Number(c.is_sell) === 0, '新商品默认下架，待确认后上架');
+        ok(Number(c.turn_beat_num) === 0 && Number(c.sales_actual) === 0, '转拍次数与销量归零');
+        ok(!c.area_date, '不继承原商品的场次日期');
+        ok(c.good_thumb === src.good_thumb && c.detail === src.detail && Number(c.category_id) === Number(src.category_id),
+          '图片/详情/分类已复制');
+        ok(Number(c.goods_min_price) === Number(src.goods_min_price), '价格已复制');
+
+        const dupBad = await api('/admin/api/goods/duplicate', { method: 'POST', token: at, body: { goods_id: 999999 } });
+        ok(dupBad.code !== 1, '复制不存在的商品被拒', dupBad.msg);
+      } else {
+        ok(true, '无会员持有商品（跳过）');
+      }
+    }
+
     // ================= 8. 流拍：扫描 / 回收 / 指派 / 释放 =================
     section('[8] 流拍：扫描 / 平台回收 / 指派会员 / 释放');
 
