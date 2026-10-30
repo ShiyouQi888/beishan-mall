@@ -164,6 +164,9 @@ function adminRequestAllowed(req, allowedPaths) {
   }
   if (path === '/cache/clear' || path === '/sysinfo') return has('/setting/store');
 
+  // 积分兑换发货/取消：跟着「积分兑换」菜单节点走
+  if (path === '/score-exchange/deliver' || path === '/score-exchange/cancel') return has('/score-exchange');
+
   const moduleMatch = path.match(/^\/([^/]+)\/(?:list|detail|save|remove)$/);
   if (moduleMatch) {
     const pagePath = {
@@ -172,6 +175,7 @@ function adminRequestAllowed(req, allowedPaths) {
       delivery: '/delivery', energy: '/energy', withdraw: '/withdraw', settle: '/settle',
       banner: '/banner', navigation: '/navigation', notice: '/notice',
       storeuser: '/storeuser', role: '/role',
+      scoreItem: '/score-goods', scoreExchange: '/score-exchange',
     }[moduleMatch[1]];
     return Boolean(pagePath && has(pagePath));
   }

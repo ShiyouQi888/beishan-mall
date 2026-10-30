@@ -20,6 +20,7 @@ export default [
   { path: '/address/edit', name: 'addressEdit', component: () => import('./views/AddressEdit.vue'), meta: { hideTab: true } },
   { path: '/identify', name: 'identify', component: () => import('./views/Identify.vue'), meta: { hideTab: true } },
   { path: '/score', name: 'score', component: () => import('./views/ScoreShop.vue'), meta: { auth: false, hideTab: true } },
+  { path: '/score/records', name: 'scoreRecords', component: () => import('./views/ScoreRecords.vue'), meta: { hideTab: true } },
   { path: '/setting', name: 'setting', component: () => import('./views/Setting.vue'), meta: { hideTab: true } },
   { path: '/notice', name: 'notice', component: () => import('./views/Notice.vue'), meta: { auth: false, hideTab: true } },
 ];

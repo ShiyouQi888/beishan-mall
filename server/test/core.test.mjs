@@ -154,7 +154,8 @@ async function main() {
 
     const ecard = await api('/api/member/getECardList', { token: seller });
     const hit = (ecard.data || []).find((x) => Math.abs(Number(x.face_value) - driveExpect) < 0.01);
-    ok(!!hit, '佣金流水接口能查到该笔直推奖（type=3 返佣）',
+    // 佣金流水类型是 1（早期误写成 3=积分，导致佣金和积分流水混在一起）
+    ok(!!hit, '佣金流水接口能查到该笔直推奖（type=1 佣金）',
       `返回 ${(ecard.data || []).length} 条`);
 
     const gAfter = await api('/api/goods/getLootDetails?goods_id=' + target.goods_id);
@@ -499,9 +500,8 @@ async function main() {
     eq(rp2.status, 10, '举报审核流转为已处理');
 
     // 积分商城：接口路径对齐原站 /api/score/（不是 /api/goods/score/）
-    const scoreRow = db.prepare(
-      'SELECT sg.goods_id, sg.score FROM score_goods sg JOIN goods g ON g.goods_id = sg.goods_id WHERE g.goods_status = 10',
-    ).get();
+    // 积分商品自本轮起是独立表 score_item，不再关联 goods
+    const scoreRow = db.prepare('SELECT item_id, name, score_price, stock FROM score_item WHERE status = 10').get();
     ok(!!scoreRow, '存在可兑换的积分商品');
     const sl = await api('/api/score/getScoreShopList?page=1&limit=30', { token: buyer });
     ok(sl.code === 1, '积分商城列表接口可达（/api/score）', sl.msg);
@@ -510,8 +510,8 @@ async function main() {
       (sl.data?.list?.data || []).every((x) => x.score_price !== undefined),
       '积分商城返回兑换所需积分',
     );
-    const sd = await api(`/api/score/getDetails?goods_id=${scoreRow.goods_id}`, { token: buyer });
-    ok(sd.code === 1 && Number(sd.data?.score_price) === Number(scoreRow.score), '积分商品详情返回积分价', JSON.stringify(sd.data?.score_price));
+    const sd = await api(`/api/score/getDetails?item_id=${scoreRow.item_id}`, { token: buyer });
+    ok(sd.code === 1 && Number(sd.data?.score_price) === Number(scoreRow.score_price), '积分商品详情返回积分价', JSON.stringify(sd.data?.score_price));
     // 原路径 /api/goods/score/... 已下线，访问应返回 404（非 JSON）
     const oldRes = await fetch(BASE + '/api/goods/score/getScoreShopList');
     eq(oldRes.status, 404, '积分接口旧的 goods 路径已下线');
@@ -1137,12 +1137,12 @@ async function main() {
     ok(yOrder.code === 1, 'Y 下单', yOrder.msg);
     await api('/api/order/toPay', { method: 'POST', token: yToken, body: { order_id: yOrder.data.order_id, pay_type: 1 } });
     const driveRow = db.prepare(
-      "SELECT member_id, face_value FROM finance_energy WHERE type = 3 AND remarks LIKE ?",
+      "SELECT member_id, face_value FROM finance_energy WHERE type = 1 AND remarks LIKE ?",
     ).get(`%${yOrder.data.order_no}%`);
     ok(!!driveRow, '产生直推奖流水');
     eq(driveRow?.member_id, 2, '佣金发给改绑后的新上级（会员2）');
     const xAward = db.prepare(
-      "SELECT COUNT(*) c FROM finance_energy WHERE type = 3 AND member_id = ? AND remarks LIKE ?",
+      "SELECT COUNT(*) c FROM finance_energy WHERE type = 1 AND member_id = ? AND remarks LIKE ?",
     ).get(xId, `%${yOrder.data.order_no}%`).c;
     eq(xAward, 0, '旧上级 X 拿不到这笔佣金');
 

@@ -11,7 +11,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 /**
  * 口径说明（写进接口里，前端直接展示，避免各页面口径不一）：
  *   经营收入 = 抢单服务费（orders.service_charge，已支付）+ 转拍上架费（orders.listing_fee）
- *   经营支出 = 直推奖（finance_energy type=3）
+ *   经营支出 = 直推奖（finance_energy type=1）
  *   经营净利 = 收入 − 支出
  *   回收支出 = 平台回收付给会员的钱（资产转换，不计入经营损益，单列）
  *   现金净流 = 经营净利 − 回收支出
@@ -29,7 +29,7 @@ function rangeStats(from, to) {
   ) || {};
   const award = get(
     `SELECT IFNULL(SUM(face_value),0) v FROM finance_energy
-     WHERE type = 3 AND create_time >= ? AND create_time <= ?`,
+     WHERE type = 1 AND create_time >= ? AND create_time <= ?`,
     from, to,
   )?.v;
   const recycle = get(
@@ -79,7 +79,7 @@ function dailyTrend(days = 30) {
   );
   const awards = all(
     `SELECT substr(create_time,1,10) d, IFNULL(SUM(face_value),0) v
-     FROM finance_energy WHERE type = 3 AND substr(create_time,1,10) >= ?
+     FROM finance_energy WHERE type = 1 AND substr(create_time,1,10) >= ?
      GROUP BY d`,
     start,
   );

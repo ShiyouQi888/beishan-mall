@@ -57,7 +57,9 @@ export const api = {
   searchShop: (p) => http.get('/goods/searchShop', { params: p }),
   shopDetail: (id) => http.get('/goods/shopgoods/getDetails', { params: { goods_id: id } }),
   scoreShop: (p) => http.get('/score/getScoreShopList', { params: p }),
-  scoreExchange: (goodsId) => http.post('/score/exchange', { goods_id: goodsId }),
+  scoreItemDetail: (itemId) => http.get('/score/getDetails', { params: { item_id: itemId } }),
+  scoreExchange: (d) => http.post('/score/exchange', d),
+  myScoreExchanges: (p) => http.get('/score/myExchanges', { params: p }),
   myShop: () => http.get('/member/myShop'),
 
   // 会员

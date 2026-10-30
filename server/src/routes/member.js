@@ -80,7 +80,7 @@ r.get('/getMemberDetails', authMember, (req, res) => {
   const avatar = assetUrl(m.avatar_url);
 
   const todayProfit = get(
-    'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 3 AND create_time >= ?',
+    'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 1 AND create_time >= ?',
     m.member_id,
     today(),
   )?.v;
@@ -229,7 +229,7 @@ const fmtMember = (x) => ({
 r.get('/getECardList', authMember, (req, res) => {
   const list = all(
     `SELECT energy_id, face_value, type, type_name, remarks, create_time
-     FROM finance_energy WHERE member_id = ? AND type = 3 ORDER BY energy_id DESC LIMIT 100`,
+     FROM finance_energy WHERE member_id = ? AND type = 1 ORDER BY energy_id DESC LIMIT 100`,
     req.member.member_id,
   );
   res.json(ok(list));
@@ -238,10 +238,10 @@ r.get('/getECardList', authMember, (req, res) => {
 r.get('/financialData', authMember, (req, res) => {
   const m = req.member;
   const t = get(
-    'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 3 AND create_time >= ?',
+    'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 1 AND create_time >= ?',
     m.member_id, today(),
   )?.v;
-  const total = get('SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 3', m.member_id)?.v;
+  const total = get('SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 1', m.member_id)?.v;
   res.json(
     ok({
       member_id: m.member_id,
@@ -258,20 +258,20 @@ r.get('/personProfit', authMember, (req, res) => {
   const m = req.member;
   const sum = (from) =>
     get(
-      'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 3 AND create_time >= ?',
+      'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 1 AND create_time >= ?',
       m.member_id, from,
     )?.v;
   const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
   const monthStart = today().slice(0, 7) + '-01';
   res.json(
     ok({
-      total: money(get('SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 3', m.member_id)?.v),
+      total: money(get('SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 1', m.member_id)?.v),
       today: money(sum(today())),
       week: money(sum(weekAgo)),
       month: money(sum(monthStart)),
-      all: money(get('SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 3', m.member_id)?.v),
+      all: money(get('SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 1', m.member_id)?.v),
       rows: all(
-        'SELECT energy_id, face_value, type_name, remarks, create_time FROM finance_energy WHERE member_id = ? AND type = 3 ORDER BY energy_id DESC LIMIT 50',
+        'SELECT energy_id, face_value, type_name, remarks, create_time FROM finance_energy WHERE member_id = ? AND type = 1 ORDER BY energy_id DESC LIMIT 50',
         m.member_id,
       ),
     }),

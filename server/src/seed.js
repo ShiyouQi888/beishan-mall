@@ -126,6 +126,9 @@ tx(() => {
     ['to_examine', '10', 'store'],
     ['theme_key', 'coral', 'store'],        // 外观主题：coral / green / ocean
     ['score_open', '10', 'store'],  // 积分商城：10 显示并开放 / 20 前台隐藏且接口关闭
+    ['score_award_open', '20', 'store'],   // 成交送积分开关
+    ['score_award_buyer', '0', 'store'],   // 买家每消费多少元得 1 积分
+    ['score_award_parent', '0', 'store'],  // 上级每促成多少元得 1 积分
     ['region_bg_img', '', 'store'],
     ['android_vision', '1.0.0', 'store'],
   ];
@@ -266,9 +269,16 @@ tx(() => {
     }
   }
 
-  // ---------- 积分商品 ----------
-  const sg = get("SELECT goods_id FROM goods WHERE type = 2 LIMIT 1");
-  if (sg) run('INSERT INTO score_goods (goods_id, score, stock, sort) VALUES (?,?,?,100)', sg.goods_id, 500, 20);
+  // ---------- 积分商品（独立表，不再关联商城商品） ----------
+  const sg = get("SELECT goods_name, good_thumb, detail FROM goods WHERE type = 2 LIMIT 1");
+  if (sg) {
+    run(
+      `INSERT INTO score_item (name, thumb, images, intro, detail, score_price, stock, sold, limit_per, sort, status, create_time, update_time)
+       VALUES (?,?,?,?,?,?,?,0,0,100,10,?,?)`,
+      sg.goods_name || '积分好礼', sg.good_thumb || '', '[]', '积分兑换专区',
+      sg.detail || '', 500, 20, now(), now(),
+    );
+  }
 
   // ---------- 示例订单 ----------
   const g1 = get("SELECT * FROM goods WHERE goods_name = '星落仓池'");

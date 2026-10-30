@@ -35,6 +35,11 @@ export const MENU = [
         title: '抢购场次',
         icon: `<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
       },
+      {
+        path: '/score-goods',
+        title: '积分商品',
+        icon: `<path d="m12 3.2 2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.7l6.1-.9L12 3.2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>`,
+      },
     ],
   },
   {
@@ -60,6 +65,11 @@ export const MENU = [
         title: '商城订单',
         icon: `<circle cx="9" cy="20" r="1.6" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="20" r="1.6" stroke="currentColor" stroke-width="1.7"/><path d="M3 4h2.5l2.2 10.4A1.6 1.6 0 0 0 9.4 16h8.3a1.6 1.6 0 0 0 1.6-1.2L21 8H7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
       },
+      {
+        path: '/score-exchange',
+        title: '积分兑换',
+        icon: `<path d="M4 9h11l-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 15H9l3 3m-3-3 3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+      },
     ],
   },
   {
@@ -82,7 +92,7 @@ export const MENU = [
       },
       {
         path: '/energy',
-        title: '佣金记录',
+        title: '资金流水',
         icon: `<path d="M4 19V9M9.5 19V5M15 19v-7M20.5 19v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
       },
       {

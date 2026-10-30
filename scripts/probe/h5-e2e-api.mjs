@@ -420,13 +420,24 @@ async function main() {
     const scoreList = await api('/api/score/getScoreShopList?page=1&limit=30', { token: newToken });
     ok(scoreList.code === 1 && (scoreList.data?.list?.data || []).length > 0, '积分商品列表', `${scoreList.data?.list?.total} 件`);
     const sg = scoreList.data.list.data[0];
-    const scoreDetail = await api(`/api/score/getDetails?goods_id=${sg.goods_id}`, { token: newToken });
+    const scoreDetail = await api(`/api/score/getDetails?item_id=${sg.item_id}`, { token: newToken });
     ok(scoreDetail.code === 1, '积分商品详情', scoreDetail.msg);
-    const poorScore = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { goods_id: sg.goods_id } });
+
+    // 兑换走发货流程，必须先有收货地址
+    let addrRow = db.prepare('SELECT address_id id FROM member_address WHERE member_id = ?').get(newId);
+    if (!addrRow) {
+      db.prepare(
+        'INSERT INTO member_address (member_id, name, mobile, province, city, district, detail, is_default, create_time) VALUES (?,?,?,?,?,?,?,1,?)',
+      ).run(newId, '探针收货人', '13800000000', '广东省', '深圳市', '南山区', '科技园 1 号', new Date().toISOString());
+      addrRow = db.prepare('SELECT address_id id FROM member_address WHERE member_id = ?').get(newId);
+    }
+    const scoreAddrId = addrRow.id;
+
+    const poorScore = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { item_id: sg.item_id, num: 1, address_id: scoreAddrId } });
     ok(poorScore.code === 0 && /积分不足/.test(poorScore.msg), '积分不足被拒', poorScore.msg);
     // 补积分后兑换
     db.prepare('UPDATE member SET score = score + 100000 WHERE member_id = ?').run(newId);
-    const exchange = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { goods_id: sg.goods_id } });
+    const exchange = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { item_id: sg.item_id, num: 1, address_id: scoreAddrId } });
     ok(exchange.code === 1, '积分兑换成功', exchange.msg);
 
     // 总开关：后台关闭后前台接口必须拒绝，且店铺信息里要下发关闭状态
@@ -438,9 +449,9 @@ async function main() {
     ok(String(infoOff.data?.score_open) === '20', '店铺信息下发关闭状态', `score_open=${infoOff.data?.score_open}`);
     const listOff = await api('/api/score/getScoreShopList?page=1&limit=5', { token: newToken });
     ok(listOff.code === 0 && /未开放/.test(listOff.msg), '关闭后列表接口拒绝', listOff.msg);
-    const exOff = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { goods_id: sg.goods_id } });
+    const exOff = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { item_id: sg.item_id, num: 1, address_id: scoreAddrId } });
     ok(exOff.code === 0 && /未开放/.test(exOff.msg), '关闭后兑换接口拒绝', exOff.msg);
-    const detOff = await api(`/api/score/getDetails?goods_id=${sg.goods_id}`, { token: newToken });
+    const detOff = await api(`/api/score/getDetails?item_id=${sg.item_id}`, { token: newToken });
     ok(detOff.code === 0 && /未开放/.test(detOff.msg), '关闭后详情接口拒绝', detOff.msg);
 
     await setScore('10');

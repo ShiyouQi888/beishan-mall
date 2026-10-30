@@ -13,7 +13,7 @@ r.get('/getAmountInfo', authMember, (req, res) => {
     .toISOString().slice(0, 10);
   const sum = (from, to) =>
     get(
-      'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 3 AND create_time >= ? AND create_time < ?',
+      'SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE member_id = ? AND type = 1 AND create_time >= ? AND create_time < ?',
       m.member_id, from, to,
     )?.v || 0;
 

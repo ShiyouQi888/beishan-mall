@@ -64,9 +64,10 @@ export function settleOrder(o) {
   }
 
   const award = distributeAward(o);
+  const scoreAward = awardScore(o);
   addTeamWater(o.member_id, o.total_price);
 
-  return { ok: true, sellerIncome, award };
+  return { ok: true, sellerIncome, award, scoreAward };
 }
 
 /**
@@ -118,8 +119,44 @@ function payCommission(memberId, amount, label, orderNo) {
   );
   run(
     'INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-    memberId, amount, 3, label, `订单 ${orderNo} 大账买单${label}`, now(),
+    // type=1 是佣金。早期这里误写成 3（积分的类型），导致佣金和积分流水混在一起
+    memberId, amount, 1, label, `订单 ${orderNo} 大账买单${label}`, now(),
   );
+}
+
+/**
+ * 成交送积分：按后台配置的比例给买家和直接上级发积分。
+ *
+ * 配置语义是「每消费 N 元得 1 积分」，取整（不足 N 元的部分不给），
+ * 买家与上级各自独立配置，互不影响 —— 没有上级也不妨碍买家拿积分。
+ * 默认关闭，避免升级后凭空给全站会员产生积分。
+ */
+function awardScore(o) {
+  if (Number(cfg('score_award_open', '20')) !== 10) return 0;
+  const base = money2(o.total_price);
+  if (!(base > 0)) return 0;
+
+  let total = 0;
+  const give = (memberId, score, label) => {
+    if (!(score > 0)) return;
+    run('UPDATE member SET score = score + ? WHERE member_id = ?', score, memberId);
+    run(
+      'INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
+      memberId, score, 3, label, `订单 ${o.order_no} ${label}`, now(),
+    );
+    total += score;
+  };
+
+  const buyerPer = Number(cfg('score_award_buyer', '0'));
+  if (buyerPer > 0) give(o.member_id, Math.floor(base / buyerPer), '消费奖励');
+
+  const parentPer = Number(cfg('score_award_parent', '0'));
+  if (parentPer > 0) {
+    const buyer = get('SELECT p_id FROM member WHERE member_id = ?', o.member_id);
+    if (buyer?.p_id) give(buyer.p_id, Math.floor(base / parentPer), '推广奖励');
+  }
+
+  return total;
 }
 
 /**

@@ -413,7 +413,7 @@ async function main() {
       ok(subPay.code === 1, '买家订单支付（补发前提）', subPay.msg);
       // 模拟「当时漏发」：清掉支付时自动产生的直推奖记录，再走补发
       const tag = `订单 ${subOrder.data.order_no} 大账买单直推奖`;
-      db.prepare('DELETE FROM finance_energy WHERE type = 3 AND remarks = ?').run(tag);
+      db.prepare('DELETE FROM finance_energy WHERE type = 1 AND remarks = ?').run(tag);
       const award = await api('/admin/api/award/grant', { method: 'POST', token: at, body: { order_id: subOrder.data.order_id, remark: '冒烟补发' } });
       ok(award.code === 1, '补发直推奖', award.msg);
       const awardDup = await api('/admin/api/award/grant', { method: 'POST', token: at, body: { order_id: subOrder.data.order_id, remark: '冒烟补发' } });

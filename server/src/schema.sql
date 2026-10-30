@@ -335,6 +335,7 @@ CREATE TABLE IF NOT EXISTS circle (
   create_time TEXT
 );
 
+-- 旧的积分商品（关联 goods 表）。已由 score_item 取代，仅用于迁移，勿再写入
 CREATE TABLE IF NOT EXISTS score_goods (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   goods_id   INTEGER NOT NULL,
@@ -342,6 +343,51 @@ CREATE TABLE IF NOT EXISTS score_goods (
   stock      INTEGER DEFAULT 0,
   sort       INTEGER DEFAULT 100
 );
+
+-- 积分商品（独立于商城商品：自己的名称、图片、简介、积分价、库存）
+CREATE TABLE IF NOT EXISTS score_item (
+  item_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL DEFAULT '',
+  thumb       TEXT DEFAULT '',
+  images      TEXT DEFAULT '[]',           -- JSON 数组，详情图
+  intro       TEXT DEFAULT '',             -- 简短卖点
+  detail      TEXT DEFAULT '',             -- 详情富文本/长文本
+  score_price INTEGER DEFAULT 0,           -- 兑换单件所需积分
+  stock       INTEGER DEFAULT 0,           -- 可兑数量
+  sold        INTEGER DEFAULT 0,           -- 已兑数量
+  limit_per   INTEGER DEFAULT 0,           -- 每人限兑，0 = 不限
+  sort        INTEGER DEFAULT 100,
+  status      INTEGER DEFAULT 10,          -- 10 上架 20 下架
+  create_time TEXT,
+  update_time TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_score_item_status ON score_item(status, sort);
+
+-- 积分兑换单（独立于 orders：不参与货款、分账与佣金）
+CREATE TABLE IF NOT EXISTS score_exchange (
+  exchange_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  exchange_no TEXT NOT NULL UNIQUE,
+  member_id   INTEGER NOT NULL,
+  item_id     INTEGER NOT NULL,
+  item_name   TEXT DEFAULT '',
+  item_thumb  TEXT DEFAULT '',
+  score_cost  INTEGER DEFAULT 0,           -- 单件消耗积分（快照）
+  num         INTEGER DEFAULT 1,
+  total_score INTEGER DEFAULT 0,           -- 总消耗积分
+  receiver    TEXT DEFAULT '',
+  mobile      TEXT DEFAULT '',
+  region      TEXT DEFAULT '',
+  address     TEXT DEFAULT '',
+  status      INTEGER DEFAULT 10,          -- 10 待发货 20 待收货 30 已完成 40 已取消
+  express_no  TEXT DEFAULT '',
+  express_company TEXT DEFAULT '',
+  send_time   TEXT DEFAULT '',
+  finish_time TEXT DEFAULT '',
+  remark      TEXT DEFAULT '',
+  create_time TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_score_exchange_member ON score_exchange(member_id);
+CREATE INDEX IF NOT EXISTS idx_score_exchange_status ON score_exchange(status);
 
 -- ---------- 文件管理 ----------
 CREATE TABLE IF NOT EXISTS media_group (

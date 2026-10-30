@@ -193,16 +193,57 @@ const M = {
     ],
   },
   energy: {
-    table: 'finance_energy', pk: 'energy_id', label: '佣金记录',
+    table: 'finance_energy', pk: 'energy_id', label: '资金流水',
     search: ['remarks'], orderBy: 'energy_id DESC',
     fields: [
       { k: 'energy_id', t: 'ID', type: 'text', readonly: true, w: 80 },
       { k: 'member_id', t: '会员', type: 'member', w: 120 },
       { k: 'face_value', t: '变更数量', type: 'money', w: 110 },
-      { k: 'type', t: '变更类型', type: 'select', opts: { 1: '系统充值', 2: '余额', 3: '返佣', 4: '礼券' }, w: 100 },
+      { k: 'type', t: '变更类型', type: 'select', opts: { 1: '佣金', 2: '余额', 3: '积分', 4: '礼券' }, w: 100 },
       { k: 'type_name', t: '类型说明', type: 'text', w: 120 },
       { k: 'remarks', t: '备注', type: 'text' },
       { k: 'create_time', t: '时间', type: 'text', readonly: true, w: 160 },
+    ],
+  },
+  scoreItem: {
+    table: 'score_item', pk: 'item_id', label: '积分商品',
+    search: ['name'], orderBy: 'sort ASC, item_id DESC',
+    fields: [
+      { k: 'item_id', t: 'ID', type: 'text', readonly: true, w: 64 },
+      { k: 'thumb', t: '商品图片', type: 'image', w: 84 },
+      { k: 'name', t: '商品名称', type: 'text', w: 180 },
+      { k: 'score_price', t: '所需积分', type: 'number', w: 100 },
+      { k: 'stock', t: '可兑数量', type: 'number', w: 96 },
+      { k: 'sold', t: '已兑', type: 'number', readonly: true, w: 76 },
+      { k: 'limit_per', t: '每人限兑', type: 'number', w: 100, tip: '同一会员最多兑换几件，填 0 表示不限' },
+      { k: 'sort', t: '排序', type: 'number', w: 76, tip: '数字越小越靠前' },
+      { k: 'status', t: '状态', type: 'select', opts: { 10: '在售', 20: '已下架' }, w: 90 },
+      { k: 'intro', t: '卖点', type: 'text', w: 160, hide: true },
+      { k: 'detail', t: '商品详情', type: 'rich', hide: true },
+      { k: 'images', t: '图集', type: 'images', hide: true },
+      { k: 'create_time', t: '添加时间', type: 'text', readonly: true, w: 150, hide: true },
+    ],
+  },
+  scoreExchange: {
+    table: 'score_exchange', pk: 'exchange_id', label: '积分兑换',
+    search: ['exchange_no', 'item_name', 'receiver', 'mobile'],
+    orderBy: 'exchange_id DESC',
+    fields: [
+      { k: 'exchange_id', t: 'ID', type: 'text', readonly: true, w: 64 },
+      { k: 'exchange_no', t: '兑换单号', type: 'text', readonly: true, w: 170 },
+      { k: 'member_id', t: '会员', type: 'member', w: 110 },
+      { k: 'item_thumb', t: '图片', type: 'image', w: 76 },
+      { k: 'item_name', t: '兑换商品', type: 'text', w: 160 },
+      { k: 'total_score', t: '消耗积分', type: 'number', w: 100 },
+      { k: 'num', t: '数量', type: 'number', w: 70 },
+      { k: 'status', t: '状态', type: 'select', opts: { 10: '待发货', 20: '待收货', 30: '已完成', 40: '已取消' }, w: 90 },
+      { k: 'receiver', t: '收货人', type: 'text', w: 100 },
+      { k: 'mobile', t: '手机号', type: 'text', w: 120 },
+      { k: 'region', t: '地区', type: 'text', w: 150, hide: true },
+      { k: 'address', t: '详细地址', type: 'text', w: 200, hide: true },
+      { k: 'express_company', t: '快递公司', type: 'text', w: 110, hide: true },
+      { k: 'express_no', t: '快递单号', type: 'text', w: 140, hide: true },
+      { k: 'create_time', t: '兑换时间', type: 'text', readonly: true, w: 150 },
     ],
   },
   withdraw: {
@@ -481,6 +522,9 @@ const SETTING_GROUPS = {
     { k: 'customer_link', t: '客服链接', type: 'text' },
     { k: 'theme_key', t: '外观主题', type: 'theme', tip: '选一套配色，前台刷新页面即生效。只影响 H5 商城，后台界面不变。' },
     { k: 'score_open', t: '积分商城', type: 'switch', tip: '开启：我的页面显示积分余额与「积分商城」入口，会员可用积分兑换商品；关闭：前台隐藏全部积分入口，兑换接口一并关闭。已有的积分余额与兑换记录都会保留，后台仍可在会员列表里调账。' },
+    { k: 'score_award_open', t: '成交送积分', type: 'switch', tip: '开启：每笔抢购/寄卖成交后，按下两项规则给买家和上级发积分。关闭：成交不产生任何积分。默认关闭，避免升级后凭空多出积分。' },
+    { k: 'score_award_buyer', t: '买家每消费(元)得 1 积分', type: 'number', tip: '买家每消费多少元获得 1 积分。填 10 表示消费 100 元得 10 积分。填 0 表示买家不送积分。' },
+    { k: 'score_award_parent', t: '上级每促成(元)得 1 积分', type: 'number', tip: '直接上级每促成多少元获得 1 积分。填 20 表示下级消费 100 元，上级得 5 积分。填 0 表示上级不送积分。每笔成交发放一次，不足 1 元的部分不计。' },
     { k: 'region_bg_img', t: '首页背景图', type: 'image' },
   ],
   trade: [
@@ -793,7 +837,7 @@ function enrich(mod, row) {
   if (mod === 'member') {
     out._parent = row.p_id ? get('SELECT nick_name FROM member WHERE member_id = ?', row.p_id)?.nick_name || '' : '';
   }
-  if (mod === 'energy' || mod === 'withdraw' || mod === 'settle') {
+  if (mod === 'energy' || mod === 'withdraw' || mod === 'settle' || mod === 'scoreExchange') {
     out._member = get('SELECT nick_name FROM member WHERE member_id = ?', row.member_id)?.nick_name || '';
     if (row.b_member_id) out._bmember = get('SELECT nick_name FROM member WHERE member_id = ?', row.b_member_id)?.nick_name || '';
   }
@@ -1011,6 +1055,42 @@ r.post('/orders/deliver', authAdmin, (req, res) => {
   run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
     o.order_id, '发货', 'admin', `${express_company || ''} ${express_no || ''}`, now());
   res.json(ok([], '发货成功'));
+});
+
+// ---------------- 积分兑换：发货 / 取消退分 ----------------
+r.post('/score-exchange/deliver', authAdmin, (req, res) => {
+  const { exchange_id, express_no, express_company } = req.body;
+  const e = get('SELECT * FROM score_exchange WHERE exchange_id = ?', Number(exchange_id));
+  if (!e) return res.json(fail('兑换记录不存在'));
+  if (Number(e.status) !== 10) return res.json(fail('当前状态不可发货'));
+  if (!express_no) return res.json(fail('请填写快递单号'));
+  run(
+    'UPDATE score_exchange SET status = 20, express_no = ?, express_company = ?, send_time = ? WHERE exchange_id = ?',
+    String(express_no), express_company || '顺丰速运', now(), e.exchange_id,
+  );
+  res.json(ok([], '发货成功'));
+});
+
+/**
+ * 取消兑换：退回积分、回滚库存与已兑数。
+ * 只在「待发货」可取消 —— 已经发出去的货再退积分就是白送了。
+ */
+r.post('/score-exchange/cancel', authAdmin, (req, res) => {
+  const e = get('SELECT * FROM score_exchange WHERE exchange_id = ?', Number(req.body?.exchange_id));
+  if (!e) return res.json(fail('兑换记录不存在'));
+  if (Number(e.status) !== 10) return res.json(fail('只有待发货的兑换可以取消'));
+  tx(() => {
+    run('UPDATE score_exchange SET status = 40, finish_time = ?, remark = ? WHERE exchange_id = ?',
+      now(), req.body?.remark || '后台取消', e.exchange_id);
+    run('UPDATE member SET score = score + ? WHERE member_id = ?', Number(e.total_score), e.member_id);
+    run('UPDATE score_item SET stock = stock + ?, sold = MAX(0, sold - ?) WHERE item_id = ?',
+      Number(e.num), Number(e.num), e.item_id);
+    run(
+      'INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
+      e.member_id, Number(e.total_score), 3, '兑换取消退还', `兑换单 ${e.exchange_no}`, now(),
+    );
+  });
+  res.json(ok([], '已取消并退还积分'));
 });
 
 r.post('/orders/audit', authAdmin, (req, res) => {

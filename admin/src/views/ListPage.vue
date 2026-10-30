@@ -9,7 +9,7 @@
         <el-button v-if="modKey === 'orders'" @click="importOrders">批量导入</el-button>
         <el-button v-if="modKey === 'orders' && Number(fixed.type) === 3" type="primary" plain @click="openShopOrder">新建寄买单</el-button>
         <el-button v-if="modKey === 'orders' && Number(fixed.type) === 5" type="warning" @click="scanStreambeat">扫描流拍</el-button>
-        <el-button v-if="modKey !== 'report' && modKey !== 'orders'" type="primary" @click="openCreate">+ 新增{{ mod.label || '' }}</el-button>
+        <el-button v-if="modKey !== 'report' && modKey !== 'orders' && modKey !== 'scoreExchange'" type="primary" @click="openCreate">+ 新增{{ mod.label || '' }}</el-button>
       </div>
     </div>
 
@@ -114,8 +114,9 @@
             <!-- 下拉 -->
             <span v-else-if="f.type === 'select' && typeof f.opts === 'object' && !Array.isArray(f.opts)">
               <!-- 已转拍出去的单：买家手上没有实物，不会再有「待发货」这个动作 -->
-              <span v-if="f.k === 'status' && row.transferred && Number(row[f.k]) === 10" class="tag-status tag-off">已转拍</span>
-              <span v-else-if="f.k === 'status'" class="tag-status" :class="orderStatusClass(row[f.k])">{{ labelOf(f, row[f.k]) }}</span>
+              <span v-if="f.k === 'status' && modKey === 'orders' && row.transferred && Number(row[f.k]) === 10" class="tag-status tag-off">已转拍</span>
+              <!-- 订单与兑换单用流转色；其它模块（如积分商品的在售/下架）用开关色 -->
+              <span v-else-if="f.k === 'status'" class="tag-status" :class="(modKey === 'orders' || modKey === 'scoreExchange') ? orderStatusClass(row[f.k]) : statusClass(row[f.k])">{{ labelOf(f, row[f.k]) }}</span>
               <span v-else-if="f.k === 'type' && modKey === 'orders'" class="tag-status tag-red">{{ labelOf(f, row[f.k]) }}</span>
               <span v-else>{{ labelOf(f, row[f.k]) }}</span>
             </span>
@@ -165,7 +166,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 300 : 210" fixed="right">
+        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 300 : modKey === 'scoreExchange' ? 260 : 210" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <template v-if="modKey === 'orders'">
@@ -180,6 +181,11 @@
                 <el-button v-if="row.type === 5" size="small" @click="openAssignStream(row)">指派会员</el-button>
                 <el-button v-if="Number(row.pay_status) === 10" size="small" type="success" plain @click="grantAward(row)">补发直推奖</el-button>
                 <el-button v-if="Number(row.num) > 1" size="small" @click="openSplitOrder(row)">拆分订单</el-button>
+              </template>
+              <template v-else-if="modKey === 'scoreExchange'">
+                <el-button v-if="row.status === 10" size="small" type="primary" @click="openScoreDeliver(row)">发货</el-button>
+                <el-button v-if="row.status === 10" size="small" type="danger" plain @click="cancelScoreExchange(row)">取消退分</el-button>
+                <el-button size="small" @click="openEdit(row)">详情</el-button>
               </template>
               <template v-else-if="modKey === 'withdraw'">
                 <el-button v-if="row.status === 0" size="small" type="primary" @click="auditWithdraw(row, true)">通过</el-button>
@@ -397,6 +403,22 @@
       <template #footer>
         <el-button @click="deliverDlg = false">取消</el-button>
         <el-button type="primary" @click="doDeliver">确认发货</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 积分兑换发货 -->
+    <el-dialog v-model="scoreDeliverDlg" title="兑换发货" width="440px">
+      <el-form label-width="90px">
+        <el-form-item label="快递公司">
+          <el-input v-model="scoreDeliverForm.express_company" placeholder="如 顺丰速运" />
+        </el-form-item>
+        <el-form-item label="快递单号">
+          <el-input v-model="scoreDeliverForm.express_no" placeholder="请输入快递单号" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="scoreDeliverDlg = false">取消</el-button>
+        <el-button type="primary" @click="doScoreDeliver">确认发货</el-button>
       </template>
     </el-dialog>
 
@@ -920,6 +942,39 @@ async function doDeliver() {
   ElMessage.success('发货成功');
   deliverDlg.value = false;
   load();
+}
+
+// ---------- 积分兑换：发货 / 取消退分 ----------
+const scoreDeliverDlg = ref(false);
+const scoreDeliverForm = reactive({ exchange_id: 0, express_company: '顺丰速运', express_no: '' });
+
+function openScoreDeliver(row) {
+  scoreDeliverForm.exchange_id = row.exchange_id;
+  scoreDeliverForm.express_company = '顺丰速运';
+  scoreDeliverForm.express_no = '';
+  scoreDeliverDlg.value = true;
+}
+
+async function doScoreDeliver() {
+  if (!scoreDeliverForm.express_no) return ElMessage.warning('请输入快递单号');
+  await adminApi.scoreDeliver({ ...scoreDeliverForm });
+  ElMessage.success('发货成功');
+  scoreDeliverDlg.value = false;
+  load();
+}
+
+async function cancelScoreExchange(row) {
+  const sure = await ElMessageBox.confirm(
+    `取消后会把 ${row.total_score} 积分退回会员，库存也会还原。确定取消这笔兑换？`,
+    '取消兑换',
+    { type: 'warning', confirmButtonText: '确定取消', cancelButtonText: '再想想' },
+  ).then(() => true).catch(() => false);
+  if (!sure) return;
+  const r = await adminApi.cancelScoreExchange({ exchange_id: row.exchange_id });
+  if (r?.code === 1) {
+    ElMessage.success('已取消并退还积分');
+    load();
+  }
 }
 
 async function confirmPay(row) {

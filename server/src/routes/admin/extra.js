@@ -104,7 +104,7 @@ r.get('/member/energy-record', authAdmin, (req, res) => {
       `SELECT f.member_id, m.nick_name, m.mobile,
               IFNULL(SUM(f.face_value),0) total, COUNT(*) cnt, MAX(f.create_time) last_time
        FROM finance_energy f LEFT JOIN member m ON m.member_id = f.member_id
-       WHERE f.type = 3 GROUP BY f.member_id ORDER BY total DESC LIMIT 100`,
+       WHERE f.type = 1 GROUP BY f.member_id ORDER BY total DESC LIMIT 100`,
     );
     return res.json(ok({ summary: true, list }));
   }
@@ -112,7 +112,7 @@ r.get('/member/energy-record', authAdmin, (req, res) => {
   const allTypes = String(req.query.scope || '') === 'all';
   const rows = allTypes
     ? all('SELECT * FROM finance_energy WHERE member_id = ? ORDER BY energy_id DESC LIMIT 200', memberId)
-    : all('SELECT * FROM finance_energy WHERE member_id = ? AND type = 3 ORDER BY energy_id DESC LIMIT 200', memberId);
+    : all('SELECT * FROM finance_energy WHERE member_id = ? AND type = 1 ORDER BY energy_id DESC LIMIT 200', memberId);
   res.json(
     ok({
       member_id: memberId,
@@ -131,7 +131,7 @@ r.post('/award/grant', authAdmin, (req, res) => {
   if (o.pay_status !== 10) return res.json(fail('订单未支付，无法发放直推奖'));
 
   const tag = `订单 ${o.order_no} 大账买单直推奖`;
-  if (get('SELECT 1 FROM finance_energy WHERE type = 3 AND remarks = ?', tag)) {
+  if (get('SELECT 1 FROM finance_energy WHERE type = 1 AND remarks = ?', tag)) {
     return res.json(fail('该订单已发放过直推奖'));
   }
   if (driveAwardRate() <= 0) return res.json(fail('直推奖比例为 0，请先在交易设置中配置'));

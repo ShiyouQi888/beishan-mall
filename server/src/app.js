@@ -3,7 +3,7 @@ import cors from 'cors';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, get, run } from './db.js';
+import { db, get, run, now } from './db.js';
 import { ensureNodes } from './lib/nodes.js';
 import { ensureBuiltinAdmin } from './lib/builtinAdmin.js';
 import { fail, cfg } from './lib/helper.js';
@@ -35,6 +35,36 @@ if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'area_d
 // 初始化权限节点（幂等）
 const addedNodes = ensureNodes();
 if (addedNodes) console.log(`[nodes] 初始化 ${addedNodes} 个权限节点`);
+
+// 积分商品从「关联商城商品」改为独立表：把老 score_goods 的数据搬过去，只在首次迁移时执行
+{
+  const old = db.prepare('SELECT sg.*, g.goods_name, g.good_thumb, g.images, g.detail FROM score_goods sg LEFT JOIN goods g ON g.goods_id = sg.goods_id').all();
+  const has = db.prepare('SELECT COUNT(*) c FROM score_item').get().c;
+  if (old.length && Number(has) === 0) {
+    for (const o of old) {
+      db.prepare(
+        `INSERT INTO score_item (name, thumb, images, intro, detail, score_price, stock, sold, limit_per, sort, status, create_time, update_time)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(
+        o.goods_name || `积分商品 ${o.goods_id}`, o.good_thumb || '', o.images || '[]',
+        '', o.detail || '', Number(o.score || 0), Number(o.stock || 0), 0, 0,
+        Number(o.sort || 100), 10, now(), now(),
+      );
+    }
+    console.log(`[migrate] score_goods → score_item，迁移 ${old.length} 件积分商品`);
+  }
+}
+
+// 修正历史流水：早期 payCommission 把佣金写成了 type=3（积分），与积分兑换混在一起。
+// 佣金按定义应为 type=1；这里只改「类型说明」明确是佣金的那批，不误伤真实积分记录。
+{
+  const fixed = run(
+    "UPDATE finance_energy SET type = 1 WHERE type = 3 AND type_name IN ('直推奖', '团队奖')",
+  );
+  if (Number(fixed.changes) > 0) {
+    console.log(`[migrate] 修正 ${fixed.changes} 条佣金流水类型：3(积分) → 1(佣金)`);
+  }
+}
 
 // 协议类配置从旧键迁移到 prompt_ 前缀（幂等；旧键保留兼容）
 for (const [to, from] of [
@@ -70,6 +100,9 @@ for (const [to, from] of [
 for (const [key, val, group] of [
   ['require_invite_code', '10', 'trade'],   // 注册必须填邀请码
   ['score_open', '10', 'store'],            // 积分商城开关
+  ['score_award_open', '20', 'store'],      // 成交送积分开关（默认关，避免升级后凭空产生积分）
+  ['score_award_buyer', '0', 'store'],      // 买家每消费多少元得 1 积分
+  ['score_award_parent', '0', 'store'],     // 上级每促成多少元得 1 积分
   ['theme_key', 'coral', 'store'],          // 外观主题
   ['home_category_show', '10', 'nav'],      // 首页商品分类栏开关
   ['pay_balance_open', '10', 'pay'],        // 余额支付开关
