@@ -196,11 +196,6 @@ export const MENU = [
         icon: `<circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.7"/><path d="M4.8 20c.6-3.5 3.6-5.8 7.2-5.8s6.6 2.3 7.2 5.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
       },
       {
-        path: '/node',
-        title: '节点管理',
-        icon: `<circle cx="6" cy="6" r="2.5" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="18" r="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 6H14a4 4 0 0 1 4 4v5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
-      },
-      {
         path: '/role',
         title: '角色管理',
         icon: `<path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" stroke-width="1.7"/><path d="M4 21v-2a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,

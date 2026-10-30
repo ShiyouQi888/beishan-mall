@@ -3,36 +3,19 @@
     <div class="page-head">
       <div>
         <h2>抢购专场配置</h2>
-        <div class="desc">设置该专场的开启日期、抢购时段、限购与转拍时限</div>
+        <div class="desc">设置该专场的标题、配图、限购与转拍时限；开放时间由「交易设置」统一控制</div>
       </div>
       <el-button @click="$router.back()">返回列表</el-button>
     </div>
 
     <div class="panel" v-loading="loading">
       <el-form label-width="150px" label-position="right" class="cfg-form">
-        <!-- 开启日期 -->
-        <el-form-item label="开启日期" required>
-          <div class="days">
-            <button
-              v-for="d in dayOptions"
-              :key="d.v"
-              type="button"
-              class="day-btn"
-              :class="{ on: days.includes(d.v) }"
-              @click="toggleDay(d.v)"
-            >{{ d.t }}</button>
+        <!-- 开放时间：全站统一，这里只展示 -->
+        <el-form-item label="开放时间">
+          <div class="window-info">
+            <b>{{ windowText }}</b>
+            <span>对所有场次生效 · <a @click="goTrade">去交易设置修改</a></span>
           </div>
-          <div class="hint">点击切换，实心为开启，灰色为关闭</div>
-        </el-form-item>
-
-        <!-- 抢购时间 -->
-        <el-form-item label="抢购专场时间" required>
-          <div class="time-row">
-            <el-input v-model="form.startText" placeholder="10:18:00" class="time-input" @blur="normalize('startText')" />
-            <span class="tilde">~</span>
-            <el-input v-model="form.endText" placeholder="20:10:00" class="time-input" @blur="normalize('endText')" />
-          </div>
-          <div class="hint">每日在该时段内开放抢购，格式 时:分:秒</div>
         </el-form-item>
 
         <!-- 限购 -->
@@ -79,61 +62,36 @@ const router = useRouter();
 const loading = ref(false);
 const saving = ref(false);
 
-const dayOptions = [
-  { v: 1, t: '周一' }, { v: 2, t: '周二' }, { v: 3, t: '周三' }, { v: 4, t: '周四' },
-  { v: 5, t: '周五' }, { v: 6, t: '周六' }, { v: 7, t: '周日' },
-];
-
-const days = ref([1, 2, 3, 4, 5, 6, 7]);
 const form = reactive({
   specialarea_id: 0,
   name: '',
   title_main: '',
   title_ordinary: '',
-  startText: '10:18:00',
-  endText: '20:10:00',
   buy_num: 10,
   transposition_hours: 10,
   image_ordinary: '',
 });
 
-const pad = (n) => String(n).padStart(2, '0');
-const secToText = (sec) => {
-  const n = Number(sec) || 0;
-  const h = Math.floor(n / 3600);
-  const m = Math.floor((n % 3600) / 60);
-  const s = n % 60;
-  return `${pad(h)}:${pad(m)}:${pad(s)}`;
-};
-const textToSec = (txt) => {
-  const m = String(txt).trim().match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/);
-  if (!m) return null;
-  const h = Number(m[1]);
-  const mi = Number(m[2]);
-  const s = Number(m[3] || 0);
-  if (h > 23) return null;
-  if (mi > 59) return null;
-  if (s > 59) return null;
-  return h * 3600 + mi * 60 + s;
-};
+// 开放时间全站统一（交易设置 → 抢购总时间），这里只读展示，避免手输格式出错
+const windowText = ref('');
+const DAY_NAMES = ['一', '二', '三', '四', '五', '六', '日'];
+const hm = (sec) => `${String(Math.floor(Number(sec || 0) / 3600)).padStart(2, '0')}:${String(Math.floor((Number(sec || 0) % 3600) / 60)).padStart(2, '0')}`;
 
-function normalize(key) {
-  const sec = textToSec(form[key]);
-  if (sec === null) {
-    ElMessage.warning('时间格式应为 时:分:秒，例如 10:18:00');
-    return;
-  }
-  form[key] = secToText(sec);
-}
-
-function toggleDay(v) {
-  if (days.value.includes(v)) {
-    if (days.value.length === 1) return ElMessage.warning('至少保留一天');
-    days.value = days.value.filter((x) => x !== v);
-  } else {
-    days.value = [...days.value, v].sort((a, b) => a - b);
+async function loadWindow() {
+  try {
+    const r = await http.get('/setting/trade');
+    const v = r.data?.values || {};
+    const days = String(v.buy_open_days || '1,2,3,4,5,6,7').split(',').map((x) => Number(x)).filter((n) => n >= 1 && n <= 7);
+    const start = Number(v.buy_start_time || 0);
+    const end = Number(v.buy_end_time || 0);
+    const daysText = days.length === 0 || days.length === 7 ? '每天' : days.map((d) => `周${DAY_NAMES[d - 1]}`).join(' ');
+    windowText.value = `${daysText} · ${hm(start)} ~ ${end ? hm(end) : '不限时'}`;
+  } catch {
+    windowText.value = '读取失败，请到交易设置查看';
   }
 }
+
+const goTrade = () => router.push('/setting/trade');
 
 async function uploadImage(file) {
   const r = await adminApi.upload(file);
@@ -152,25 +110,16 @@ async function load() {
       name: d.name || '',
       title_main: d.title_main || '',
       title_ordinary: d.title_ordinary || '',
-      startText: secToText(d.start_time),
-      endText: secToText(d.end_time),
       buy_num: Number(d.buy_num || 1),
       transposition_hours: Number(d.transposition_hours || 0),
       image_ordinary: d.image_ordinary || '',
     });
-    days.value = String(d.open_days || '1,2,3,4,5,6,7')
-      .split(',').map(Number).filter((x) => x >= 1 && x <= 7);
-    if (!days.value.length) days.value = [1, 2, 3, 4, 5, 6, 7];
   } finally {
     loading.value = false;
   }
 }
 
 async function save() {
-  const st = textToSec(form.startText);
-  const et = textToSec(form.endText);
-  if (st === null || et === null) return ElMessage.warning('请填写正确的抢购时间');
-  if (st >= et) return ElMessage.warning('结束时间必须晚于开始时间');
   if (!form.title_main) return ElMessage.warning('请填写专场标题');
   if (!form.image_ordinary) return ElMessage.warning('请上传专区图片');
 
@@ -181,9 +130,6 @@ async function save() {
         name: form.name,
         title_main: form.title_main,
         title_ordinary: form.title_ordinary,
-        start_time: st,
-        end_time: et,
-        open_days: days.value.join(','),
         buy_num: form.buy_num,
         transposition_hours: form.transposition_hours,
         image_ordinary: form.image_ordinary,
@@ -197,39 +143,21 @@ async function save() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+  loadWindow();
+});
 </script>
 
 <style scoped>
 .cfg-form { max-width: 760px; padding: 10px 0 4px; }
 .cfg-form :deep(.el-form-item) { margin-bottom: 24px; }
 
-.days { display: flex; gap: 10px; flex-wrap: wrap; }
-.day-btn {
-  min-width: 62px;
-  height: 38px;
-  border-radius: 8px;
-  border: 1px solid #e4e7ed;
-  background: #f4f5f7;
-  color: #7d848f;
-  font-size: 13.5px;
-  font-family: var(--font);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.day-btn:hover { border-color: #ffb3a6; color: #ff513a; }
-.day-btn.on {
-  background: linear-gradient(135deg, #ff6a4d, #ff513a);
-  border-color: transparent;
-  color: #fff;
-  box-shadow: 0 3px 10px rgba(255, 81, 58, 0.24);
-}
-
-.time-row { display: flex; align-items: center; gap: 12px; }
-.time-input { width: 170px; }
-.time-input :deep(input) { font-variant-numeric: tabular-nums; letter-spacing: 1px; }
-.tilde { color: #a8adb7; }
+.window-info { display: flex; flex-direction: column; gap: 4px; }
+.window-info b { font-size: 14px; color: #22252b; letter-spacing: 0.3px; }
+.window-info span { font-size: 12px; color: #a8adb7; }
+.window-info a { color: #ff513a; cursor: pointer; }
+.window-info a:hover { text-decoration: underline; }
 
 .unit { margin-left: 10px; font-size: 12.5px; color: #8c93a0; }
 

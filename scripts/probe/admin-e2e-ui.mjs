@@ -185,13 +185,12 @@ try {
     ['/notice', '公告管理'],
     ['/storeuser', '管理员'],
     ['/role', '角色管理'],
-    ['/node', '节点管理'],
     ['/finance-board', '财务大盘'],
     ['/media', '文件管理'],
     ['/setting/danger', '数据清除'],
   ];
 
-  await section('[2] 26 个后台页面逐个渲染', async () => {
+  await section('[2] 25 个后台页面逐个渲染', async () => {
     let rendered = 0;
     for (const [path, label] of pages) {
       await go(path, 1300);
@@ -284,10 +283,7 @@ try {
     await shot('setting-trade');
   });
 
-  await section('[6] 节点管理与结算页', async () => {
-    await go('/node', 1600);
-    const treeNodes = await count('.node-group');
-    ok(treeNodes > 0, '节点树渲染', `${treeNodes} 组 / ${await count('.node-item')} 项`);
+  await section('[6] 结算页', async () => {
     await go('/settlement', 1600);
     ok(await has('差价结算') || await has('批次'), '差价结算页渲染');
     ok((await count('button')) > 0, '结算页有操作按钮');

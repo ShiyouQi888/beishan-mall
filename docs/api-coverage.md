@@ -96,7 +96,7 @@
 | `setting/storage` | **上传配置** | ✅ `/setting/storage` |
 | `setting.cache/clear` | 清除缓存 | ✅ `/cache/clear`（WAL checkpoint + optimize） |
 | `setting.delivery/index` | **运费模板** | ✅ `delivery` 模块（按件/按重量计费） |
-| `store.node/*` | **权限节点** | ✅ 节点管理页 + 角色分配 + 菜单过滤 |
+| `store.node/*` | **权限节点** | ✅ 角色分配 + 菜单过滤（节点随菜单自动同步，无单独管理页） |
 
 ---
 
@@ -141,7 +141,7 @@
 |---|---|
 | `GET /menu` | 后台侧边栏（服务端按权限过滤后下发，含图标） |
 | `GET/POST /role/nodes` | 角色管理 → 分配权限 |
-| `GET /node/tree` | 节点管理 |
+| `GET /node/tree` | 角色管理 → 分配权限（节点树） |
 | `POST /orders/import` | 订单导入 |
 | `POST /orders/split` | 后台拆分订单 |
 | `GET /member/team-orders` | 团队订单视图 |
@@ -276,7 +276,7 @@ H5 转拍弹窗已去掉手填输入，改为只读展示：上一手成交价�
 - 登录后 `GET /my-paths` 返回可访问路由集合；超级管理员（role_id=6）返回 `unrestricted: true`，
   且其权限**不可被修改**（`POST /role/nodes` 对 role_id=6 直接拒绝，不存在的角色也拒绝）
 - `GET /menu` 在服务端完成权限过滤后再下发，前端不再持有菜单副本，也拿不到无权限的菜单
-- 后台「权限管理 → 节点管理」查看节点树，「角色管理 → 分配权限」勾选（支持分组半选）
+- 后台「权限管理 → 角色管理 → 分配权限」勾选节点树（支持分组半选）；节点由菜单自动同步，没有单独的节点页面
 
 ### 后台角色 vs 会员等级（已分离）
 
