@@ -48,6 +48,10 @@
           <el-option label="禁用" :value="20" />
         </el-select>
         <el-button @click="reload">查询</el-button>
+        <template v-if="modKey === 'category'">
+          <el-button size="small" @click="batchHomeShow(10)">全部上首页</el-button>
+          <el-button size="small" type="warning" plain @click="batchHomeShow(20)">关闭全部分类</el-button>
+        </template>
         <template v-if="modKey === 'member' && sel.length">
           <span class="muted" style="margin-left: 6px">已选 {{ sel.length }} 项</span>
           <el-button size="small" type="warning" plain @click="batchMemberStatus(20)">批量禁用</el-button>
@@ -783,6 +787,24 @@ async function loadSelects() {
 function reload() {
   page.value = 1;
   load();
+}
+
+async function batchHomeShow(value) {
+  const label = value === 10 ? '上首页' : '从首页隐藏';
+  try {
+    await ElMessageBox.confirm(
+      `把所有抢购分类设为「${label}」？`,
+      '批量设置首页显示',
+      { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' },
+    );
+  } catch {
+    return;
+  }
+  try {
+    const r = await adminApi.batchCategoryHomeShow({ value });
+    ElMessage.success(r.msg || '已更新');
+    reload();
+  } catch {}
 }
 
 function openCreate() {

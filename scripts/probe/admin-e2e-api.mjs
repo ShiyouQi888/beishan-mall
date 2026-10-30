@@ -615,8 +615,27 @@ async function main() {
     await api('/admin/api/banner/remove', { method: 'POST', token: at, body: { ids: [bannerSave.data.id] } });
     ok((await api('/admin/api/media/group/remove', { method: 'POST', token: at, body: { group_id: mgid } })).code === 1, '删除分组');
 
-    // ================= 15. 数据一致性 =================
-    section('[15] 数据一致性');
+    // ================= 15. 分类：一键首页显示 =================
+    section('[15] 分类：一键上/下首页');
+    const homeOn = await api('/admin/api/category/home-show-all', { method: 'POST', token: at, body: { value: 10 } });
+    ok(homeOn.code === 1 && Number(homeOn.data?.count) > 0, '一键全部上首页', homeOn.msg);
+    const homeCats = await api('/api/goods/getCategory?home=1');
+    ok((homeCats.data?.categoryList || []).length > 0, '首页分类接口有数据', `${(homeCats.data?.categoryList || []).length} 个`);
+
+    const homeOff = await api('/admin/api/category/home-show-all', { method: 'POST', token: at, body: { value: 20 } });
+    ok(homeOff.code === 1 && Number(homeOff.data?.count) > 0, '一键全部隐藏', homeOff.msg);
+    const homeEmpty = await api('/api/goods/getCategory?home=1');
+    eq((homeEmpty.data?.categoryList || []).length, 0, '隐藏后首页分类为空（H5 整条不渲染）');
+    // 不影响「分类页」：不带 home 参数仍返回全部
+    const catAll = await api('/api/goods/getCategory');
+    ok((catAll.data?.categoryList || []).length > 0, '分类页仍能拿到全部分类');
+
+    const badValue = await api('/admin/api/category/home-show-all', { method: 'POST', token: at, body: { value: 99 } });
+    ok(badValue.code === 0, '非法值被拒', badValue.msg);
+    await api('/admin/api/category/home-show-all', { method: 'POST', token: at, body: { value: 10 } });
+
+    // ================= 16. 数据一致性 =================
+    section('[16] 数据一致性');
     eq(db.prepare('SELECT COUNT(*) c FROM member WHERE amount < 0').get().c, 0, '没有会员出现负余额');
     eq(db.prepare('SELECT COUNT(*) c FROM orders o LEFT JOIN goods g ON g.goods_id = o.goods_id WHERE g.goods_id IS NULL').get().c, 0, '没有孤儿订单');
     ok(db.prepare('SELECT COUNT(*) c FROM store_role_node WHERE role_id NOT IN (SELECT role_id FROM store_role)').get().c === 0, '没有孤儿权限绑定');

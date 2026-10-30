@@ -371,6 +371,14 @@ r.get('/dashboard', authAdmin, (req, res) => {
   );
 });
 
+// 分类：一键设置「首页显示」（10 显示 / 20 隐藏）
+r.post('/category/home-show-all', authAdmin, (req, res) => {
+  const value = Number(req.body?.value);
+  if (![10, 20].includes(value)) return res.json(fail('参数错误'));
+  const n = Number(run('UPDATE goods_category SET home_show = ? WHERE type = 2', value).changes || 0);
+  res.json(ok({ count: n }, value === 10 ? `已显示 ${n} 个分类` : `已隐藏 ${n} 个分类`));
+});
+
 // 后台订单通知：首次只建立游标，之后按订单 ID 增量读取，避免重复拉取订单列表。
 r.get('/notifications/orders', authAdmin, (req, res) => {
   const rawType = req.query.type;

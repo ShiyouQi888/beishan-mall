@@ -35,25 +35,15 @@
       </div>
     </div>
 
-    <!-- 分类 tab（后台「导航配置 → 首页商品分类」可整条关掉） -->
-    <div class="home__tabs" v-if="categoryOpen">
+    <!-- 分类 tab：后台可整体关闭，或把分类都设为「首页隐藏」；没有分类时不显示这条 -->
+    <div class="home__tabs" v-if="categoryOpen && categories.length">
       <div class="home__tabs-inner">
-        <div
-          class="home__tab"
-          :class="{ on: activeCat === 0 }"
-          @click="activeCat = 0"
-        >
-          <span class="home__tab-icon tone-brand">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-          </span>
-          <span>全部</span>
-        </div>
         <div
           v-for="c in categories"
           :key="c.category_id"
           class="home__tab"
           :class="{ on: c.category_id === activeCat }"
-          @click="activeCat = c.category_id"
+          @click="switchCat(c.category_id)"
         >
           <span class="home__tab-icon" :class="`tone-${iconFor(c.name).tone}`">
             <CategoryIconDisplay :image="c.image" :name="c.name" size="17px" />
@@ -132,6 +122,11 @@ const iconFor = (name = '') => {
   else if (/服|箱包|鞋|家居/.test(n)) { path = '<path d="M7 4h10l1.5 16h-13L7 4Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>'; tone = 'lavender'; }
   return { tone, svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>` };
 };
+
+// 没有再点一次取消：点已选中的分类回到「全部商品」
+function switchCat(id) {
+  activeCat.value = activeCat.value === id ? 0 : id;
+}
 
 async function loadGoods() {
   loading.value = true;

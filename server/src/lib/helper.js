@@ -74,6 +74,8 @@ function adminRequestAllowed(req, allowedPaths) {
     return true;
   }
   if (path.startsWith('/media')) return has('/media');
+  // 分类：一键切换首页显示（批量操作）
+  if (path === '/category/home-show-all') return has('/category');
   // 数据清除：跟菜单节点走，默认只有超级管理员有（超管不受限），可下放给指定角色
   if (path === '/system/reset' || path === '/system/reset/plan') return has('/setting/danger');
   if (path === '/options/role') return has('/role', '/storeuser');
