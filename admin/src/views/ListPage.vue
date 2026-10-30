@@ -58,6 +58,10 @@
         <span class="total-hint">共 {{ total }} 条</span>
       </div>
 
+      <div v-if="modKey === 'specialarea'" class="module-note">
+        抢购时间已统一到「系统设置 → 交易设置 → 抢购总时间」，所有场次共用一套；本页只管场次内容与限购，不再单独设时间。
+      </div>
+
       <el-table :data="rows" v-loading="loading" style="width: 100%" @selection-change="sel = $event">
         <el-table-column type="selection" width="42" />
         <el-table-column

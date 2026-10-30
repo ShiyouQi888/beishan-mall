@@ -194,7 +194,9 @@ onMounted(load);
 
 .odetail__bar {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
+  left: 50%; right: auto; bottom: 0;
+  width: min(100vw, 430px);
+  transform: translateX(-50%);
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
   background: #fff;
   border-top: 1px solid var(--line);

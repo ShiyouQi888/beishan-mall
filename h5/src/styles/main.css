@@ -18,18 +18,19 @@
   --app-overlay: rgba(18, 22, 31, 0.48);
   --font: 'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
   --tabbar-h: 54px;
+  --h5-width: 430px;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-html, body, #app { height: 100%; }
+html, body, #app { min-height: 100%; }
 
 body {
   margin: 0;
   font-family: var(--font);
   font-weight: 450;
   color: var(--text-1);
-  background: var(--bg);
+  background: #e9edf2;
   -webkit-font-smoothing: antialiased;
   font-size: 14px;
   line-height: 1.5;
@@ -117,7 +118,9 @@ img { display: block; max-width: 100%; }
 /* ---- 悬浮 tabbar ---- */
 .tabbar {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
+  left: 50%; right: auto; bottom: 0;
+  width: min(100vw, var(--h5-width));
+  transform: translateX(-50%);
   height: var(--tabbar-h);
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: saturate(180%) blur(12px);

@@ -298,7 +298,9 @@ async function doSubmit() {
 
 .submit__bar {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
+  left: 50%; right: auto; bottom: 0;
+  width: min(100vw, 430px);
+  transform: translateX(-50%);
   height: 64px;
   background: #fff;
   border-top: 1px solid var(--line);

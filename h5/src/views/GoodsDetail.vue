@@ -61,7 +61,7 @@
         <span>订单</span>
       </div>
       <button class="btn-main bar-btn" :disabled="!canBuy" @click="buy">
-        {{ canBuy ? '立即抢购' : '不可购买' }}
+        {{ canBuy ? '立即抢购' : buyClosed ? '当前不在抢购时间' : '不可购买' }}
       </button>
     </div>
   </div>
@@ -89,7 +89,9 @@ const promises = computed(() => {
   const arr = t.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
   return arr.length ? arr : ['正品保障', '顺丰包邮', '支持复检'];
 });
-const canBuy = computed(() => !!g.value.goods_id);
+// 抢购商品要等「抢购总时间」开放；商城商品（type=2）不受时间限制
+const buyClosed = computed(() => Number(g.value.type) === 1 && !!g.value.specialarea && Number(g.value.is_ordinary_order) !== 1);
+const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value);
 
 function buy() {
   if (!localStorage.getItem('TOKEN')) return router.push('/login');
@@ -116,7 +118,7 @@ onMounted(async () => {
 .detail { background: var(--bg); padding-bottom: 76px; position: relative; }
 .navbar--float {
   position: fixed;
-  top: 10px; left: 12px;
+  top: 10px; left: max(12px, calc((100vw - 430px) / 2 + 12px));
   background: transparent;
   border: none;
   height: auto;
@@ -207,7 +209,9 @@ onMounted(async () => {
 
 .detail__bar {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
+  left: 50%; right: auto; bottom: 0;
+  width: min(100vw, 430px);
+  transform: translateX(-50%);
   height: 62px;
   background: #fff;
   border-top: 1px solid var(--line);

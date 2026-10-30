@@ -71,9 +71,10 @@ const M = {
       { k: 'title_main', t: '主标题', type: 'text', required: true, w: 132 },
       { k: 'title_ordinary', t: '副标题', type: 'text', hide: true },
       { k: 'image_ordinary', t: '场次图', type: 'image', w: 80 },
-      { k: 'start_time', t: '开始时间', type: 'timesec', w: 84 },
-      { k: 'end_time', t: '结束时间', type: 'timesec', w: 84 },
-      { k: 'open_days', t: '开启日期', type: 'days', w: 82 },
+      // 时间已统一到「交易设置 → 抢购总时间」，这三个字段停用（列表与表单都不再出现，也不参与保存）
+      { k: 'start_time', t: '开始时间', type: 'timesec', w: 84, readonly: true, hide: true },
+      { k: 'end_time', t: '结束时间', type: 'timesec', w: 84, readonly: true, hide: true },
+      { k: 'open_days', t: '开启日期', type: 'days', w: 82, readonly: true, hide: true },
       { k: 'buy_num', t: '限购次数', type: 'number', w: 84 },
       { k: 'transposition_hours', t: '转拍时限(小时)', type: 'number', w: 96 },
       { k: 'is_subscribe', t: '开放预约', type: 'switch', opts: { 10: '是', 0: '否' }, w: 100 },
@@ -418,6 +419,9 @@ const SETTING_GROUPS = {
     { k: 'region_bg_img', t: '首页背景图', type: 'image' },
   ],
   trade: [
+    { k: 'buy_open_days', t: '抢购开放日', type: 'days', tip: '所有抢购场次统一按这里的时间开放。留空或全选表示每天都能抢。' },
+    { k: 'buy_start_time', t: '抢购开始时间', type: 'timesec', tip: '每日几点开始开放抢购。场次里原来的「开始/结束时间、开启日期」已停用，一律以这里为准。' },
+    { k: 'buy_end_time', t: '抢购结束时间', type: 'timesec', tip: '每日几点关闭抢购。留空表示不限结束时间，当天剩余时间都能抢。' },
     { k: 'service_charge', t: '抢单服务费(%)', type: 'number', tip: '买家在商品金额之外额外支付；填 0 则不收（平台收入来自转拍上架费）' },
     { k: 'require_receiving_account', t: '抢购前必须绑定收款账户', type: 'switch', tip: '关闭时允许未绑定收款账户的会员直接下单；开启后，会员需先设置收款方式。默认关闭。' },
     { k: 'require_invite_code', t: '注册必须填邀请码', type: 'switch', tip: '开启：必须有有效邀请码才能入驻，注册后自动绑定上级。关闭：邀请码可留空直接注册（无上级、不产生直推奖），填了仍会校验有效性。默认开启。' },

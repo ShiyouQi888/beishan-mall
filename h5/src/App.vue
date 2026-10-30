@@ -44,7 +44,15 @@ watch(() => route.fullPath, () => applyBrand(store.value));
 </script>
 
 <style>
-.app-root { min-height: 100%; }
+.app-root {
+  width: 100%;
+  max-width: var(--h5-width, 430px);
+  min-height: 100vh;
+  margin: 0 auto;
+  position: relative;
+  background: var(--bg);
+  overflow-x: clip;
+}
 .site-footer { display:flex;flex-direction:column;align-items:center;gap:3px;padding:14px 16px calc(var(--tabbar-h, 54px) + 14px);color:#a5a8ae;font-size:10px;text-align:center;line-height:1.45; }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.18s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }

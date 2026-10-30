@@ -88,6 +88,9 @@ tx(() => {
     // （原站实证为 上架费 2.8% / 服务费 0，此处按业务决策改为以服务费为主要收入）
     ['listing_fee_rate', '0', 'trade'],
     ['drive_award_rate', '0.5', 'trade'],
+    ['buy_open_days', '1,2,3,4,5,6,7', 'trade'],  // 抢购开放日（所有场次共用）
+    ['buy_start_time', '0', 'trade'],             // 每日开始（秒），0 = 00:00
+    ['buy_end_time', '0', 'trade'],               // 每日结束（秒），0 = 不限时
     ['service_charge', '2', 'trade'],
     ['consignment_open', '10', 'trade'],
     ['require_receiving_account', '20', 'trade'],

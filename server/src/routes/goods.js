@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { all, get, run, now } from '../db.js';
 import { ok, fail, authMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
 import { splitGoods } from '../lib/split.js';
+import { buyWindow } from '../lib/buyWindow.js';
 
 const r = Router();
 
@@ -78,12 +79,12 @@ r.get('/category/getCategoryGoodsList', (req, res) => {
 
 // ---------------- 抢购场次 ---------------- 
 function areaPayload() {
-  const nowSec = Math.floor(Date.now() / 1000);
-  const dayStart = new Date().setHours(0, 0, 0, 0) / 1000;
+  // 时间统一取「抢购总时间」（交易设置），场次里各自的 start_time / end_time / open_days 已停用
+  const w = buyWindow();
   const list = all('SELECT * FROM specialarea WHERE is_open = 10 ORDER BY sort ASC, specialarea_id ASC');
   return list.map((a) => {
-    const start = dayStart + a.start_time;
-    const end = dayStart + a.end_time;
+    const start = w.dayStart + w.start;
+    const end = w.end ? w.dayStart + w.end : w.dayStart + 86399;
     return {
       specialarea_id: a.specialarea_id,
       name: a.name,
@@ -100,22 +101,19 @@ function areaPayload() {
       time: {
         start_time: start,
         end_time: end,
-        new_time: nowSec,
-        start_end_time: hhmm(a.start_time),
-        start_end_time1: hhmm(a.end_time),
+        new_time: w.nowSec,
+        start_end_time: w.startText,
+        start_end_time1: w.endText || '23:59',
       },
-      is_ordinary_order: nowSec >= start && nowSec <= end ? 1 : 0,
+      is_ordinary_order: w.open ? 1 : 0,
       is_introduction_order: 0,
       is_subscribe: a.is_subscribe,
       buy_num: a.buy_num,
-      open_days: a.open_days,
+      open_days: w.days.length ? w.days.join(',') : '1,2,3,4,5,6,7',
       transposition_hours: a.transposition_hours,
     };
   });
 }
-
-const hhmm = (sec) =>
-  `${String(Math.floor(sec / 3600)).padStart(2, '0')}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`;
 
 r.get('/getLootList', (req, res) => {
   const areas = areaPayload();
@@ -156,16 +154,19 @@ r.get('/getLootDetails', (req, res) => {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在或已下架'));
   const area = get('SELECT * FROM specialarea WHERE specialarea_id = ?', g.specialarea_id);
+  const w = buyWindow();
   res.json(
     ok({
       ...fmtGoods(g),
+      // 抢购商品是否处于开放时间（统一按后台的抢购总时间）
+      is_ordinary_order: g.type === 1 && area && w.open ? 1 : 0,
       specialarea: area
         ? {
             specialarea_id: area.specialarea_id,
             title_main: area.title_main,
             title_ordinary: area.title_ordinary,
-            start_end_time: hhmm(area.start_time),
-            start_end_time1: hhmm(area.end_time),
+            start_end_time: w.startText,
+            start_end_time1: w.endText || '23:59',
           }
         : null,
       // 与下单、后台配置同一口径（lib/helper.js serviceChargeRate）

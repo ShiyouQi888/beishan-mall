@@ -4,6 +4,7 @@ import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceCharg
 import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate } from '../lib/settle.js';
 import { deductStock } from '../lib/split.js';
+import { buyWindow } from '../lib/buyWindow.js';
 
 const r = Router();
 
@@ -64,25 +65,13 @@ r.post('/toAddOrder', authMember, (req, res) => {
   if (g.goods_status !== 10) return res.json(fail('商品已下架'));
   if (g.member_id === m.member_id) return res.json(fail('不能购买自己持有的商品'));
 
-  // 场次时间校验
+  // 场次时间校验：统一按后台「交易设置 → 抢购总时间」判断（所有场次共用一套）
   if (g.specialarea_id) {
     const a = get('SELECT * FROM specialarea WHERE specialarea_id = ?', g.specialarea_id);
     if (a) {
-      // 开启日期校验（1=周一 … 7=周日）；start_time 可能为 0（00:00:00），不能用真值判断
-      const jsDay = new Date().getDay();
-      const today = jsDay === 0 ? 7 : jsDay;
-      const openDays = String(a.open_days || '1,2,3,4,5,6,7').split(',').map(Number);
-      if (openDays.length && !openDays.includes(today)) {
-        return res.json(fail('今日未开启该抢购专场'));
-      }
-      // 时间窗校验（end_time 为 0 视为未配置时间限制）
-      if (Number(a.end_time) > 0) {
-        const dayStart = new Date().setHours(0, 0, 0, 0) / 1000;
-        const nowSec = Math.floor(Date.now() / 1000);
-        if (nowSec < dayStart + Number(a.start_time) || nowSec > dayStart + Number(a.end_time)) {
-          return res.json(fail(`当前不在该专场抢购时间内（${hhmm(a.start_time)}-${hhmm(a.end_time)}）`));
-        }
-      }
+      const w = buyWindow();
+      if (!w.dayOk) return res.json(fail(`今日不是抢购日（开放：${w.daysText}）`));
+      if (!w.timeOk) return res.json(fail(`当前不在抢购时间内（${w.text}）`));
       // 限购
       const bought = get(
         'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND type = 1 AND status <> 40 AND create_time >= ?',
@@ -133,9 +122,6 @@ r.post('/toAddOrder', authMember, (req, res) => {
   log(orderId, '创建订单', 'member', `${g.goods_name} × ${num}`);
   res.json(ok({ order_id: orderId, order_no: no, total_price: total, service_charge: fee }, '下单成功'));
 });
-
-const hhmm = (sec) =>
-  `${String(Math.floor(sec / 3600)).padStart(2, '0')}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`;
 
 // ---------------- 服务费 ----------------
 // 两个查询接口与下单保持同一口径：按「单价 × 数量」算，否则多件下单时页面显示与实付对不上

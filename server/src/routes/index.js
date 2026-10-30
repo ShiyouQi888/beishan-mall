@@ -10,6 +10,13 @@ export function cfg(key, def = '') {
   return row ? row.value : def;
 }
 
+const cfgNumber = (key, fallback) => {
+  const raw = cfg(key, '');
+  if (raw === null || raw === undefined || String(raw).trim() === '') return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : fallback;
+};
+
 // 轮播图
 r.get('/index/getBannerList', (req, res) => {
   const typeId = Number(req.query.type_id) || 1;
@@ -82,27 +89,27 @@ r.get('/index/getInvitePoster', (req, res) => {
   res.json(ok({
     background: cfg('poster_bg', ''),
     logo: cfg('poster_logo', cfg('store_logo', '')),
-    qr_x: Number(cfg('poster_qr_x', '265')) || 0,
-    qr_y: Number(cfg('poster_qr_y', '850')) || 0,
-    qr_size: Number(cfg('poster_qr_size', '220')) || 220,
-    logo_x: Number(cfg('poster_logo_x', '54')) || 0,
-    logo_y: Number(cfg('poster_logo_y', '60')) || 0,
-    logo_size: Number(cfg('poster_logo_size', '116')) || 116,
+    qr_x: cfgNumber('poster_qr_x', 265),
+    qr_y: cfgNumber('poster_qr_y', 850),
+    qr_size: cfgNumber('poster_qr_size', 220),
+    logo_x: cfgNumber('poster_logo_x', 54),
+    logo_y: cfgNumber('poster_logo_y', 60),
+    logo_size: cfgNumber('poster_logo_size', 116),
     title: cfg('poster_title', '邀请好友加入'),
-    title_x: Number(cfg('poster_title_x', '60')) || 0,
-    title_y: Number(cfg('poster_title_y', '240')) || 0,
-    title_size: Number(cfg('poster_title_size', '54')) || 54,
+    title_x: cfgNumber('poster_title_x', 60),
+    title_y: cfgNumber('poster_title_y', 240),
+    title_size: cfgNumber('poster_title_size', 54),
     subtitle: cfg('poster_subtitle', '一起分享好物与收益'),
-    subtitle_x: Number(cfg('poster_subtitle_x', '60')) || 0,
-    subtitle_y: Number(cfg('poster_subtitle_y', '315')) || 0,
-    subtitle_size: Number(cfg('poster_subtitle_size', '30')) || 30,
+    subtitle_x: cfgNumber('poster_subtitle_x', 60),
+    subtitle_y: cfgNumber('poster_subtitle_y', 315),
+    subtitle_size: cfgNumber('poster_subtitle_size', 30),
     content: cfg('poster_content', '长按识别二维码，立即加入'),
-    content_x: Number(cfg('poster_content_x', '60')) || 0,
-    content_y: Number(cfg('poster_content_y', '1190')) || 0,
-    content_size: Number(cfg('poster_content_size', '25')) || 25,
-    code_x: Number(cfg('poster_code_x', '60')) || 0,
-    code_y: Number(cfg('poster_code_y', '1280')) || 0,
-    code_size: Number(cfg('poster_code_size', '22')) || 22,
+    content_x: cfgNumber('poster_content_x', 60),
+    content_y: cfgNumber('poster_content_y', 1190),
+    content_size: cfgNumber('poster_content_size', 25),
+    code_x: cfgNumber('poster_code_x', 60),
+    code_y: cfgNumber('poster_code_y', 1280),
+    code_size: cfgNumber('poster_code_size', 22),
   }));
 });
 

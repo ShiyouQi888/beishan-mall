@@ -103,12 +103,16 @@ const itemDefaults = {
   title: { x: 60, y: 240, size: 54 }, subtitle: { x: 60, y: 315, size: 30 },
   content: { x: 60, y: 1190, size: 25 }, code: { x: 60, y: 1280, size: 22 },
 };
+function itemValue(kind, key) {
+  const raw = props.values[`poster_${kind}_${key}`];
+  if (raw === '' || raw === null || raw === undefined) return itemDefaults[kind][key];
+  const value = Number(raw);
+  return Number.isFinite(value) && (key !== 'size' || value > 0) ? value : itemDefaults[kind][key];
+}
 function itemStyle(kind) {
-  const base = itemDefaults[kind];
-  const prefix = `poster_${kind}`;
-  const x = Number(props.values[`${prefix}_x`] ?? base.x);
-  const y = Number(props.values[`${prefix}_y`] ?? base.y);
-  const size = Number(props.values[`${prefix}_size`] ?? base.size);
+  const x = itemValue(kind, 'x');
+  const y = itemValue(kind, 'y');
+  const size = itemValue(kind, 'size');
   const style = { left: `${x * stageScale.value}px`, top: `${y * stageScale.value}px` };
   if (kind === 'qr' || kind === 'logo') {
     style.width = `${size * stageScale.value}px`;
@@ -124,19 +128,18 @@ async function makeQr() {
   try { qrImage.value = await QRCode.toDataURL('https://example.com/register?code=INVITE', { width: 256, margin: 1, errorCorrectionLevel: 'H', color: { dark: '#18212b', light: '#ffffff' } }); } catch { qrImage.value = ''; }
 }
 function clampPosition() {
-  props.values.poster_qr_x = Math.max(0, Math.min(750 - qrSize.value, Number(props.values.poster_qr_x) || 0));
-  props.values.poster_qr_y = Math.max(0, Math.min(1334 - qrSize.value, Number(props.values.poster_qr_y) || 0));
+  props.values.poster_qr_x = Math.max(0, Math.min(750 - qrSize.value, itemValue('qr', 'x')));
+  props.values.poster_qr_y = Math.max(0, Math.min(1334 - qrSize.value, itemValue('qr', 'y')));
 }
 function startManipulate(kind, mode, event) {
   const target = mode === 'resize' ? event.currentTarget.parentElement : event.currentTarget;
   const prefix = `poster_${kind}`;
-  const base = itemDefaults[kind];
   dragging.value = mode;
   start.value = {
     kind, prefix, x: event.clientX, y: event.clientY,
-    left: Number(props.values[`${prefix}_x`] ?? base.x),
-    top: Number(props.values[`${prefix}_y`] ?? base.y),
-    size: Number(props.values[`${prefix}_size`] ?? base.size),
+    left: itemValue(kind, 'x'),
+    top: itemValue(kind, 'y'),
+    size: itemValue(kind, 'size'),
   };
   target.setPointerCapture(event.pointerId);
   target.addEventListener('pointermove', movePointer);
@@ -161,9 +164,8 @@ function nudge(kind, event) {
   if (!delta) return;
   event.preventDefault();
   const prefix = `poster_${kind}`;
-  const base = itemDefaults[kind];
-  props.values[`${prefix}_x`] = Math.max(0, Math.min(750, Number(props.values[`${prefix}_x`] ?? base.x) + delta[0]));
-  props.values[`${prefix}_y`] = Math.max(0, Math.min(1334, Number(props.values[`${prefix}_y`] ?? base.y) + delta[1]));
+  props.values[`${prefix}_x`] = Math.max(0, Math.min(750, itemValue(kind, 'x') + delta[0]));
+  props.values[`${prefix}_y`] = Math.max(0, Math.min(1334, itemValue(kind, 'y') + delta[1]));
 }
 function endPointer(event) {
   event.currentTarget?.removeEventListener('pointermove', movePointer);

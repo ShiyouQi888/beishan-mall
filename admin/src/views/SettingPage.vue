@@ -12,41 +12,68 @@
       <PosterDesigner v-if="route.params.group === 'poster'" :values="values" :upload="uploadImage" />
       <el-form v-else label-width="174px" label-position="right" class="setting-form">
         <el-form-item v-for="it in items" :key="it.k" :label="it.t">
-          <el-switch
-            v-if="it.type === 'switch'"
-            v-model="values[it.k]"
-            :active-value="10"
-            :inactive-value="20"
-            active-text="开启"
-            inactive-text="关闭"
-          />
-          <el-input
-            v-else-if="it.type === 'text' || it.type === 'number'"
-            v-model="values[it.k]"
-            :type="it.type === 'number' ? 'number' : 'text'"
-            style="max-width: 420px"
-          />
-          <div v-if="it.tip" class="field-tip">{{ it.tip }}</div>
-          <el-input
-            v-else-if="it.type === 'textarea'"
-            v-model="values[it.k]"
-            type="textarea"
-            :rows="3"
-            style="max-width: 560px"
-          />
-          <el-input
-            v-else-if="it.type === 'richtext'"
-            v-model="values[it.k]"
-            type="textarea"
-            :rows="7"
-            placeholder="支持 HTML 富文本"
-            style="max-width: 620px"
-          />
-          <div v-else-if="it.type === 'image'" class="upload-inline">
-            <div class="image-field">
-              <ImageUploader v-model="values[it.k]" :upload="uploadImage" />
-              <div class="image-guidance">{{ imageRecommendation(it.k) }}</div>
+          <div class="ctl">
+            <el-switch
+              v-if="it.type === 'switch'"
+              v-model="values[it.k]"
+              :active-value="10"
+              :inactive-value="20"
+              active-text="开启"
+              inactive-text="关闭"
+            />
+            <el-input
+              v-else-if="it.type === 'text' || it.type === 'number'"
+              v-model="values[it.k]"
+              :type="it.type === 'number' ? 'number' : 'text'"
+              style="max-width: 420px"
+            />
+            <el-input
+              v-else-if="it.type === 'textarea'"
+              v-model="values[it.k]"
+              type="textarea"
+              :rows="3"
+              style="max-width: 560px"
+            />
+            <el-input
+              v-else-if="it.type === 'richtext'"
+              v-model="values[it.k]"
+              type="textarea"
+              :rows="7"
+              placeholder="支持 HTML 富文本"
+              style="max-width: 620px"
+            />
+            <div v-else-if="it.type === 'image'" class="upload-inline">
+              <div class="image-field">
+                <ImageUploader v-model="values[it.k]" :upload="uploadImage" />
+                <div class="image-guidance">{{ imageRecommendation(it.k) }}</div>
+              </div>
             </div>
+            <!-- 周一~周日多选，存成 "1,2,3,4,5" -->
+            <div v-else-if="it.type === 'days'" class="days">
+              <button
+                v-for="d in 7"
+                :key="d"
+                type="button"
+                class="day"
+                :class="{ on: hasDay(it.k, d) }"
+                @click="toggleDay(it.k, d)"
+              >
+                周{{ DAY_NAMES[d - 1] }}
+              </button>
+            </div>
+            <!-- 时分选择 → 存秒数；留空表示不限 -->
+            <el-time-select
+              v-else-if="it.type === 'timesec'"
+              :model-value="secToHm(values[it.k])"
+              start="00:00"
+              step="00:30"
+              end="23:30"
+              clearable
+              placeholder="不限"
+              style="width: 160px"
+              @update:model-value="(v) => (values[it.k] = hmToSec(v))"
+            />
+            <div v-if="it.tip" class="field-tip">{{ it.tip }}</div>
           </div>
         </el-form-item>
       </el-form>
@@ -71,6 +98,33 @@ const route = useRoute();
 const items = ref([]);
 const values = reactive({});
 const loading = ref(false);
+
+// ---- 周一~周日 多选（存成 "1,2,3,4,5"；空字符串 = 不限/每天）----
+const DAY_NAMES = ['一', '二', '三', '四', '五', '六', '日'];
+const dayArr = (k) =>
+  String(values[k] ?? '')
+    .split(',')
+    .map((s) => Number(String(s).trim()))
+    .filter((n) => n >= 1 && n <= 7);
+const hasDay = (k, d) => dayArr(k).includes(d);
+function toggleDay(k, d) {
+  const set = new Set(dayArr(k));
+  if (set.has(d)) set.delete(d);
+  else set.add(d);
+  values[k] = [...set].sort((a, b) => a - b).join(',');
+}
+
+// ---- 时分 ⇄ 秒（0 秒要显示成 00:00，不能当成空）----
+const secToHm = (v) => {
+  if (v === '' || v === null || v === undefined) return '';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '';
+  return `${String(Math.floor(n / 3600)).padStart(2, '0')}:${String(Math.floor((n % 3600) / 60)).padStart(2, '0')}`;
+};
+const hmToSec = (t) => {
+  const m = String(t || '').match(/^(\d{1,2}):(\d{1,2})$/);
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 : 0;
+};
 const saving = ref(false);
 
 const META = {
@@ -116,8 +170,9 @@ async function load() {
         poster_code_x: '60', poster_code_y: '1280', poster_code_size: '22',
       };
       const defaultSwitches = { nav_invite: 10, require_receiving_account: 20 };
-      const switchValue = raw === '' || raw === null || raw === undefined ? (defaultSwitches[it.k] ?? 0) : raw;
-      values[it.k] = it.type === 'switch' ? Number(switchValue) : (raw ?? defaults[it.k] ?? '');
+      const hasValue = raw !== '' && raw !== null && raw !== undefined;
+      const switchValue = !hasValue ? (defaultSwitches[it.k] ?? 0) : raw;
+      values[it.k] = it.type === 'switch' ? Number(switchValue) : (hasValue ? raw : (defaults[it.k] ?? ''));
     }
   } catch (e) {
     // 组名非法（如手工改地址栏）时接口会 reject，必须兜住：
@@ -160,6 +215,30 @@ onMounted(load);
 .setting-form :deep(.el-form-item) { margin-bottom: 20px; }
 /* 说明文字必须独占一行：否则 switch 行会把它挤在开关右侧 */
 .setting-form :deep(.el-form-item__content) { flex-wrap: wrap; }
+/* 控件与说明竖排，避免说明文字被挤到控件右侧 */
+.ctl { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+
+.days { display: flex; gap: 6px; flex-wrap: wrap; }
+.day {
+  min-width: 46px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #e5e9ef;
+  border-radius: 8px;
+  background: #fafbfc;
+  color: #6b7280;
+  font-family: var(--font);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.day:hover { border-color: #ffcdc5; color: #d14328; }
+.day.on {
+  border-color: #ff8f7a;
+  background: #fff1ee;
+  color: #d14328;
+  font-weight: 600;
+}
 .thumb-lg { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; background: #f4f6f9; }
 .upload-inline { display: flex; align-items: center; gap: 12px; }
 .image-field { display:flex;flex-direction:column;align-items:flex-start;gap:7px;max-width:100%; }
