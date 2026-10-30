@@ -87,7 +87,6 @@ tx(() => {
     // （原站实证为 上架费 2.8% / 服务费 0，此处按业务决策改为以服务费为主要收入）
     ['listing_fee_rate', '0', 'trade'],
     ['drive_award_rate', '0.5', 'trade'],
-    ['same_level_award_rate', '0', 'trade'],
     ['service_charge', '2', 'trade'],
     ['consignment_open', '10', 'trade'],
     ['require_receiving_account', '20', 'trade'],

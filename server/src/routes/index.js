@@ -185,7 +185,6 @@ r.get('/index/getTradeConfig', (req, res) => {
       service_charge: cfg('service_charge', '0'),
       price_increase_rate: cfg('price_increase_rate', '3'),
       drive_award_rate: cfg('drive_award_rate', '0.5'),
-      same_level_award_rate: cfg('same_level_award_rate', '0'),
       consignment_open: cfg('consignment_open', '10'),
       withdraw_min: cfg('withdraw_min', '10'),
       withdraw_fee: cfg('withdraw_fee', '1'),

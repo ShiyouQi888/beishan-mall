@@ -64,6 +64,12 @@ for (const [key, val, group] of [
   }
 }
 
+// 已废弃配置：分销只做一级，平级奖没有对应逻辑，清掉避免误解
+if (get("SELECT 1 FROM setting_config WHERE `key` = 'same_level_award_rate'")) {
+  run("DELETE FROM setting_config WHERE `key` = 'same_level_award_rate'");
+  console.log('[migrate] 删除废弃配置 same_level_award_rate（分销仅一级，无平级奖）');
+}
+
 // 支付开关统一为 10 开 / 20 关（旧数据是 1 / 0，后台开关组件认不出）
 for (const [key, on] of [['pay_wx', true], ['pay_zfb', true], ['pay_bank', false]]) {
   const cur = get('SELECT `value` v FROM setting_config WHERE `key` = ?', key);

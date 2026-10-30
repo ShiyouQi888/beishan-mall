@@ -1061,6 +1061,87 @@ async function main() {
     eq(await inviteCfg(), 10, '邀请码开关恢复开启');
     eq((await api('/api/index/getRegisterAgreements')).data?.require_invite_code, '1', 'H5 下发开关状态（开启=1）');
 
+    console.log('\n[17] 一级分销：终身绑定 + 后台可改绑');
+    // 平级奖已下线，配置组里不应再出现
+    const tradeItems3b = (await api('/admin/api/setting/trade', { token: at })).data?.items || [];
+    ok(!tradeItems3b.some((i) => i.k === 'same_level_award_rate'), '交易设置已移除平级奖');
+    ok(
+      !('same_level_award_rate' in ((await api('/api/index/getTradeConfig')).data || {})),
+      '前台交易配置不再下发平级奖',
+    );
+    ok(db.prepare("SELECT COUNT(*) c FROM setting_config WHERE `key`='same_level_award_rate'").get().c === 0,
+      '库中已无平级奖配置');
+
+    // 上级1 = 现有会员1，注册下线 X，再用 X 的邀请码注册 Y
+    const inviterCode = db.prepare("SELECT invitation_code c FROM member WHERE member_id = 1").get().c;
+    const regX = await api('/api/member/registerAnAccount', {
+      method: 'POST', body: { phone: '13988880001', password: '123456', code: inviterCode, nickName: '一级下线X' },
+    });
+    ok(regX.code === 1, '注册会员 X', regX.msg);
+    const xId = regX.data.member_id;
+    const xCode = db.prepare('SELECT invitation_code c FROM member WHERE member_id = ?').get(xId).c;
+    const regY = await api('/api/member/registerAnAccount', {
+      method: 'POST', body: { phone: '13988880002', password: '123456', code: xCode, nickName: '二级下线Y' },
+    });
+    ok(regY.code === 1, '用 X 的邀请码注册会员 Y', regY.msg);
+    const yId = regY.data.member_id;
+    const yToken = regY.data.token;
+
+    // 终身绑定：注册即定，二层关系正确
+    const xRow = db.prepare('SELECT p_id, path, level FROM member WHERE member_id = ?').get(xId);
+    const yRow = db.prepare('SELECT p_id, path, level FROM member WHERE member_id = ?').get(yId);
+    eq(xRow.p_id, 1, 'X 绑定上级为会员1');
+    eq(yRow.p_id, xId, 'Y 绑定上级为 X');
+    eq(yRow.level, Number(xRow.level) + 1, 'Y 层级 = X 层级 + 1');
+    ok(String(yRow.path).startsWith(String(xRow.path)), 'Y 的 path 位于 X 之下');
+
+    // 会员端不能自己改上级
+    await api('/api/member/editMember', { method: 'POST', token: yToken, body: { nickName: '改名Y', p_id: 2 } });
+    eq(db.prepare('SELECT p_id FROM member WHERE member_id = ?').get(yId).p_id, xId, '会员端改不了上级（p_id 被忽略）');
+
+    // 后台改绑：把 Y 挂到会员2 名下
+    const rebind = await api('/admin/api/member/save', {
+      method: 'POST', token: at, body: { member_id: yId, p_id: 2 },
+    });
+    ok(rebind.code === 1, '后台可改绑上级', rebind.msg);
+    const yAfter = db.prepare('SELECT p_id, path, level FROM member WHERE member_id = ?').get(yId);
+    const newParent = db.prepare('SELECT path, level, child_id FROM member WHERE member_id = 2').get();
+    eq(yAfter.p_id, 2, '改绑后上级为会员2');
+    ok(String(yAfter.path) === `${newParent.path}2/`, '改绑后 path 同步', String(yAfter.path));
+    eq(yAfter.level, Number(newParent.level) + 1, '改绑后 level 同步');
+    ok(String(newParent.child_id || '').split(',').includes(String(yId)), '新上级的 child_id 包含 Y');
+    const oldParentChild = db.prepare('SELECT child_id FROM member WHERE member_id = ?').get(xId).child_id;
+    ok(!String(oldParentChild || '').split(',').includes(String(yId)), '旧上级的 child_id 已移除 Y');
+
+    // 不能挂到自己团队下
+    const cycle = await api('/admin/api/member/save', {
+      method: 'POST', token: at, body: { member_id: 2, p_id: yId },
+    });
+    ok(cycle.code === 0, '禁止把会员挂到自己团队下（防环）', cycle.msg);
+
+    // 改绑后新订单的佣金应发给「新上级」
+    await api('/admin/api/member/adjust', {
+      method: 'POST', token: at, body: { member_id: yId, field: 'amount', value: 200000, remark: '分销测试注资' },
+    });
+    const buyGid = db.prepare(
+      'SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND IFNULL(is_split,0) = 0 AND member_id <> ? LIMIT 1',
+    ).get(yId)?.goods_id;
+    ok(!!buyGid, '找到分销测试商品');
+    const yOrder = await api('/api/order/toAddOrder', {
+      method: 'POST', token: yToken, body: { goods_id: buyGid, num: 1, pay_type: 1 },
+    });
+    ok(yOrder.code === 1, 'Y 下单', yOrder.msg);
+    await api('/api/order/toPay', { method: 'POST', token: yToken, body: { order_id: yOrder.data.order_id, pay_type: 1 } });
+    const driveRow = db.prepare(
+      "SELECT member_id, face_value FROM finance_energy WHERE type = 3 AND remarks LIKE ?",
+    ).get(`%${yOrder.data.order_no}%`);
+    ok(!!driveRow, '产生直推奖流水');
+    eq(driveRow?.member_id, 2, '佣金发给改绑后的新上级（会员2）');
+    const xAward = db.prepare(
+      "SELECT COUNT(*) c FROM finance_energy WHERE type = 3 AND member_id = ? AND remarks LIKE ?",
+    ).get(xId, `%${yOrder.data.order_no}%`).c;
+    eq(xAward, 0, '旧上级 X 拿不到这笔佣金');
+
   } finally {
     srv.kill();
     await sleep(300);

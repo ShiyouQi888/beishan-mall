@@ -274,6 +274,9 @@
             active-text="开启"
             inactive-text="关闭"
           />
+          <el-select v-else-if="f.type === 'vip'" v-model="form[f.k]" style="width: 100%">
+            <el-option v-for="(label, idx) in VIP_LABELS" :key="idx" :value="idx" :label="label" />
+          </el-select>
           <el-input v-else-if="f.type === 'rich'" v-model="form[f.k]" type="textarea" :rows="5" placeholder="支持 HTML" />
           <el-input v-else-if="f.type === 'timesec'" :model-value="secToTime(form[f.k])" placeholder="如 09:00" @update:model-value="(v) => (form[f.k] = timeToSec(v))" />
           <el-input-number
@@ -284,6 +287,26 @@
             style="width: 100%"
             controls-position="right"
           />
+          <el-select
+            v-else-if="f.type === 'parent'"
+            v-model="form[f.k]"
+            filterable
+            remote
+            clearable
+            reserve-keyword
+            :remote-method="searchParentOptions"
+            placeholder="搜索昵称或手机号；留空=设为根节点（无上级）"
+            style="width: 100%"
+            @visible-change="(v) => v && loadParentOptions()"
+          >
+            <el-option :value="0" label="无上级（根节点）" />
+            <el-option
+              v-for="m in parentOptions"
+              :key="m.member_id"
+              :value="m.member_id"
+              :label="`${m.nick_name || '会员'} · ${m.mobile}`"
+            />
+          </el-select>
           <el-input v-else-if="f.type === 'password'" v-model="form[f.k]" type="password" show-password autocomplete="new-password"
             :placeholder="editing ? '留空则不修改密码' : `请设置${f.t}`" />
           <el-input v-else v-model="form[f.k]" :placeholder="`请输入${f.t}`" />
@@ -515,6 +538,7 @@ const adjustDlg = ref(false);
 const adjustRow = ref({});
 const adjustForm = reactive({ field: 'amount', value: 0, remark: '' });
 const teamDlg = ref(false);
+const parentOptions = ref([]);
 const energyDlg = ref(false);
 const energyMember = ref('');
 const energyList = ref([]);
@@ -602,14 +626,18 @@ const labelOf = (f, v) => {
   return v ?? '—';
 };
 
+// 开关取值：本系统约定 10 = 开启，另一个键 = 关闭。
+// 不能按数值大小猜——member.disabled(10 正常/20 禁用)、navigation.disabled(10 显示/20 隐藏)、
+// specialarea.is_open(10 启用/20 停用) 的 20 才是负向，按大小猜会把方向弄反、保存时写错状态。
 const switchVals = (f) => {
-  const keys = Object.keys(f.opts || { 10: '开', 20: '关' }).map(Number).filter((n) => !isNaN(n));
-  const sorted = keys.sort((a, b) => a - b);
-  return { on: sorted[sorted.length - 1] ?? 10, off: sorted[0] ?? 0 };
+  const keys = Object.keys(f.opts || {}).map(Number).filter((n) => !isNaN(n));
+  const on = keys.includes(10) ? 10 : (keys.length ? Math.max(...keys) : 10);
+  const off = keys.find((k) => k !== on) ?? 20;
+  return { on, off };
 };
 
-const vipLabel = (v) =>
-  ['普通会员', '银卡会员', '金卡会员', '铂金会员', '钻石会员'][v] || `等级${v}`;
+const VIP_LABELS = ['普通会员', '银卡会员', '金卡会员', '铂金会员', '钻石会员'];
+const vipLabel = (v) => VIP_LABELS[v] || `等级${v}`;
 
 const statusClass = (v) => {
   const n = Number(v);
@@ -980,6 +1008,16 @@ async function importOrders() {
   ElMessage.success(r.msg || '导入完成');
   load();
 }
+
+async function loadParentOptions(keyword = '') {
+  try {
+    const r = await http.get('/member/options', { params: { keyword } });
+    parentOptions.value = r.data || [];
+  } catch {
+    parentOptions.value = [];
+  }
+}
+const searchParentOptions = (kw) => loadParentOptions(kw || '');
 
 async function openEnergy(row) {
   const r = await http.get('/member/energy-record', { params: { member_id: row.member_id, scope: 'all' } });

@@ -146,6 +146,18 @@ r.post('/award/grant', authAdmin, (req, res) => {
 
 // ---------------- 指派订单 ----------------
 /** 可指派会员列表 */
+// 会员下拉（编辑会员时选上级用）
+r.get('/member/options', authAdmin, (req, res) => {
+  const kw = String(req.query.keyword || '').trim();
+  const rows = kw
+    ? all(
+      'SELECT member_id, nick_name, mobile FROM member WHERE nick_name LIKE ? OR mobile LIKE ? ORDER BY member_id DESC LIMIT 50',
+      `%${kw}%`, `%${kw}%`,
+    )
+    : all('SELECT member_id, nick_name, mobile FROM member ORDER BY member_id DESC LIMIT 50');
+  res.json(ok(rows));
+});
+
 r.get('/streambeat/members', authAdmin, (req, res) => {
   const kw = String(req.query.keyword || '').trim();
   const rows = kw
