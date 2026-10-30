@@ -13,8 +13,11 @@ const r = Router();
 const money2 = (n) => Number(Number(n).toFixed(2));
 
 function fmtOrder(o) {
-  const g = o.goods_id ? get('SELECT good_thumb, images FROM goods WHERE goods_id = ?', o.goods_id) : null;
+  const g = o.goods_id ? get('SELECT good_thumb, images, member_id FROM goods WHERE goods_id = ?', o.goods_id) : null;
   const thumb = o.goods_thumb || g?.good_thumb || '';
+  // 买家已把这件货转拍给别人（商品现持有人不再是他）→ 不会再有发货/收货环节
+  const transferred = Number(o.type) === 1 && Number(o.pay_status) === 10 && !!g
+    && Number(g.member_id) !== Number(o.member_id);
   return {
     order_id: o.order_id,
     order_no: o.order_no,
@@ -28,7 +31,8 @@ function fmtOrder(o) {
     total_price: Number(o.total_price).toFixed(2),
     service_charge: Number(o.service_charge || 0).toFixed(2),
     status: o.status,
-    status_text: ORDER_STATUS[o.status] || '',
+    status_text: transferred && Number(o.status) === 10 ? '已转拍' : (ORDER_STATUS[o.status] || ''),
+    transferred: transferred ? 1 : 0,
     pay_status: o.pay_status,
     pay_type: o.pay_type,
     pay_type_text: PAY_TYPE[o.pay_type] || '',

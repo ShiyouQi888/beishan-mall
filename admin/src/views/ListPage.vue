@@ -113,7 +113,9 @@
 
             <!-- 下拉 -->
             <span v-else-if="f.type === 'select' && typeof f.opts === 'object' && !Array.isArray(f.opts)">
-              <span v-if="f.k === 'status'" class="tag-status" :class="orderStatusClass(row[f.k])">{{ labelOf(f, row[f.k]) }}</span>
+              <!-- 已转拍出去的单：买家手上没有实物，不会再有「待发货」这个动作 -->
+              <span v-if="f.k === 'status' && row.transferred && Number(row[f.k]) === 10" class="tag-status tag-off">已转拍</span>
+              <span v-else-if="f.k === 'status'" class="tag-status" :class="orderStatusClass(row[f.k])">{{ labelOf(f, row[f.k]) }}</span>
               <span v-else-if="f.k === 'type' && modKey === 'orders'" class="tag-status tag-red">{{ labelOf(f, row[f.k]) }}</span>
               <span v-else>{{ labelOf(f, row[f.k]) }}</span>
             </span>
@@ -170,7 +172,7 @@
                 <el-button size="small" @click="openEdit(row)">详情</el-button>
                 <el-button v-if="Number(row.is_examine) === 0" size="small" type="warning" @click="auditOrder(row, true)">审核</el-button>
                 <el-button v-if="Number(row.is_examine) === 0" size="small" type="danger" @click="auditOrder(row, false)">拒绝</el-button>
-                <el-button v-if="row.status === 10" size="small" type="primary" @click="openDeliver(row)">发货</el-button>
+                <el-button v-if="row.status === 10 && !row.transferred" size="small" type="primary" @click="openDeliver(row)">发货</el-button>
                 <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认收款</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
                 <el-button v-if="row.type === 5 && row.status === 50" size="small" type="warning" @click="releaseStream(row)">释放</el-button>

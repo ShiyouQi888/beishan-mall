@@ -143,6 +143,8 @@ const availablePayTypes = computed(() => payOptions.value.filter((item) =>
 const paymentQr = computed(() => selectedPayType.value === 2 ? sys.value.wx_image : selectedPayType.value === 3 ? sys.value.zfb_image : '');
 
 const statusDesc = computed(() => {
+  // 已转拍出去的单不再等待发货，避免会员一直以为还在备货
+  if (o.value.transferred && Number(o.value.status) === 10) return '商品已转拍给他人，无需等待发货';
   const m = { 0: '请尽快完成支付', 10: '商家正在备货', 20: '商品运输中，请注意查收', 30: '交易已完成', 40: '订单已关闭' };
   return m[o.value.status] || '';
 });

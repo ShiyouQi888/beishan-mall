@@ -747,6 +747,24 @@ function safeAdminRow(module, row) {
 }
 
 /** 列表数据补充（关联展示字段） */
+/**
+ * 该订单的商品是否已经被买家转拍出去（不需要发货）。
+ *
+ * 判据：商品的「现持有人」已经不是这笔订单的买家。
+ * 抢购商品成交后 goods.member_id 会写成买家；买家转拍给别人、被下一个人买走后，
+ * member_id 就变成下一个人；被平台回收则归 0。两种情况买家都不再持有实物。
+ *
+ * 只对抢购类（type=1）判定 —— 这件货会被同一个人反复转手，是「一件货多笔订单」的根源。
+ * 未支付时不判（还没真正成交，商品本来就还在卖家手里）。
+ */
+function isTransferredOut(o) {
+  if (!o || Number(o.type) !== 1 || !o.goods_id) return false;
+  if (Number(o.pay_status) !== 10) return false;
+  const g = get('SELECT member_id FROM goods WHERE goods_id = ?', o.goods_id);
+  if (!g) return false;
+  return Number(g.member_id) !== Number(o.member_id);
+}
+
 function enrich(mod, row) {
   const out = { ...row };
   if (mod === 'goods' || mod === 'orders') {
@@ -769,6 +787,8 @@ function enrich(mod, row) {
     out._buyer = b?.nick_name || '';
     out._buyer_mobile = b?.mobile || '';
     if (row.seller_id) out._seller = get('SELECT nick_name FROM member WHERE member_id = ?', row.seller_id)?.nick_name || '';
+    // 已转拍出去的单不需要发货，前端据此隐藏发货按钮、状态显示为「已转拍」
+    out.transferred = isTransferredOut(row) ? 1 : 0;
   }
   if (mod === 'member') {
     out._parent = row.p_id ? get('SELECT nick_name FROM member WHERE member_id = ?', row.p_id)?.nick_name || '' : '';
@@ -984,6 +1004,8 @@ r.post('/orders/deliver', authAdmin, (req, res) => {
   const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
   if (!o) return res.json(fail('订单不存在'));
   if (o.status !== 10) return res.json(fail('当前状态不可发货'));
+  // 买家已经把货转拍给别人了，实物不在他手上，发不了也不该发
+  if (isTransferredOut(o)) return res.json(fail('该商品已被买家转拍给他人，无需发货'));
   run('UPDATE orders SET status = 20, express_no = ?, express_company = ?, send_time = ? WHERE order_id = ?',
     express_no || '', express_company || '顺丰速运', now(), o.order_id);
   run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',

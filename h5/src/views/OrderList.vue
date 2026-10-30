@@ -43,7 +43,7 @@
               <button v-if="o.status === 0" class="mini mini--main" @click="pay(o)">去支付</button>
               <button v-if="o.status === 0" class="mini" @click="cancel(o)">取消</button>
               <button v-if="o.status === 20" class="mini mini--main" @click="receipt(o)">确认收货</button>
-              <button v-if="(o.status === 10 || o.status === 30) && !o.consignment_status" class="mini mini--main" @click="openTransfer(o)">转拍</button>
+              <button v-if="(o.status === 10 || o.status === 30) && !o.consignment_status && !o.transferred" class="mini mini--main" @click="openTransfer(o)">转拍</button>
               <button v-if="o.consignment_status" class="mini" disabled>已上架</button>
             </div>
           </div>
