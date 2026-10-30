@@ -35,7 +35,6 @@ export default [
       list('/banner', 'banner', 'banner', '广告管理'),
       list('/navigation', 'navigation', 'navigation', '菜单配置'),
       list('/notice', 'notice', 'notice', '公告管理'),
-      list('/recharge', 'recharge', 'recharge', '充值套餐'),
       list('/storeuser', 'storeuser', 'storeuser', '管理员'),
       list('/role', 'role', 'role', '角色管理'),
       { path: '/node', name: 'node', component: () => import('./views/NodeManage.vue'), meta: { title: '节点管理' } },

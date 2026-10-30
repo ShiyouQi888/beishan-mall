@@ -86,7 +86,7 @@
 
 | 原站 | 功能 | 状态 |
 |---|---|---|
-| `setting/store`、`trade`、`pay`、`auction` | 基础配置 | ✅ |
+| `setting/store`、`trade`、`pay` | 基础配置 | ✅（`auction` 竞拍组已下线：原站只有配置项、无业务逻辑） |
 | `setting/grade` | 会员等级配置 | ✅ 落在 `member_grade` 模块（后台「会员等级」页），**不再重复做协议组** |
 | `setting/specialarea` | 抢购专场配置 | ✅ 独立页面 |
 | `setting/notice` | 公告 | ✅ `notice` 模块 |

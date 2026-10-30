@@ -40,8 +40,7 @@ r.get('/index/getStoreInfo', (req, res) => {
       customer_type: cfg('customer_type', '1'),
       customer_service: cfg('customer_service', ''),
       customer_link: cfg('customer_link', '#'),
-      toExamine: cfg('to_examine', '10'),
-      recharge_status: cfg('recharge_status', '10'),
+      toExamine: cfg('to_examine', '10'),
     }),
   );
 });
@@ -68,8 +67,7 @@ r.get('/index/getShareInfo', (req, res) => {
       mobile: cfg('store_mobile', ''),
       copyright: cfg('copyright', ''),
       icp_number: cfg('icp_number', ''),
-      toExamine: cfg('to_examine', '10'),
-      recharge_status: cfg('recharge_status', '10'),
+      toExamine: cfg('to_examine', '10'),
       logo: cfg('store_logo', ''),
       region_bg_img: cfg('region_bg_img', ''),
     }),

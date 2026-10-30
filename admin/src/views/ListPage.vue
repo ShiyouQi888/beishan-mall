@@ -612,7 +612,6 @@ const desc = computed(() => {
     banner: '首页与抢购页轮播广告位',
     navigation: '首页宫格导航入口配置',
     notice: '平台公告发布与编辑',
-    recharge: '充值面值与赠送积分套餐',
     storeuser: '后台管理员账号管理',
     role: '后台角色与会员等级定义',
   };

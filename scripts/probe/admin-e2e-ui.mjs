@@ -130,14 +130,13 @@ try {
     ['/banner', '广告管理'],
     ['/navigation', '菜单配置'],
     ['/notice', '公告管理'],
-    ['/recharge', '充值套餐'],
     ['/storeuser', '管理员'],
     ['/role', '角色管理'],
     ['/node', '节点管理'],
     ['/finance-board', '财务大盘'],
   ];
 
-  await section('[2] 25 个后台页面逐个渲染', async () => {
+  await section('[2] 24 个后台页面逐个渲染', async () => {
     let rendered = 0;
     for (const [path, label] of pages) {
       await go(path, 1300);
@@ -211,10 +210,10 @@ try {
     ok(await has('流拍'), '流拍订单页渲染');
   });
 
-  await section('[5] 8 个设置组表单', async () => {
+  await section('[5] 7 个设置组表单', async () => {
     const groups = [
       ['store', '商城设置'], ['trade', '交易设置'], ['pay', '支付设置'],
-      ['auction', '竞拍设置'], ['storage', '上传配置'], ['poster', '海报配置'],
+      ['storage', '上传配置'], ['poster', '海报配置'],
       ['prompt', '须知配置'], ['nav', '导航配置'],
     ];
     for (const [g, title] of groups) {

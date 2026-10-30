@@ -28,7 +28,7 @@ const OFFICIAL = {
 if (!process.argv.includes('--yes')) {
   console.log(`即将重置：${DB_FILE}`);
   console.log('会清空：会员、订单、订单日志、资金流水、提现、地址、收款卡、实名、举报、结算批次/账目/匹配、站内消息');
-  console.log(`会保留：后台账号、权限节点、全部配置、分类、场次、商品、广告、公告、充值套餐、运费模板、会员等级`);
+  console.log(`会保留：后台账号、权限节点、全部配置、分类、场次、商品、广告、公告、运费模板、会员等级`);
   console.log('并只保留 1 个官方会员（邀请码来源 + 商品初始持有人）');
   console.log('\n确认执行请加 --yes：node scripts/reset-demo.mjs --yes');
   process.exit(0);

@@ -1,4 +1,4 @@
-// 后台端到端冒烟：18 个通用模块 CRUD + 全部专用操作 + 设置组 + 权限 + 结算 + 数据一致性
+// 后台端到端冒烟：17 个通用模块 CRUD + 全部专用操作 + 设置组 + 权限 + 结算 + 数据一致性
 // 独立库（admin-smoke.db / 3401），不碰演示库
 // 用法: node scripts/probe/admin-e2e-api.mjs
 import { spawn } from 'node:child_process';
@@ -91,17 +91,17 @@ async function main() {
     const modules = await api('/admin/api/modules', { token: at });
     ok(modules.code === 1, '模块注册表可读');
     const modKeys = Object.keys(modules.data?.modules || modules.data || {});
-    ok(modKeys.length >= 18, '模块数量完整', `${modKeys.length} 个`);
+    ok(modKeys.length >= 17, '模块数量完整', `${modKeys.length} 个`);
 
     // ================= 2. 通用列表与详情 =================
-    section('[2] 18 个模块的列表与详情');
+    section('[2] 17 个模块的列表与详情');
     const listCases = [
       ['goods', 'goods_id'], ['category', 'category_id'], ['specialarea', 'specialarea_id'],
       ['member', 'member_id'], ['orders', 'order_id'], ['certification', 'certification_id'],
       ['grade', 'grade_id'], ['report', 'report_id'], ['delivery', 'template_id'],
       ['energy', 'energy_id'], ['withdraw', 'withdraw_id'], ['settle', 'id'],
       ['banner', 'banner_id'], ['navigation', 'id'], ['notice', 'id'],
-      ['recharge', 'recharge_id'], ['storeuser', 'store_user_id'], ['role', 'role_id'],
+      ['storeuser', 'store_user_id'], ['role', 'role_id'],
     ];
     for (const [mod, pk] of listCases) {
       const r = await api(`/admin/api/${mod}/list?page=1&limit=5`, { token: at });
@@ -142,7 +142,6 @@ async function main() {
       banner: { type_id: 1, file_path: '/uploads/demo-1.svg', link_url: '#', sort: 900 },
       navigation: { title: '冒烟导航', icon_name: 'home', link_url: '/loot', type: 1, sort: 900, disabled: 10 },
       notice: { title: '冒烟公告', content: '冒烟测试内容', sort: 900 },
-      recharge: { face_value: 100, price: 100, integral: 0, is_open: 10, sort: 900 },
       role: { role_name: '冒烟角色', description: '冒烟测试用' },
       storeuser: { user_name: 'smoke_op', password: '123456', nick_name: '冒烟运营', role_id: 7, status: 10 },
       member: { nick_name: '冒烟会员', mobile: '13900003333', password: '123456', p_id: 1 },
@@ -152,7 +151,7 @@ async function main() {
       goods: 'goods_id', category: 'category_id', specialarea: 'specialarea_id', member: 'member_id',
       certification: 'certification_id', grade: 'grade_id', report: 'report_id', delivery: 'template_id',
       energy: 'energy_id', withdraw: 'withdraw_id', settle: 'id', banner: 'banner_id',
-      navigation: 'id', notice: 'id', recharge: 'recharge_id', storeuser: 'store_user_id', role: 'role_id',
+      navigation: 'id', notice: 'id', storeuser: 'store_user_id', role: 'role_id',
     };
     const created = {};
     for (const [mod, payload] of Object.entries(seedMeta)) {
@@ -166,7 +165,7 @@ async function main() {
       ['category', { name: '冒烟分类改' }], ['specialarea', { title_main: '冒烟场次改' }],
       ['grade', { name: '冒烟等级改' }], ['delivery', { name: '冒烟模板改' }],
       ['navigation', { title: '冒烟导航改' }], ['notice', { title: '冒烟公告改' }],
-      ['banner', { sort: 901 }], ['recharge', { price: 99 }],
+      ['banner', { sort: 901 }],
       ['role', { description: '冒烟测试改' }], ['member', { nick_name: '冒烟会员改' }],
       ['goods', { goods_name: '冒烟商品改' }],
     ];
@@ -453,7 +452,7 @@ async function main() {
 
     // ================= 10. 设置组 =================
     section('[10] 设置组读写（9 组）');
-    const groups = ['store', 'trade', 'pay', 'auction', 'storage', 'poster', 'prompt', 'nav'];
+    const groups = ['store', 'trade', 'pay', 'storage', 'poster', 'prompt', 'nav'];
     for (const g of groups) {
       const r = await api(`/admin/api/setting/${g}`, { token: at });
       ok(r.code === 1 && (r.data?.items || []).length > 0, `设置组可读：${g}`, `${(r.data?.items || []).length} 项`);

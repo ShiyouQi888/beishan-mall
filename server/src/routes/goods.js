@@ -203,11 +203,6 @@ r.get('/getGoodsEvaluation', (req, res) => {
   res.json(ok({ list: [], total: 0, rate: '100%' }));
 });
 
-r.get('/getIsAuction', (req, res) => {
-  const v = get("SELECT `value` FROM setting_config WHERE `key`='auction_open'")?.value || '0';
-  res.json(ok(v === '10' ? { open: 1 } : ''));
-});
-
 r.get('/getPurchaseNum', authMember, (req, res) => {
   const { goods_id } = req.query;
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));

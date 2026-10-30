@@ -142,7 +142,7 @@ function adminRequestAllowed(req, allowedPaths) {
       category: '/category', specialarea: '/specialarea', member: '/member',
       certification: '/certification', grade: '/member-grade', report: '/report',
       delivery: '/delivery', energy: '/energy', withdraw: '/withdraw', settle: '/settle',
-      banner: '/banner', navigation: '/navigation', notice: '/notice', recharge: '/recharge',
+      banner: '/banner', navigation: '/navigation', notice: '/notice',
       storeuser: '/storeuser', role: '/role',
     }[moduleMatch[1]];
     return Boolean(pagePath && has(pagePath));

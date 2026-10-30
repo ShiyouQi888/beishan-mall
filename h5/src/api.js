@@ -56,6 +56,7 @@ export const api = {
   searchShop: (p) => http.get('/goods/searchShop', { params: p }),
   shopDetail: (id) => http.get('/goods/shopgoods/getDetails', { params: { goods_id: id } }),
   scoreShop: (p) => http.get('/score/getScoreShopList', { params: p }),
+  scoreExchange: (goodsId) => http.post('/score/exchange', { goods_id: goodsId }),
   myShop: () => http.get('/member/myShop'),
 
   // 会员
@@ -92,7 +93,6 @@ export const api = {
   systemInfo: () => http.get('/finance/getSystemInfo'),
   withdraw: (d) => http.post('/finance/withdraw/apply', d),
   withdrawList: () => http.get('/finance/withdraw/list'),
-  rechargeList: () => http.get('/finance/recharge/lists'),
 
   // 地址
   addressList: () => http.get('/member/address/list'),

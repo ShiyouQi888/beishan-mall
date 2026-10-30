@@ -99,9 +99,6 @@ tx(() => {
     ['pay_zfb', '10', 'pay'],
     ['pay_bank', '20', 'pay'],
     ['pay_gateway_open', '10', 'pay'],
-    ['auction_open', '0', 'auction'],
-    ['auction_start_price', '80', 'auction'],
-    ['auction_step', '100', 'auction'],
     ['nav_index', '10', 'nav'],
     ['nav_category', '10', 'nav'],
     ['nav_cart', '20', 'nav'],
@@ -118,7 +115,6 @@ tx(() => {
     ['prompt_withdraw', '<p>提现申请审核通过后 T+1 个工作日到账。</p>', 'prompt'],
     ['customer_type', '1', 'store'],
     ['to_examine', '10', 'store'],
-    ['recharge_status', '10', 'store'],
     ['region_bg_img', '', 'store'],
     ['android_vision', '1.0.0', 'store'],
   ];
@@ -245,12 +241,6 @@ tx(() => {
     '平台交易规则说明', '<p>1. 所有商品均支持复检；<br/>2. 抢购成功后请在 30 分钟内完成支付；<br/>3. 寄卖商品由平台统一撮合。</p>', 100, now());
   run('INSERT INTO notice (title, content, sort, create_time) VALUES (?,?,?,?)',
     '关于提现到账时间', '<p>提现申请审核通过后 T+1 个工作日到账。</p>', 99, now());
-
-  // ---------- 充值套餐 ----------
-  [[100, 105, 5], [500, 520, 30], [1000, 1060, 80]].forEach(([f, p, i], idx) =>
-    run('INSERT INTO recharge_package (face_value, price, integral, is_open, sort) VALUES (?,?,?,10,?)',
-      f, p, i, 100 - idx),
-  );
 
   // ---------- 地区（演示数据） ----------
   const regions = {

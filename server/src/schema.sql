@@ -286,15 +286,6 @@ CREATE TABLE IF NOT EXISTS settle_pay (
 );
 CREATE INDEX IF NOT EXISTS idx_settle_kind ON settle_pay(kind, pay_status);
 
-CREATE TABLE IF NOT EXISTS recharge_package (
-  recharge_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  face_value  REAL DEFAULT 0,             -- 面值
-  price       REAL DEFAULT 0,             -- 售价
-  integral    INTEGER DEFAULT 0,          -- 赠送积分
-  sort        INTEGER DEFAULT 100,
-  is_open     INTEGER DEFAULT 10
-);
-
 -- ---------- 运营 ----------
 CREATE TABLE IF NOT EXISTS shop_banner (
   banner_id  INTEGER PRIMARY KEY AUTOINCREMENT,

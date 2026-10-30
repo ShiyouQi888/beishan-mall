@@ -87,6 +87,21 @@ for (const deadKey of ['commission_l1', 'commission_l2', 'commission_l3', 'commi
   }
 }
 
+// 竞拍与充值套餐已整体下线（只有配置项/空表，没有对应业务逻辑与页面）
+for (const deadKey of [
+  'auction_open', 'auction_start_price', 'auction_step',
+  'recharge_status', 'recharge_set',
+]) {
+  if (get('SELECT 1 FROM setting_config WHERE `key` = ?', deadKey)) {
+    run('DELETE FROM setting_config WHERE `key` = ?', deadKey);
+    console.log(`[migrate] 删除废弃配置 ${deadKey}`);
+  }
+}
+if (get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'recharge_package'")) {
+  run('DROP TABLE recharge_package');
+  console.log('[migrate] 删除废弃表 recharge_package（充值套餐已下线）');
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));

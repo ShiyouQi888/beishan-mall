@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { all, get, run, tx, now, today } from '../db.js';
-import { ok, fail, authMember, page, money } from '../lib/helper.js';
+import { ok, fail, authMember, money } from '../lib/helper.js';
 
 const r = Router();
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;
@@ -82,47 +82,6 @@ r.post('/withdraw/apply', authMember, (req, res) => {
 
 r.get('/withdraw/list', authMember, (req, res) => {
   res.json(ok(all('SELECT * FROM finance_withdraw WHERE member_id = ? ORDER BY withdraw_id DESC', req.member.member_id)));
-});
-
-// 充值套餐
-r.get('/recharge/lists', (req, res) => {
-  const list = all('SELECT recharge_id, face_value, price, integral FROM recharge_package WHERE is_open = 10 ORDER BY sort ASC');
-  res.json(ok({ list, set: cfg('recharge_set', '1:1'), score_number: '0.00' }));
-});
-
-r.get('/recharge/integralList', authMember, (req, res) => {
-  res.json(
-    ok({
-      list: all(
-        'SELECT energy_id, face_value, type_name, remarks, create_time FROM finance_energy WHERE member_id = ? AND type = 3 ORDER BY energy_id DESC LIMIT 50',
-        req.member.member_id,
-      ),
-      score: req.member.score,
-    }),
-  );
-});
-
-// 积分兑换商品
-r.post('/recharge/exchange', authMember, (req, res) => {
-  const { goods_id } = req.body;
-  const sg = get('SELECT * FROM score_goods WHERE goods_id = ?', Number(goods_id));
-  if (!sg) return res.json(fail('该商品不支持积分兑换'));
-  const m = req.member;
-  if (m.score < sg.score) return res.json(fail('积分不足'));
-  if (sg.stock <= 0) return res.json(fail('库存不足'));
-  const g = get('SELECT * FROM goods WHERE goods_id = ?', sg.goods_id);
-  tx(() => {
-    run('UPDATE member SET score = score - ? WHERE member_id = ?', sg.score, m.member_id);
-    run('UPDATE score_goods SET stock = stock - 1 WHERE id = ?', sg.id);
-    run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-      m.member_id, -sg.score, 3, '积分兑换', g?.goods_name || '', now());
-    run(
-      `INSERT INTO orders (order_no, member_id, goods_id, goods_name, goods_thumb, type, price, num, total_price, status, pay_status, pay_type, create_time)
-       VALUES (?,?,?,?,?,3,0,1,0,10,10,1,?)`,
-      `J${Date.now()}`, m.member_id, sg.goods_id, g?.goods_name || '', g?.good_thumb || '', now(),
-    );
-  });
-  res.json(ok([], '兑换成功'));
 });
 
 export default r;

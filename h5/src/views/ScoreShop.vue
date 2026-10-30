@@ -54,8 +54,7 @@ async function exchange(g) {
     return;
   }
   try {
-    const http = (await import('../api.js')).default;
-    const r = await http.post('/finance/recharge/exchange', { goods_id: g.goods_id });
+    await api.scoreExchange(g.goods_id);
     showToast('兑换成功');
     load();
   } catch {}

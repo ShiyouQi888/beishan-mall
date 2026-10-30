@@ -264,18 +264,6 @@ const M = {
       { k: 'create_time', t: '添加时间', type: 'text', readonly: true, w: 160 },
     ],
   },
-  recharge: {
-    table: 'recharge_package', pk: 'recharge_id', label: '充值套餐',
-    search: [], orderBy: 'sort ASC',
-    fields: [
-      { k: 'recharge_id', t: 'ID', type: 'text', readonly: true, w: 70 },
-      { k: 'face_value', t: '面值', type: 'money', required: true, w: 100 },
-      { k: 'price', t: '售价', type: 'money', required: true, w: 100 },
-      { k: 'integral', t: '赠送积分', type: 'number', w: 100 },
-      { k: 'is_open', t: '启用', type: 'switch', opts: { 10: '启用', 20: '停用' }, w: 90 },
-      { k: 'sort', t: '排序', type: 'number', w: 80 },
-    ],
-  },
   storeuser: {
     table: 'store_user', pk: 'store_user_id', label: '管理员',
     search: ['user_name', 'nick_name'], orderBy: 'store_user_id DESC',
@@ -426,11 +414,6 @@ const SETTING_GROUPS = {
     { k: 'pay_gateway_open', t: '在线支付通道', type: 'switch' },
     { k: 'zfb_qr', t: '支付宝收款码', type: 'image' },
     { k: 'wx_qr', t: '微信收款码', type: 'image' },
-  ],
-  auction: [
-    { k: 'auction_open', t: '竞拍开关', type: 'switch' },
-    { k: 'auction_start_price', t: '起拍价比例(%)', type: 'number' },
-    { k: 'auction_step', t: '加价幅度', type: 'number' },
   ],
   storage: [
     { k: 'storage_type', t: '存储方式', type: 'text' },

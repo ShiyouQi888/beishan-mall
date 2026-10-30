@@ -130,11 +130,6 @@ export const MENU = [
         title: '公告管理',
         icon: `<path d="M4.5 9.5v5l11 4.5V5L4.5 9.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M18 9.5a3 3 0 0 1 0 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
       },
-      {
-        path: '/recharge',
-        title: '充值套餐',
-        icon: `<rect x="3" y="6" width="18" height="12" rx="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M3 10h18M7 15h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
-      },
     ],
   },
   {
@@ -159,11 +154,6 @@ export const MENU = [
         path: '/delivery',
         title: '运费模板',
         icon: `<path d="M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="6.5" cy="18" r="1.6" stroke="currentColor" stroke-width="1.7"/><circle cx="17" cy="18" r="1.6" stroke="currentColor" stroke-width="1.7"/>`,
-      },
-      {
-        path: '/setting/auction',
-        title: '竞拍设置',
-        icon: `<path d="m5 19 4-4M9.5 5.5l9 9M14 4l6 6-2.5 2.5-6-6L14 4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>`,
       },
       {
         path: '/setting/storage',

@@ -329,8 +329,6 @@ async function main() {
     ok(amount.code === 1, '钱包金额', amount.msg);
     const sysInfo = await api('/api/finance/getSystemInfo', { token: newToken });
     ok(sysInfo.code === 1, '系统信息（提现页依赖）', sysInfo.msg);
-    const recharge = await api('/api/finance/recharge/lists', { token: newToken });
-    ok(recharge.code === 1, '充值套餐列表', recharge.msg);
 
     // 上级应拿到直推奖
     const topProfit = await api('/api/member/getECardList', { token: await login('13800000001') });
@@ -398,11 +396,11 @@ async function main() {
     const sg = scoreList.data.list.data[0];
     const scoreDetail = await api(`/api/score/getDetails?goods_id=${sg.goods_id}`, { token: newToken });
     ok(scoreDetail.code === 1, '积分商品详情', scoreDetail.msg);
-    const poorScore = await api('/api/finance/recharge/exchange', { method: 'POST', token: newToken, body: { goods_id: sg.goods_id } });
+    const poorScore = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { goods_id: sg.goods_id } });
     ok(poorScore.code === 0 && /积分不足/.test(poorScore.msg), '积分不足被拒', poorScore.msg);
     // 补积分后兑换
     db.prepare('UPDATE member SET score = score + 100000 WHERE member_id = ?').run(newId);
-    const exchange = await api('/api/finance/recharge/exchange', { method: 'POST', token: newToken, body: { goods_id: sg.goods_id } });
+    const exchange = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { goods_id: sg.goods_id } });
     ok(exchange.code === 1, '积分兑换成功', exchange.msg);
 
     // ========== 结算 ==========
