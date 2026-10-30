@@ -122,6 +122,7 @@ const M = {
       { k: 'service_charge', t: '服务费', type: 'money', w: 90, hide: true },
       { k: 'status', t: '状态', type: 'select', opts: ORDER_STATUS, w: 100 },
       { k: 'pay_type', t: '支付方式', type: 'select', opts: { 0: '未支付', 1: '余额', 2: '微信', 3: '支付宝', 4: '线下凭证' }, w: 110 },
+      { k: 'pay_voucher', t: '支付凭证', type: 'image', w: 80, hide: true, readonly: true },
       { k: 'buyer', t: '买家', type: 'member', w: 110 },
       { k: 'seller_id', t: '卖家ID', type: 'text', w: 90, hide: true },
       { k: 'express_no', t: '快递单号', type: 'text', w: 140, hide: true },
@@ -479,6 +480,10 @@ const SETTING_GROUPS = {
     { k: 'service_charge', t: '抢单服务费(%)', type: 'number', tip: '买家在商品金额之外额外支付；填 0 则不收（平台收入来自转拍上架费）' },
     { k: 'require_receiving_account', t: '抢购前必须绑定收款账户', type: 'switch', tip: '关闭时允许未绑定收款账户的会员直接下单；开启后，会员需先设置收款方式。默认关闭。' },
     { k: 'require_invite_code', t: '注册必须填邀请码', type: 'switch', tip: '开启：必须有有效邀请码才能入驻，注册后自动绑定上级。关闭：邀请码可留空直接注册（无上级、不产生直推奖），填了仍会校验有效性。默认开启。' },
+    { k: 'withdraw_wx_open', t: '提现到微信', type: 'switch' },
+    { k: 'withdraw_zfb_open', t: '提现到支付宝', type: 'switch' },
+    { k: 'withdraw_bank_open', t: '提现到银行卡', type: 'switch' },
+    { k: 'withdraw_offline_open', t: '提现线下打款', type: 'switch' },
     { k: 'price_increase_rate', t: '转拍涨价率(%)', type: 'number', tip: '每转拍一次，在上一手成交价基础上自动加价该比例，逐轮复利：10000 → 10300 → 10609。下一轮买家付 10300 时，上一手持有人收回 10300 全额（原价 + 涨价），此后与该持有人无关。注意：涨价率需高于上架费率才有净收益。' },
     { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number' },
     { k: 'drive_award_rate', t: '直推奖(%)', type: 'number' },
@@ -488,9 +493,10 @@ const SETTING_GROUPS = {
     { k: 'withdraw_fee', t: '提现手续费(%)', type: 'number' },
   ],
   pay: [
-    { k: 'pay_wx', t: '微信支付', type: 'switch' },
-    { k: 'pay_zfb', t: '支付宝', type: 'switch' },
-    { k: 'pay_bank', t: '银行卡转账', type: 'switch' },
+    { k: 'pay_balance_open', t: '余额支付', type: 'switch' },
+    { k: 'pay_wx', t: '微信收款码转账', type: 'switch' },
+    { k: 'pay_zfb', t: '支付宝收款码转账', type: 'switch' },
+    { k: 'pay_bank', t: '线下转账凭证', type: 'switch', tip: '开启后前台可选择线下转账并上传凭证；微信、支付宝扫码方式需先配置对应收款码。' },
     { k: 'pay_gateway_open', t: '在线支付通道', type: 'switch' },
     { k: 'zfb_qr', t: '支付宝收款码', type: 'image' },
     { k: 'wx_qr', t: '微信收款码', type: 'image' },
@@ -514,20 +520,33 @@ const SETTING_GROUPS = {
     { k: 'poster_logo_y', t: 'Logo Y 坐标', type: 'number' },
     { k: 'poster_logo_size', t: 'Logo 尺寸', type: 'number' },
     { k: 'poster_title', t: '海报主标题', type: 'text' },
+    { k: 'poster_title_show', t: '显示主标题', type: 'switch' },
     { k: 'poster_title_x', t: '主标题 X 坐标', type: 'number' },
     { k: 'poster_title_y', t: '主标题 Y 坐标', type: 'number' },
     { k: 'poster_title_size', t: '主标题字号', type: 'number' },
+    { k: 'poster_title_color', t: '主标题颜色', type: 'text' },
+    { k: 'poster_title_align', t: '主标题对齐', type: 'text' },
     { k: 'poster_subtitle', t: '海报副标题', type: 'text' },
+    { k: 'poster_subtitle_show', t: '显示副标题', type: 'switch' },
     { k: 'poster_subtitle_x', t: '副标题 X 坐标', type: 'number' },
     { k: 'poster_subtitle_y', t: '副标题 Y 坐标', type: 'number' },
     { k: 'poster_subtitle_size', t: '副标题字号', type: 'number' },
+    { k: 'poster_subtitle_color', t: '副标题颜色', type: 'text' },
+    { k: 'poster_subtitle_align', t: '副标题对齐', type: 'text' },
     { k: 'poster_content', t: '海报说明文字', type: 'textarea' },
+    { k: 'poster_content_show', t: '显示说明文字', type: 'switch' },
     { k: 'poster_content_x', t: '说明文字 X 坐标', type: 'number' },
     { k: 'poster_content_y', t: '说明文字 Y 坐标', type: 'number' },
     { k: 'poster_content_size', t: '说明文字字号', type: 'number' },
+    { k: 'poster_content_color', t: '说明文字颜色', type: 'text' },
+    { k: 'poster_content_align', t: '说明文字对齐', type: 'text' },
+    { k: 'poster_code_label', t: '邀请码前缀', type: 'text' },
+    { k: 'poster_code_show', t: '显示邀请码', type: 'switch' },
     { k: 'poster_code_x', t: '邀请码 X 坐标', type: 'number' },
     { k: 'poster_code_y', t: '邀请码 Y 坐标', type: 'number' },
     { k: 'poster_code_size', t: '邀请码字号', type: 'number' },
+    { k: 'poster_code_color', t: '邀请码颜色', type: 'text' },
+    { k: 'poster_code_align', t: '邀请码对齐', type: 'text' },
   ],
   prompt: [
     { k: 'prompt_register', t: '注册协议', type: 'richtext' },
@@ -554,7 +573,8 @@ const SETTING_GROUPS = {
 r.get('/setting/:group', authAdmin, (req, res) => {
   const g = Object.prototype.hasOwnProperty.call(SETTING_GROUPS, req.params.group) ? SETTING_GROUPS[req.params.group] : null;
   if (!g) return res.json(fail('设置组不存在'));
-  res.json(ok({ group: req.params.group, items: g, values: Object.fromEntries(g.map((x) => [x.k, cfg(x.k, '')])) }));
+  const values = Object.fromEntries(g.map((x) => [x.k, get('SELECT `value` FROM setting_config WHERE `key` = ?', x.k)?.value ?? null]));
+  res.json(ok({ group: req.params.group, items: g, values }));
 });
 
 r.post('/setting/save', authAdmin, (req, res) => {
@@ -987,6 +1007,7 @@ r.post('/orders/confirm-pay', authAdmin, (req, res) => {
   const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
   if (!o) return res.json(fail('订单不存在'));
   if (o.pay_status === 10) return res.json(fail('订单已确认'));
+  if (Number(o.pay_type) !== 1 && !o.pay_voucher) return res.json(fail('会员尚未提交支付凭证'));
   try {
     tx(() => {
       // 原子更新，避免与用户端并发支付冲突

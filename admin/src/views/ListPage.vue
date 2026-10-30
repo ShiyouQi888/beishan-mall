@@ -249,11 +249,22 @@
       <el-descriptions v-if="modKey === 'orders'" :column="2" border>
         <el-descriptions-item label="订单号">{{ form.order_no || '—' }}</el-descriptions-item>
         <el-descriptions-item label="订单类型">{{ labelOf(mod.fields?.find((f) => f.k === 'type'), form.type) }}</el-descriptions-item>
+        <el-descriptions-item label="支付方式">{{ labelOf(mod.fields?.find((f) => f.k === 'pay_type'), form.pay_type) }}</el-descriptions-item>
         <el-descriptions-item label="商品">{{ form.goods_name || '—' }}</el-descriptions-item>
         <el-descriptions-item label="数量">{{ form.num ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="订单金额">¥{{ Number(form.total_price || 0).toFixed(2) }}</el-descriptions-item>
         <el-descriptions-item label="订单状态">{{ labelOf(mod.fields?.find((f) => f.k === 'status'), form.status) }}</el-descriptions-item>
         <el-descriptions-item label="审核状态">{{ Number(form.is_examine) === 10 ? '已通过' : Number(form.is_examine) === 20 ? '已拒绝' : '待审核' }}</el-descriptions-item>
+        <el-descriptions-item label="支付凭证" :span="2">
+          <el-image
+            v-if="form.pay_voucher"
+            :src="form.pay_voucher"
+            :preview-src-list="[form.pay_voucher]"
+            fit="cover"
+            style="width: 88px; height: 88px; border-radius: 8px"
+          />
+          <span v-else>—</span>
+        </el-descriptions-item>
         <el-descriptions-item label="下单时间">{{ form.create_time || '—' }}</el-descriptions-item>
       </el-descriptions>
       <el-form v-else label-width="124px" label-position="right">
