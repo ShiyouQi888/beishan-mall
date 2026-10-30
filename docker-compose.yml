@@ -1,3 +1,6 @@
+# 显式指定项目名：目录名是中文时 compose 会推导出空名并直接报错
+name: beishan-mall
+
 services:
   mall:
     build:
@@ -7,11 +10,15 @@ services:
     container_name: beishan-mall
     restart: unless-stopped
     ports:
-      - "3300:3300"
+      # 宿主机端口不写死：留空则由 Docker 分配一个空闲端口，避免和本机其它服务抢 3300。
+      # 冒号左边是宿主机端口，为空就是「自动分配」；右边是容器内端口（由 PORT 决定）。
+      # 想固定：在 .env 里写 APP_PORT=3300
+      - "${APP_PORT:-}:${PORT:-3300}"
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
-      PORT: 3300
+      # 容器内监听端口，改了这里映射会自动跟着变（健康检查也读同一个变量）
+      PORT: ${PORT:-3300}
       MALL_DB: /app/data/mall.db
       UPLOAD_DIR: /app/data/uploads
       PUBLIC_DIR: /app/public

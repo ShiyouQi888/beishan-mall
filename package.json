@@ -11,6 +11,8 @@
     "seed": "npm --prefix server run seed",
     "docker:build": "docker build -t beishan-mall:latest .",
     "docker:up": "docker compose up -d",
+    "docker:port": "docker compose port mall 3300",
+    "docker:url": "node scripts/docker-url.mjs",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"
   }

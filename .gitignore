@@ -5,6 +5,9 @@
 public/
 
 
+# Docker compose 挂载的数据目录（SQLite + 上传文件）
+/data/
+
 # Local databases and uploaded user media
 server/data/*.db
 server/data/*.db-shm

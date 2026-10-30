@@ -63,6 +63,7 @@ node scripts/reset-demo.mjs --yes
 
 ```bash
 docker compose up -d --build      # 构建并后台启动
+npm run docker:url                # 打印实际访问地址（端口是自动分配的）
 docker compose logs -f            # 看日志
 docker compose down               # 停止
 ```
@@ -70,13 +71,16 @@ docker compose down               # 停止
 - 镜像内已包含构建好的前端，容器启动即用，无需额外构建
 - 数据（SQLite + 上传文件）挂在 `./data`，删容器不丢数据
 - **首次启动会自动建库并灌演示数据**（检测到 `MALL_DB` 不存在时触发）
+- **宿主机端口不写死**：默认由 Docker 分配一个空闲端口，避免和本机其它服务抢 3300；
+  用 `npm run docker:url`（或 `docker compose port mall 3300`）拿实际端口
 - 健康检查走 `/api/health`，`docker ps` 可直接看到 healthy 状态
 
 环境变量（`docker-compose.yml` 里已列出）：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `PORT` | 3300 | 监听端口 |
+| `PORT` | 3300 | **容器内**监听端口，改了映射会跟着变 |
+| `APP_PORT` | 空 | **宿主机**端口。留空 = Docker 自动分配空闲端口；填 3300 则固定 |
 | `HOST` | 127.0.0.1（镜像内 0.0.0.0） | 监听地址，容器内必须是 0.0.0.0 |
 | `MALL_DB` | `server/data/mall.db` | SQLite 路径，可用绝对路径 |
 | `UPLOAD_DIR` | `server/data/uploads` | 上传文件目录 |
@@ -87,7 +91,8 @@ docker compose down               # 停止
 | `ADMIN_PASSWORD` | `123456` | 内置管理员密码，**上线务必修改**；账号已存在时不会覆盖 |
 | `ADMIN_PASSWORD_RESET` | 空 | 设为 `1` 时启动强制把密码改回 `ADMIN_PASSWORD`（忘记密码的后门，改完记得关） |
 
-> 反向代理（Nginx / Caddy）把 80/443 转到容器 3300 即可，前端资源都用相对路径，不需要改配置。
+> 反向代理（Nginx / Caddy）把 80/443 转到容器内端口即可（默认 3300），前端资源都用相对路径，不需要改配置。
+> 用自动端口时，反代目标请写容器 IP:3300，而不是宿主机的随机端口。
 
 ### 方式 C：本地开发（热更新，三个进程）
 
