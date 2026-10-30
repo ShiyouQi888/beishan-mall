@@ -161,6 +161,8 @@ app.get('/manifest.webmanifest', (req, res) => {
   ];
   const logo = cfg('store_logo', '');
   if (logo) icons.push({ src: logo, sizes: 'any', purpose: 'any' });
+  // 名称/主题随时可能被后台改，别让浏览器把清单缓存住
+  res.setHeader('Cache-Control', 'no-cache');
   res.type('application/manifest+json').send(JSON.stringify({
     name,
     short_name: name.length > 12 ? name.slice(0, 12) : name,
