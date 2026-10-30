@@ -61,7 +61,7 @@
         <span>订单</span>
       </div>
       <button class="btn-main bar-btn" :disabled="!canBuy" @click="buy">
-        {{ canBuy ? '立即抢购' : buyClosed ? '当前不在抢购时间' : '不可购买' }}
+        {{ canBuy ? '立即抢购' : soldOut ? '已抢完' : buyClosed ? '当前不在抢购时间' : '不可购买' }}
       </button>
     </div>
   </div>
@@ -94,7 +94,10 @@ const promises = computed(() => {
 });
 // 抢购商品要等「抢购总时间」开放；商城商品（type=2）不受时间限制
 const buyClosed = computed(() => Number(g.value.type) === 1 && !!g.value.specialarea && Number(g.value.is_ordinary_order) !== 1);
-const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value);
+// 已抢完：商品被买走或拆份卖光后下架。列表里留一张灰卡片，点进来就是这里 —— 不能下单。
+// 判断依据只看 sold_out（后端 goods_status ≠ 10），与前台下单校验同一口径
+const soldOut = computed(() => Number(g.value.sold_out) === 1);
+const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value && !soldOut.value);
 
 function buy() {
   if (!localStorage.getItem('TOKEN')) return router.push('/login');

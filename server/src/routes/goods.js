@@ -6,6 +6,18 @@ import { sessionWindow, todayStr } from '../lib/sessionWindow.js';
 
 // 只露出「今天该出现」的商品：轮转到明天的商品今天不该被看到/被抢
 const AREA_DATE_OK = "(area_date IS NULL OR area_date = '' OR area_date = ?)";
+
+// 列表里该露出哪些商品（抢购列表 / 分类列表 / 首页共用同一口径）
+//   在售的 —— 照常露出
+//   已抢完的（下架态）—— 只在「它自己那场的日期 = 今天」时继续露一次，让用户看到「已抢完」
+//                        的灰卡片，而不是卡片凭空消失。轮到下一场 / 到了明天，area_date 不再等于
+//                        今天，这些卡片自然被替换掉，不需要额外的定时清理。
+// 注意这里比 AREA_DATE_OK 更严：不限日期（area_date 为空）的商品一旦售罄就直接消失 ——
+// 否则平台持仓的老货会永远挂成一张灰卡片，越积越多。
+// 占位顺序：第一个 ? = AREA_DATE_OK 的今天，第二个 ? = 已抢完判定用的今天
+const LIST_VISIBLE = `((goods_status = 10 AND ${AREA_DATE_OK}) OR (goods_status = 20 AND area_date = ?))`;
+// 在售的排在前面，已抢完的沉到后面，不影响「先看到能买的」
+const ON_SALE_FIRST = 'ORDER BY (goods_status = 10) DESC, goods_sort ASC, goods_id DESC';
 import { activeSessions } from '../lib/sessions.js';
 
 const r = Router();
@@ -26,6 +38,9 @@ export const fmtGoods = (g) => ({
   sales_actual: g.sales_actual,
   stock_num: g.stock_num,
   goods_status: g.goods_status,
+  // 已抢完：下架态（成交/售罄都会落到 20）。前端据此置灰卡片、把按钮改成「已抢完」。
+  // 不看 stock_num —— 商城商品(type=2)根本不维护库存，用它判断会把商城货全标成售罄
+  sold_out: Number(g.goods_status) === 10 ? 0 : 1,
   is_split: g.is_split,
   split_total: g.split_total,
   turn_beat_num: g.turn_beat_num,
@@ -70,13 +85,13 @@ r.get('/category/getCategoryGoodsList', (req, res) => {
   const pp = Number(limit);
   const cur = Number(p);
   const total = get(
-    'SELECT COUNT(*) c FROM goods WHERE category_id = ? AND goods_status = 10 AND type = 1 AND ' + AREA_DATE_OK,
-    Number(category_id), todayStr(),
+    `SELECT COUNT(*) c FROM goods WHERE category_id = ? AND type = 1 AND ${LIST_VISIBLE}`,
+    Number(category_id), todayStr(), todayStr(),
   ).c;
   const list = all(
-    `SELECT * FROM goods WHERE category_id = ? AND goods_status = 10 AND type = 1 AND ${AREA_DATE_OK}
-     ORDER BY goods_sort ASC, goods_id DESC LIMIT ? OFFSET ?`,
-    Number(category_id), todayStr(), pp, (cur - 1) * pp,
+    `SELECT * FROM goods WHERE category_id = ? AND type = 1 AND ${LIST_VISIBLE}
+     ${ON_SALE_FIRST} LIMIT ? OFFSET ?`,
+    Number(category_id), todayStr(), todayStr(), pp, (cur - 1) * pp,
   );
   res.json(ok(page(list.map(fmtGoods), total, cur, pp)));
 });
@@ -124,9 +139,9 @@ r.get('/getLootList', (req, res) => {
   const areas = areaPayload();
   const list = areas.map((a) => {
     const goods = all(
-      `SELECT * FROM goods WHERE specialarea_id = ? AND goods_status = 10 AND type = 1 AND ${AREA_DATE_OK}
-       ORDER BY goods_sort ASC, goods_id DESC LIMIT 20`,
-      a.specialarea_id, todayStr(),
+      `SELECT * FROM goods WHERE specialarea_id = ? AND type = 1 AND ${LIST_VISIBLE}
+       ${ON_SALE_FIRST} LIMIT 20`,
+      a.specialarea_id, todayStr(), todayStr(),
     ).map(fmtGoods);
     return { ...a, goods_list: goods };
   });
@@ -138,8 +153,8 @@ r.get('/getLootGoodsList', (req, res) => {
   const { specialarea_id, page: p = 1, limit = 10 } = req.query;
   const pp = Number(limit);
   const cur = Number(p);
-  const where = ['goods_status = 10', 'type = 1', AREA_DATE_OK];
-  const args = [todayStr()];
+  const where = ['type = 1', LIST_VISIBLE];
+  const args = [todayStr(), todayStr()];
   if (specialarea_id) {
     where.push('specialarea_id = ?');
     args.push(Number(specialarea_id));
@@ -147,7 +162,7 @@ r.get('/getLootGoodsList', (req, res) => {
   const w = where.join(' AND ');
   const total = get(`SELECT COUNT(*) c FROM goods WHERE ${w}`, ...args).c;
   const list = all(
-    `SELECT * FROM goods WHERE ${w} ORDER BY goods_sort ASC, goods_id DESC LIMIT ? OFFSET ?`,
+    `SELECT * FROM goods WHERE ${w} ${ON_SALE_FIRST} LIMIT ? OFFSET ?`,
     ...args, pp, (cur - 1) * pp,
   );
   res.json(ok(page(list.map(fmtGoods), total, cur, pp)));

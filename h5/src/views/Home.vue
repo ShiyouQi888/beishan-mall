@@ -56,9 +56,17 @@
         </div>
       </div>
       <div v-else-if="goods.length" class="goods-grid">
-        <div v-for="g in goods" :key="g.goods_id" class="goods-card" @click="$router.push(`/goods/${g.goods_id}`)">
+        <div
+          v-for="g in goods"
+          :key="g.goods_id"
+          class="goods-card"
+          :class="{ 'goods-card--out': Number(g.sold_out) === 1 }"
+          @click="$router.push(`/goods/${g.goods_id}`)"
+        >
           <div class="goods-card__img">
             <img :src="g.good_thumb" loading="lazy" />
+            <!-- 抢完的货留在场里当灰卡片，不要凭空消失；下一场开始自动被新货替换 -->
+            <span v-if="Number(g.sold_out) === 1" class="goods-card__flag">已抢完</span>
           </div>
           <div class="goods-card__body">
             <div class="goods-card__name ellipsis2">{{ g.goods_name }}</div>
@@ -66,7 +74,8 @@
               <div class="price">
                 <span class="sym">¥</span>{{ intPart(g.goods_min_price) }}<span class="dec">.{{ decPart(g.goods_min_price) }}</span>
               </div>
-              <div class="goods-card__sales">{{ g.sales_actual || 0 }}人付款</div>
+              <div class="goods-card__sales" v-if="Number(g.sold_out) === 1">已抢完</div>
+              <div class="goods-card__sales" v-else>{{ g.sales_actual || 0 }}人付款</div>
             </div>
           </div>
         </div>
@@ -77,7 +86,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { api } from '../api.js';
 import CategoryIconDisplay from '../../../shared/CategoryIconDisplay.vue';
 
@@ -91,6 +100,15 @@ const activeCat = ref(0);
 const loading = ref(true);
 // 首页分类栏总开关：后台关掉后整条都不渲染，商品列表照常展示
 const categoryOpen = computed(() => String(openNav.value?.home_category_open ?? '10') !== '20');
+
+// 场次开/关指纹：用来发现「这一场结束了／下一场开始了」，到点静默换货
+const nowSec = ref(Math.floor(Date.now() / 1000));
+let timer;
+let lastSig = '';
+let lastPoll = 0;
+const openSig = computed(() =>
+  areas.value.map((a) => (nowSec.value >= a.time.start_time && nowSec.value <= a.time.end_time ? 1 : 0)).join(''),
+);
 
 const promiseText = computed(() => {
   const t = areas.value?.[0]?.title?.ordinary_title || '';
@@ -151,7 +169,37 @@ onMounted(async () => {
   if (c.status === 'fulfilled') categories.value = c.value.data?.categoryList || [];
   if (o.status === 'fulfilled') openNav.value = o.value.data || {};
   await loadGoods();
+  lastSig = openSig.value;
+  lastPoll = Date.now();
+  timer = setInterval(() => {
+    nowSec.value = Math.floor(Date.now() / 1000);
+    const sig = openSig.value;
+    // 某一场开始或结束时指纹会变：这时候后台换了一批货，首页要跟着换，不能停在上场的灰卡片上
+    if (lastSig && sig !== lastSig) {
+      lastSig = sig;
+      refreshBySession();
+      return;
+    }
+    // 兜底：跨天后场次时间戳还是昨天算的，指纹不会变，靠低频重拉把日期与商品一起换过来
+    if (Date.now() - lastPoll > 300000) {
+      lastPoll = Date.now();
+      refreshBySession();
+    }
+  }, 1000);
 });
+
+onUnmounted(() => clearInterval(timer));
+
+// 场次切换时静默换货（不置 loading，避免整页闪骨架屏）
+async function refreshBySession() {
+  try {
+    const r = await api.lootList();
+    areas.value = r.data.list || [];
+    await loadGoods();
+  } catch {
+    /* 网络抖动就等下一次场次边界，不打断浏览 */
+  }
+}
 
 watch(activeCat, () => loadGoods());
 </script>
@@ -288,12 +336,31 @@ watch(activeCat, () => loadGoods());
   box-shadow: var(--shadow);
 }
 .goods-card__img {
+  position: relative;
   width: 100%;
   aspect-ratio: 1;
   background: #f6f7f9;
   overflow: hidden;
 }
 .goods-card__img img { width: 100%; height: 100%; object-fit: cover; }
+/* 已抢完：图片去饱和压暗，名字与价格一起褪色，卡片仍留在原位 */
+.goods-card--out .goods-card__img img { filter: grayscale(1); opacity: 0.42; }
+.goods-card--out .goods-card__name { color: #a8adb7; }
+.goods-card--out .goods-card__foot .price { color: #a8adb7; }
+.goods-card__flag {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 4px 12px;
+  border-radius: 12px;
+  background: rgba(38, 41, 47, 0.72);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
 .goods-card__body { padding: 9px 10px 11px; }
 .goods-card__name {
   font-size: 13px;
