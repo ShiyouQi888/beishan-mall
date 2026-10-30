@@ -15,24 +15,27 @@ services:
       # 想固定：在 .env 里写 APP_PORT=3300
       - "${APP_PORT:-}:${PORT:-3300}"
     environment:
-      NODE_ENV: production
+      # 注意：这里的值一律写成 ${VAR:-默认值}，才会被 .env 覆盖。
+      # 写成 "固定值" 时 .env 里的同名变量是不生效的（compose 以这里的字面量为准）。
+      NODE_ENV: ${NODE_ENV:-production}
       HOST: 0.0.0.0
       # 容器内监听端口，改了这里映射会自动跟着变（健康检查也读同一个变量）
       PORT: ${PORT:-3300}
+      # 容器内固定路径，由下面的 volumes 挂载，不建议改
       MALL_DB: /app/data/mall.db
       UPLOAD_DIR: /app/data/uploads
       PUBLIC_DIR: /app/public
       # 反向代理/CDN 场景想让图片返回绝对地址时填这里，例如 https://mall.example.com
       # 留空则返回相对路径（同源部署最稳）
-      PUBLIC_BASE_URL: ""
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       # 生产环境务必改成自己的密钥
-      JWT_SECRET: "please-change-this-secret"
+      JWT_SECRET: ${JWT_SECRET:-please-change-this-secret}
       # 内置管理员账号：首次启动自动创建；账号已存在时不会覆盖密码
-      # 忘记密码时把 ADMIN_PASSWORD_RESET 设为 "1" 重启一次，改完再改回
-      ADMIN_USER: "admin1"
-      ADMIN_PASSWORD: "please-change-this-password"
-      ADMIN_PASSWORD_RESET: "0"
-      TZ: Asia/Shanghai
+      # 忘记密码时把 ADMIN_PASSWORD_RESET 设为 1 重启一次，改完再改回 0
+      ADMIN_USER: ${ADMIN_USER:-admin1}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-123456}
+      ADMIN_PASSWORD_RESET: ${ADMIN_PASSWORD_RESET:-0}
+      TZ: ${TZ:-Asia/Shanghai}
     volumes:
       # SQLite 数据库 + 上传文件，删容器不丢数据
       - ./data:/app/data

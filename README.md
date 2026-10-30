@@ -74,8 +74,10 @@ docker compose down               # 停止
 - **宿主机端口不写死**：默认由 Docker 分配一个空闲端口，避免和本机其它服务抢 3300；
   用 `npm run docker:url`（或 `docker compose port mall 3300`）拿实际端口
 - 健康检查走 `/api/health`，`docker ps` 可直接看到 healthy 状态
+- **改完 `.env` 必须 `docker compose up -d`**（会按新配置重建容器）；
+  `docker compose restart` 不会重读环境变量，改了也不会生效
 
-环境变量（`docker-compose.yml` 里已列出）：
+环境变量（都可以写在同目录的 `.env` 里，compose 会自动读取）：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
@@ -284,6 +286,7 @@ npm test
 | `e2e-chain.mjs` | **联调联试**：邀请注册 → 登录 → 抢单 → 支付 → 转拍，连跑 5 轮并逐轮核对金额到分，154 项断言 |
 | `finance-board.mjs` | **财务大盘核对**：跑 3 轮真实订单链，逐项验算今日/本月/累计净利、会员负债、上架费、趋势一致性与 9 类风险判定，76 项断言 |
 | `admin-account.mjs` | **管理员账号/改密**：环境变量预置账号、重启不覆盖已改密码、`ADMIN_PASSWORD_RESET` 强制重置、改密校验规则，19 项断言 |
+| `deploy-config.mjs` | **部署配置静态检查**：compose 环境变量必须可被 .env 覆盖（防止写成字面量）、端口不写死、健康检查与 .gitignore，22 项断言 |
 | `data-reset.mjs` | **数据清除**：权限下放、预览行数、确认语校验、只清会员被拒、事务性、保留项不受影响、序列归零、素材只删未引用，50 项断言 |
 | `integrated-check.mjs` | **一体化/容器自检**：同一端口下 H5、后台、接口、上传、SPA 回落是否都正常，16 项断言 |
 | `shot-h5-popup.mjs` | 打开 H5 弹窗后截图（配合查看交互效果） |
@@ -316,6 +319,9 @@ node scripts/probe/admin-account.mjs
 
 # 数据清除（自带独立库，会真的走一遍清库与回滚保护）
 node scripts/probe/data-reset.mjs
+
+# 部署配置（不需要起服务，纯静态检查）
+node scripts/probe/deploy-config.mjs
 
 # 后台整页截图（路由不带前导斜杠，Git Bash 会把它当路径转换）
 node scripts/probe/shot-admin.mjs finance-board out.png http://127.0.0.1:3300
