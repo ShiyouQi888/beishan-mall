@@ -279,6 +279,7 @@
               <ImageUploader
                 :model-value="modKey === 'category' && f.k === 'image' && categoryIconKey(form[f.k]) ? '' : form[f.k]"
                 :upload="uploadImage"
+                :presets="imagePresets(f)"
                 @update:model-value="form[f.k] = $event"
               />
               <div v-if="imageRecommendation(f)" class="image-guidance">{{ imageRecommendation(f) }}</div>
@@ -286,7 +287,7 @@
           </template>
           <template v-else-if="f.type === 'images'">
             <div class="image-field">
-              <ImageUploader :model-value="form[f.k]" :upload="uploadImage" multiple @update:model-value="form[f.k] = $event" />
+              <ImageUploader :model-value="form[f.k]" :upload="uploadImage" :presets="imagePresets(f)" multiple @update:model-value="form[f.k] = $event" />
               <div v-if="imageRecommendation(f)" class="image-guidance">{{ imageRecommendation(f) }}</div>
             </div>
           </template>
@@ -639,6 +640,19 @@ function imageRecommendation(field) {
   return '建议使用清晰原图；裁剪比例按前台展示需要选择，重要内容留在画面中央。';
 }
 
+function imagePresets(field) {
+  const key = field.k;
+  const module = modKey.value;
+  let size;
+  if (module === 'banner' && key === 'file_path') size = [1080, 608];
+  else if (module === 'goods' && ['good_thumb', 'images'].includes(key)) size = [800, 800];
+  else if (module === 'category' && key === 'image') size = [512, 512];
+  else if (module === 'navigation' && key === 'file_path') size = [512, 512];
+  else if (module === 'certification') size = [1200, 800];
+  else if (module === 'orders' && key === 'goods_thumb') size = [800, 800];
+  return size ? [{ label: `推荐 ${size[0]} × ${size[1]} px`, width: size[0], height: size[1] }] : [];
+}
+
 const desc = computed(() => {
   const m = {
     goods: '抢购商品管理，支持编辑价格、场次、持有人与上下架状态',
@@ -877,8 +891,8 @@ async function removeOne(row) {
   load();
 }
 
-async function uploadImage(file) {
-  const r = await adminApi.upload(file);
+async function uploadImage(file, extra = {}) {
+  const r = await adminApi.upload(file, extra);
   return r.data.url;
 }
 

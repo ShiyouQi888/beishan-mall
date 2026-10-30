@@ -18,9 +18,19 @@
           <div class="image-editor__row image-editor__ratios">
             <span class="image-editor__label">裁剪比例</span>
             <div class="image-editor__options">
-              <button v-for="ratio in ratios" :key="ratio.label" :class="{ active: selectedRatio === ratio.value }" @click="setRatio(ratio.value)">{{ ratio.label }}</button>
+              <button v-for="ratio in ratios" :key="ratio.label" type="button" :class="{ active: selectedRatio === ratio.value && !selectedPreset }" @click="setRatio(ratio.value)">{{ ratio.label }}</button>
             </div>
-            <button class="image-editor__rotate" title="向左旋转" @click="cropper?.rotate(-90)">↶ 旋转</button>
+            <button class="image-editor__rotate" type="button" title="向左旋转" @click="cropper?.rotate(-90)">↶ 旋转</button>
+          </div>
+
+          <div v-if="presets.length" class="image-editor__row image-editor__preset-row">
+            <span class="image-editor__label">尺寸预设</span>
+            <div class="image-editor__options">
+              <button v-for="preset in presets" :key="presetKey(preset)" type="button" :class="{ active: selectedPreset === presetKey(preset) }" @click="setPreset(preset)">
+                {{ preset.label || `${preset.width} × ${preset.height}` }}
+              </button>
+            </div>
+            <span v-if="selectedPresetData" class="image-editor__preset-size">输出 {{ selectedPresetData.width }} × {{ selectedPresetData.height }} px</span>
           </div>
 
           <div class="image-editor__quality">
@@ -53,6 +63,7 @@ const props = defineProps({
   visible: { type: Boolean, default: false },
   file: { type: File, default: null },
   cropperClass: { type: Function, required: true },
+  presets: { type: Array, default: () => [] },
 });
 const emit = defineEmits(['close', 'processed', 'error']);
 const imageEl = ref(null);
@@ -61,6 +72,8 @@ const quality = ref(82);
 const webp = ref(true);
 const processing = ref(false);
 const selectedRatio = ref('free');
+const selectedPreset = ref('');
+const selectedPresetData = computed(() => props.presets.find((preset) => presetKey(preset) === selectedPreset.value) || null);
 const sourceSize = computed(() => formatSize(props.file?.size || 0));
 const ratios = [
   { label: '自由', value: 'free' },
@@ -95,6 +108,7 @@ async function initialize() {
   objectUrl = URL.createObjectURL(props.file);
   imageUrl.value = objectUrl;
   selectedRatio.value = 'free';
+  selectedPreset.value = '';
   quality.value = 82;
   webp.value = true;
   await nextTick();
@@ -120,7 +134,20 @@ async function initialize() {
 
 function setRatio(value) {
   selectedRatio.value = value;
+  selectedPreset.value = '';
   cropper?.setAspectRatio(value === 'free' ? NaN : value);
+}
+
+function presetKey(preset) {
+  return `${Number(preset.width)}x${Number(preset.height)}`;
+}
+
+function setPreset(preset) {
+  const width = Number(preset.width);
+  const height = Number(preset.height);
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return;
+  selectedPreset.value = presetKey(preset);
+  cropper?.setAspectRatio(width / height);
 }
 
 function close() {
@@ -138,13 +165,19 @@ async function confirm() {
   if (!cropper || !props.file || processing.value) return;
   processing.value = true;
   try {
-    const canvas = cropper.getCroppedCanvas({
-      maxWidth: 2400,
-      maxHeight: 2400,
+    const canvasOptions = {
       imageSmoothingEnabled: true,
       imageSmoothingQuality: 'high',
       fillColor: webp.value ? undefined : '#fff',
-    });
+    };
+    if (selectedPresetData.value) {
+      canvasOptions.width = Number(selectedPresetData.value.width);
+      canvasOptions.height = Number(selectedPresetData.value.height);
+    } else {
+      canvasOptions.maxWidth = 2400;
+      canvasOptions.maxHeight = 2400;
+    }
+    const canvas = cropper.getCroppedCanvas(canvasOptions);
     if (!canvas) throw new Error('无法生成裁剪图片');
     const requestedType = webp.value ? 'image/webp' : 'image/jpeg';
     const blob = await toBlob(canvas, requestedType, quality.value / 100);
@@ -180,6 +213,8 @@ onUnmounted(disposeCropper);
 .image-editor__options button,.image-editor__rotate { border:1px solid #e7e9ed;background:#fff;color:#68707c;border-radius:7px;padding:6px 10px;font:inherit;font-size:11px;cursor:pointer; }
 .image-editor__options button.active { color:#cf4935;border-color:#f3b5aa;background:#fff3f0; }
 .image-editor__rotate { margin-left:auto; }
+.image-editor__preset-row { margin-top:10px; }
+.image-editor__preset-size { margin-left:auto;color:#8e96a1;font-size:10px;white-space:nowrap; }
 .image-editor__quality { margin-top:16px;padding:13px 14px 10px;border-radius:11px;background:#f7f8fa; }
 .image-editor__quality-head { display:flex;justify-content:space-between;align-items:center; }
 .image-editor__quality-head strong { color:#cf4935;font-size:13px;font-variant-numeric:tabular-nums; }
@@ -202,6 +237,7 @@ onUnmounted(disposeCropper);
   .image-editor__crop-area { height:36vh;min-height:190px;margin:12px 16px; }
   .image-editor__controls { padding:0 16px 16px; }
   .image-editor__row { gap:7px;flex-wrap:wrap; }
+  .image-editor__preset-size { margin-left:0; }
   .image-editor__options { gap:4px; }
   .image-editor__options button { padding:6px 8px; }
   .image-editor__bottom { gap:9px;flex-wrap:wrap; }

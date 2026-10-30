@@ -93,7 +93,7 @@ export const adminApi = {
   mediaUpload: (file, extra = {}) => adminUpload(file, extra),
 
   // 表单里的图片上传统一走素材库接口：上传即入库，名字用原始文件名，用户不用再手动改
-  upload: (file) => adminUpload(file),
+  upload: (file, extra = {}) => adminUpload(file, extra),
 };
 
 export default http;

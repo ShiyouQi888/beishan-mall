@@ -54,7 +54,7 @@
 
         <!-- 专区图片 -->
         <el-form-item label="专区图片" required>
-          <ImageUploader v-model="form.image_ordinary" :upload="uploadImage" />
+          <ImageUploader v-model="form.image_ordinary" :upload="uploadImage" :presets="[{ label: '推荐 1080 × 360 px', width: 1080, height: 360 }]" />
           <div class="hint">前台场次横幅按 3:1 显示，推荐尺寸：1080×360 px。裁剪时可选「横幅 3:1」，并将主体放在画面中间；图片会在浏览器内转 WebP 并压缩后上传。</div>
         </el-form-item>
 
@@ -116,8 +116,8 @@ function toggleDay(v) {
   }
 }
 
-async function uploadImage(file) {
-  const r = await adminApi.upload(file);
+async function uploadImage(file, extra = {}) {
+  const r = await adminApi.upload(file, extra);
   return r.data.url;
 }
 

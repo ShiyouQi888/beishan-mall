@@ -53,11 +53,11 @@
         <div class="poster-designer__section-title"><span class="poster-designer__step">01</span><div><h3>海报素材</h3><p>上传背景和商城标识</p></div></div>
         <el-form label-position="top" class="poster-designer__form">
           <el-form-item label="海报背景">
-            <ImageUploader v-model="values.poster_bg" :upload="upload" />
+            <ImageUploader v-model="values.poster_bg" :upload="upload" :presets="posterBackgroundPresets" />
             <small>推荐 750 × 1334 px，竖版比例更适合手机分享。</small>
           </el-form-item>
           <el-form-item label="商城 Logo">
-            <ImageUploader v-model="values.poster_logo" :upload="upload" />
+            <ImageUploader v-model="values.poster_logo" :upload="upload" :presets="posterLogoPresets" />
             <small>透明 PNG 或 WebP 效果更好，将显示在海报左上方。</small>
           </el-form-item>
         </el-form>
@@ -125,6 +125,8 @@ const qrImage = ref('');
 const dragging = ref('');
 const start = ref(null);
 const qrSize = computed(() => Number(props.values.poster_qr_size) || 220);
+const posterBackgroundPresets = [{ label: '推荐 750 × 1334 px', width: 750, height: 1334 }];
+const posterLogoPresets = [{ label: '推荐 512 × 512 px', width: 512, height: 512 }];
 const textLayers = [
   { id: 'title', label: '主标题', textKey: 'poster_title', showKey: 'poster_title_show', xKey: 'poster_title_x', yKey: 'poster_title_y', sizeKey: 'poster_title_size', colorKey: 'poster_title_color', alignKey: 'poster_title_align', placeholder: '清空后不显示主标题', maxlength: 24 },
   { id: 'subtitle', label: '副标题', textKey: 'poster_subtitle', showKey: 'poster_subtitle_show', xKey: 'poster_subtitle_x', yKey: 'poster_subtitle_y', sizeKey: 'poster_subtitle_size', colorKey: 'poster_subtitle_color', alignKey: 'poster_subtitle_align', placeholder: '清空后不显示副标题', maxlength: 32 },

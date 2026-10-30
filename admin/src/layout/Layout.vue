@@ -81,7 +81,7 @@
               </div>
             </div>
           </el-popover>
-          <a class="visit" href="http://127.0.0.1:5273" target="_blank">访问商城</a>
+          <a class="visit" :href="shopFrontUrl" target="_blank" rel="noopener noreferrer">访问商城</a>
           <div class="user">
             <div class="avatar">{{ (user.nick || 'A').slice(0, 1) }}</div>
             <span class="uname">{{ user.nick || user.name }}</span>
@@ -137,6 +137,17 @@ const router = useRouter();
 const collapsed = ref(false);
 const user = ref({});
 const store = ref({});
+const shopFrontUrl = computed(() => {
+  const configuredUrl = String(import.meta.env.VITE_H5_URL || '').trim();
+  if (configuredUrl) {
+    try { return new URL(configuredUrl, window.location.origin).href; } catch {}
+  }
+  const url = new URL('/', window.location.href);
+  url.search = '';
+  url.hash = '';
+  if (import.meta.env.DEV) url.port = '5273';
+  return url.href;
+});
 
 // ---- 修改登录密码 ----
 const pwdDlg = ref(false);

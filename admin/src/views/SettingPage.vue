@@ -44,7 +44,7 @@
             />
             <div v-else-if="it.type === 'image'" class="upload-inline">
               <div class="image-field">
-                <ImageUploader v-model="values[it.k]" :upload="uploadImage" />
+                <ImageUploader v-model="values[it.k]" :upload="uploadImage" :presets="imagePresets(it.k)" />
                 <div class="image-guidance">{{ imageRecommendation(it.k) }}</div>
               </div>
             </div>
@@ -152,6 +152,19 @@ function imageRecommendation(key) {
   return tips[key] || '推荐使用清晰原图；上传前可裁剪并压缩，文字、二维码等内容请保持完整。';
 }
 
+function imagePresets(key) {
+  const sizes = {
+    store_logo: [512, 512],
+    customer_service: [600, 600],
+    region_bg_img: [1200, 675],
+    zfb_qr: [600, 600],
+    wx_qr: [600, 600],
+    poster_bg: [750, 1334],
+  };
+  const size = sizes[key];
+  return size ? [{ label: `推荐 ${size[0]} × ${size[1]} px`, width: size[0], height: size[1] }] : [];
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -218,8 +231,8 @@ async function save() {
   }
 }
 
-async function uploadImage(file) {
-  const r = await adminApi.upload(file);
+async function uploadImage(file, extra = {}) {
+  const r = await adminApi.upload(file, extra);
   return r.data.url;
 }
 

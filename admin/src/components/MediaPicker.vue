@@ -17,7 +17,7 @@
         <el-input v-model="keyword" placeholder="搜索文件名" clearable style="width: 200px" @clear="loadList" @keyup.enter="loadList" />
         <el-button @click="loadList">搜索</el-button>
         <span class="spacer" />
-        <el-button :loading="uploading" @click="fileEl?.click()">上传新图片</el-button>
+        <el-button @click="fileEl?.click()">上传并裁剪图片</el-button>
         <input ref="fileEl" type="file" accept="image/*" multiple style="display: none" @change="onPickFiles" />
       </div>
 
@@ -76,10 +76,9 @@ const props = defineProps({
   multiple: { type: Boolean, default: false },
   limit: { type: Number, default: 0 },
 });
-const emit = defineEmits(['update:modelValue', 'pick']);
+const emit = defineEmits(['update:modelValue', 'pick', 'upload-files']);
 
 const fileEl = ref(null);
-const uploading = ref(false);
 const loading = ref(false);
 const list = ref([]);
 const total = ref(0);
@@ -138,26 +137,12 @@ function toggle(url) {
   else chosen.value.push(url);
 }
 
-async function onPickFiles(e) {
+function onPickFiles(e) {
   const files = [...(e.target.files || [])];
   e.target.value = '';
   if (!files.length) return;
-  uploading.value = true;
-  let ok = 0;
-  for (const f of files) {
-    try {
-      await adminApi.mediaUpload(f, { group_id: groupId.value || 0 });
-      ok += 1;
-    } catch {}
-  }
-  uploading.value = false;
-  if (ok) ElMessage.success(`已上传 ${ok} 张`);
-  await loadGroups();
-  await loadList();
-  if (keyword.value) {
-    keyword.value = '';
-    await loadList();
-  }
+  emit('upload-files', files, groupId.value === 'all' ? 0 : groupId.value);
+  emit('update:modelValue', false);
 }
 
 function confirm() {

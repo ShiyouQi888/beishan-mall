@@ -35,7 +35,7 @@
 
         <div class="upload-row">
           <div class="up" v-for="u in uploads" :key="u.k">
-            <ImageUploader :model-value="form[u.k]" :upload="uploadImage" @update:model-value="form[u.k] = $event" />
+            <ImageUploader :model-value="form[u.k]" :upload="uploadImage" :presets="idPhotoPresets" @update:model-value="form[u.k] = $event" />
             <div class="up__label">{{ u.t }}</div>
           </div>
         </div>
@@ -67,6 +67,7 @@ const uploads = [
   { k: 'back_image', t: '身份证反面' },
   { k: 'hand_image', t: '手持身份证' },
 ];
+const idPhotoPresets = [{ label: '建议 1200 × 800 px', width: 1200, height: 800 }];
 
 async function uploadImage(file) {
   const r = await api.upload(file);

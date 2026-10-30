@@ -4,21 +4,16 @@
       :model-value="modelValue"
       :upload="upload"
       :cropper-class="Cropper"
+      :library-picker="openMediaPicker"
+      :presets="presets"
       :multiple="multiple"
       :max="max"
       :disabled="disabled"
       @update:model-value="(v) => emit('update:modelValue', v)"
       @uploaded="(url, file) => emit('uploaded', url, file)"
     />
-    <button type="button" class="media-field__pick" :disabled="disabled" @click="pickerVisible = true">
-      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">
-        <path d="M3.5 7.2A2.2 2.2 0 0 1 5.7 5h3.4l1.8 2.2h7.4a2.2 2.2 0 0 1 2.2 2.2v7.4a2.2 2.2 0 0 1-2.2 2.2H5.7a2.2 2.2 0 0 1-2.2-2.2V7.2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
-        <path d="m7 15.6 3-3.2 2.3 2.3 1.7-1.6 3 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      从文件管理选取
-    </button>
 
-    <MediaPicker v-model="pickerVisible" :multiple="multiple" :limit="pickerLimit" @pick="onPick" />
+    <MediaPicker :model-value="pickerVisible" :multiple="multiple" :limit="pickerLimit" @update:model-value="onPickerVisibility" @pick="onPick" @upload-files="onUploadFiles" />
   </div>
 </template>
 
@@ -35,10 +30,12 @@ const props = defineProps({
   multiple: { type: Boolean, default: false },
   max: { type: Number, default: 9 },
   disabled: { type: Boolean, default: false },
+  presets: { type: Array, default: () => [] },
 });
 const emit = defineEmits(['update:modelValue', 'uploaded']);
 
 const pickerVisible = ref(false);
+let resolvePicker;
 
 const urls = computed(() => {
   if (Array.isArray(props.modelValue)) return props.modelValue.filter(Boolean);
@@ -48,31 +45,33 @@ const urls = computed(() => {
 });
 const pickerLimit = computed(() => (props.multiple ? Math.max(0, props.max - urls.value.length) : 1));
 
+function openMediaPicker() {
+  return new Promise((resolve) => {
+    resolvePicker = resolve;
+    pickerVisible.value = true;
+  });
+}
+
+function settlePicker(result) {
+  const resolve = resolvePicker;
+  resolvePicker = undefined;
+  resolve?.(result);
+}
+
+function onPickerVisibility(value) {
+  pickerVisible.value = value;
+  if (!value) settlePicker({ type: 'cancel' });
+}
+
 function onPick(picked) {
-  if (!picked.length) return;
-  const next = props.multiple
-    ? [...urls.value, ...picked].slice(0, props.max)
-    : [picked[0]];
-  emit('update:modelValue', props.multiple ? JSON.stringify(next) : (next[0] || ''));
-  next.forEach((u) => emit('uploaded', u, null));
+  settlePicker({ type: 'select', urls: picked });
+}
+
+function onUploadFiles(files, groupId) {
+  settlePicker({ type: 'files', files, group_id: groupId });
 }
 </script>
 
 <style scoped>
-.media-field { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 100%; }
-.media-field__pick {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #8c93a0;
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: color 0.16s ease;
-}
-.media-field__pick:hover { color: #ff513a; }
-.media-field__pick:disabled { opacity: 0.5; cursor: not-allowed; }
+.media-field { display: inline-flex; max-width: 100%; }
 </style>
