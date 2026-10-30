@@ -41,14 +41,29 @@ export function settleOrder(o) {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
   if (!g) return { ok: false, reason: '商品不存在' };
 
-  // 成交即下架：商品仍留在原场次里的话，别人能按原价再抢一次（等于白送一轮）。
-  // 归买家后先下架，等他「转拍」上架时再置回上架并落到下一场（见 routes/order.js 的 consignment）。
-  run(
-    `UPDATE goods SET member_id = ?, turn_beat_num = turn_beat_num + ?, sales_actual = sales_actual + ?,
-       goods_status = 20, is_sell = 0, update_time = ?
-     WHERE goods_id = ?`,
-    o.member_id, o.num, o.num, now(), g.goods_id,
-  );
+  if (Number(g.is_split) === 1) {
+    // 拆分商品是「一件货拆成 N 份挂牌、每份独立成交」，整件始终归原持有人。
+    // 所以成交一份时只能累加销量，绝不能像整件商品那样「下架 + 转移持有人」——
+    // 否则卖出去 1 份就把剩下的 N-1 份一起锁死，谁也别想买。
+    run(
+      'UPDATE goods SET sales_actual = sales_actual + ?, update_time = ? WHERE goods_id = ?',
+      o.num, now(), g.goods_id,
+    );
+    // 最后一份卖完才下架。库存已经在「下单」时扣过（deductStock），
+    // 这里读到的是扣完之后的余量，<=0 表示售罄。
+    if (Number(g.stock_num) <= 0) {
+      run('UPDATE goods SET goods_status = 20, is_sell = 0, update_time = ? WHERE goods_id = ?', now(), g.goods_id);
+    }
+  } else {
+    // 整件商品：成交即下架，商品仍留在原场次里的话，别人能按原价再抢一次（等于白送一轮）。
+    // 归买家后先下架，等他「转拍」上架时再置回上架并落到下一场（见 routes/order.js 的 consignment）。
+    run(
+      `UPDATE goods SET member_id = ?, turn_beat_num = turn_beat_num + ?, sales_actual = sales_actual + ?,
+         goods_status = 20, is_sell = 0, update_time = ?
+       WHERE goods_id = ?`,
+      o.member_id, o.num, o.num, now(), g.goods_id,
+    );
+  }
 
   // 卖家收货款全额
   let sellerIncome = 0;

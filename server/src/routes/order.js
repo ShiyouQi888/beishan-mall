@@ -370,6 +370,8 @@ r.get('/getConsignmentQuote', authMember, (req, res) => {
   if (o.consignment_status === 10) return res.json(fail('该订单已转拍上架'));
   const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
   if (!g) return res.json(fail('商品不存在'));
+  // 拆分商品按份额成交，买家只买到其中一份，没有整件的处置权
+  if (Number(g.is_split) === 1) return res.json(fail('拆分商品不支持转拍'));
   res.json(ok(quoteConsignment(o, g, req.query.price)));
 });
 
@@ -384,6 +386,7 @@ r.post('/consignment', authMember, (req, res) => {
 
   const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
   if (!g) return res.json(fail('商品不存在'));
+  if (Number(g.is_split) === 1) return res.json(fail('拆分商品不支持转拍'));
   if (g.member_id !== m.member_id) return res.json(fail('您不是该商品持有人'));
 
   // 转拍时限：支付后 N 小时内可转拍（0 表示不限）
