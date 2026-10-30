@@ -58,6 +58,15 @@
           <el-button size="small" type="success" plain @click="batchMemberStatus(10)">批量启用</el-button>
           <el-button size="small" type="danger" plain @click="batchMemberRemove">批量删除</el-button>
         </template>
+        <template v-if="modKey === 'orders' && sel.length">
+          <span class="muted" style="margin-left: 6px">已选 {{ sel.length }} 项</span>
+          <el-button size="small" type="success" plain @click="batchConfirmPay">批量确认收款</el-button>
+        </template>
+        <template v-if="modKey === 'withdraw' && sel.length">
+          <span class="muted" style="margin-left: 6px">已选 {{ sel.length }} 项</span>
+          <el-button size="small" type="primary" plain @click="batchAuditWithdraw(true)">批量通过</el-button>
+          <el-button size="small" type="danger" plain @click="batchAuditWithdraw(false)">批量驳回</el-button>
+        </template>
         <div class="spacer" />
         <span class="total-hint">共 {{ total }} 条</span>
       </div>
@@ -917,6 +926,28 @@ async function confirmPay(row) {
   load();
 }
 
+// 批量确认收款：只处理「待到账」的单，勾了别的会自动跳过
+async function batchConfirmPay() {
+  const ids = (sel.value || []).filter((r) => Number(r.status) === 0).map((r) => r.order_id);
+  if (!ids.length) return ElMessage.warning('勾选的订单都已到账，无需确认');
+  try {
+    await ElMessageBox.confirm(
+      `确认这 ${ids.length} 笔订单已收到款？会按每笔成交价入账并完成结算，不可撤销。`,
+      '批量确认收款',
+      { type: 'warning', confirmButtonText: '确认收款', cancelButtonText: '取消' },
+    );
+  } catch {
+    return;
+  }
+  try {
+    const r = await adminApi.confirmPayBatch({ order_ids: ids });
+    ElMessage.success(r.msg || `已确认 ${ids.length} 笔`);
+    load();
+  } catch {
+    // 错误提示由请求拦截器统一弹出
+  }
+}
+
 async function auditOrder(row, pass) {
   try {
     await ElMessageBox.confirm(pass ? '确认通过该订单审核？' : '确认拒绝该订单？', '订单审核', { type: 'warning' });
@@ -946,6 +977,31 @@ async function auditWithdraw(row, pass) {
   await adminApi.auditWithdraw({ withdraw_id: row.withdraw_id, pass });
   ElMessage.success(pass ? '已通过' : '已驳回');
   load();
+}
+
+// 批量审提现：驳回会把钱退回会员余额，所以确认文案必须写清楚
+async function batchAuditWithdraw(pass) {
+  const ids = (sel.value || []).filter((r) => Number(r.status) === 0).map((r) => r.withdraw_id);
+  if (!ids.length) return ElMessage.warning('勾选的申请都已处理，无需再审');
+  const tip = pass
+    ? `通过这 ${ids.length} 笔提现申请？通过后请按各自收款方式线下打款。`
+    : `驳回这 ${ids.length} 笔提现申请？金额会原路退回会员余额。`;
+  try {
+    await ElMessageBox.confirm(tip, pass ? '批量通过' : '批量驳回', {
+      type: 'warning',
+      confirmButtonText: pass ? '确认通过' : '确认驳回',
+      cancelButtonText: '取消',
+    });
+  } catch {
+    return;
+  }
+  try {
+    const r = await adminApi.auditWithdrawBatch({ withdraw_ids: ids, pass });
+    ElMessage.success(r.msg || (pass ? `已通过 ${ids.length} 笔` : `已驳回 ${ids.length} 笔`));
+    load();
+  } catch {
+    // 错误提示由请求拦截器统一弹出
+  }
 }
 
 async function auditCert(row, pass) {

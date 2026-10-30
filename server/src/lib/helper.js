@@ -89,6 +89,17 @@ function adminRequestAllowed(req, allowedPaths) {
     return false;
   }
   if (path === '/notifications/withdrawals') return has('/withdraw');
+  // 提现审核（含批量）：原来没显式映射，导致只有超管能用，普通角色拿到菜单也审不了
+  if (path === '/withdraw/audit' || path === '/withdraw/audit-batch') return has('/withdraw');
+  // 订单批量确认收款：逐单按类型校验，商城单与抢购单权限分开
+  if (path === '/orders/confirm-pay-batch') {
+    const ids = Array.isArray(req.body?.order_ids) ? req.body.order_ids : [];
+    if (!ids.length) return false;
+    return ids.every((id) => {
+      const pagePath = orderPath(orderTypeForId(id));
+      return Boolean(pagePath && has('/orders', pagePath));
+    });
+  }
 
   if (path.startsWith('/goods/')) {
     let type = Number(req.query.type || req.body?.type || 0);

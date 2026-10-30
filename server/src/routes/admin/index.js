@@ -1009,33 +1009,62 @@ r.post('/orders/cancel', authAdmin, (req, res) => {
 });
 
 // 确认线下凭证收款（与 H5 余额支付共用同一套结算算法）
+// 抽成函数，单笔与批量走同一段逻辑，避免两份实现走偏
+function confirmPayOne(orderId) {
+  const o = get('SELECT * FROM orders WHERE order_id = ?', Number(orderId));
+  if (!o) { const e = new Error('订单不存在'); e.biz = true; throw e; }
+  if (o.pay_status === 10) { const e = new Error('订单已确认'); e.biz = true; throw e; }
+  if (Number(o.pay_type) !== 1 && !o.pay_voucher) { const e = new Error('会员尚未提交支付凭证'); e.biz = true; throw e; }
+  tx(() => {
+    // 原子更新，避免与用户端并发支付冲突
+    const r = run(
+      'UPDATE orders SET status = 10, pay_status = 10, pay_time = ? WHERE order_id = ? AND pay_status = 0',
+      now(), o.order_id,
+    );
+    if (Number(r.changes) !== 1) {
+      const e = new Error('订单已支付，请勿重复确认');
+      e.biz = true;
+      throw e;
+    }
+    settleOrder(o);
+    run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
+      o.order_id, '确认收款', 'admin', '', now());
+  });
+  return o;
+}
+
 r.post('/orders/confirm-pay', authAdmin, (req, res) => {
   const { order_id } = req.body;
-  const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
-  if (!o) return res.json(fail('订单不存在'));
-  if (o.pay_status === 10) return res.json(fail('订单已确认'));
-  if (Number(o.pay_type) !== 1 && !o.pay_voucher) return res.json(fail('会员尚未提交支付凭证'));
   try {
-    tx(() => {
-      // 原子更新，避免与用户端并发支付冲突
-      const r = run(
-        'UPDATE orders SET status = 10, pay_status = 10, pay_time = ? WHERE order_id = ? AND pay_status = 0',
-        now(), o.order_id,
-      );
-      if (Number(r.changes) !== 1) {
-        const e = new Error('订单已支付，请勿重复确认');
-        e.biz = true;
-        throw e;
-      }
-      settleOrder(o);
-      run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
-        o.order_id, '确认收款', 'admin', '', now());
-    });
+    confirmPayOne(order_id);
   } catch (e) {
     if (e.biz) return res.json(fail(e.message));
     throw e;
   }
   res.json(ok([], '已确认收款'));
+});
+
+// 批量确认收款：逐单处理，失败的单如实回报，不做「全成功或全失败」的假象
+r.post('/orders/confirm-pay-batch', authAdmin, (req, res) => {
+  const ids = Array.isArray(req.body?.order_ids) ? req.body.order_ids.map(Number).filter(Boolean).slice(0, 200) : [];
+  if (!ids.length) return res.json(fail('请先勾选订单'));
+  const done = [];
+  const failed = [];
+  for (const id of ids) {
+    try {
+      confirmPayOne(id);
+      done.push(id);
+    } catch (e) {
+      if (!e.biz) throw e;
+      failed.push({ order_id: id, msg: e.message });
+    }
+  }
+  if (!done.length) {
+    const first = failed[0]?.msg || '没有可确认的订单';
+    return res.json(fail(failed.length > 1 ? `${failed.length} 笔都没能确认：${first}` : first));
+  }
+  const msg = failed.length ? `已确认 ${done.length} 笔，${failed.length} 笔跳过` : `已确认 ${done.length} 笔收款`;
+  res.json(ok({ done: done.length, failed }, msg));
 });
 
 // 给会员加减余额 / 佣金
@@ -1056,12 +1085,11 @@ r.post('/member/adjust', authAdmin, (req, res) => {
   res.json(ok([], '调整成功'));
 });
 
-// 提现审核
-r.post('/withdraw/audit', authAdmin, (req, res) => {
-  const { withdraw_id, pass, remark } = req.body;
-  const w = get('SELECT * FROM finance_withdraw WHERE withdraw_id = ?', Number(withdraw_id));
-  if (!w) return res.json(fail('记录不存在'));
-  if (w.status !== 0) return res.json(fail('该申请已处理'));
+// 提现审核（单笔与批量共用）
+function auditWithdrawOne(withdrawId, pass, remark) {
+  const w = get('SELECT * FROM finance_withdraw WHERE withdraw_id = ?', Number(withdrawId));
+  if (!w) { const e = new Error('记录不存在'); e.biz = true; throw e; }
+  if (w.status !== 0) { const e = new Error('该申请已处理'); e.biz = true; throw e; }
   tx(() => {
     run('UPDATE finance_withdraw SET status = ?, audit_time = ?, remark = ? WHERE withdraw_id = ?',
       pass ? 10 : 20, now(), remark || '', w.withdraw_id);
@@ -1072,7 +1100,44 @@ r.post('/withdraw/audit', authAdmin, (req, res) => {
         w.member_id, w.amount, 2, '提现驳回退回', remark || '', now());
     }
   });
+  return w;
+}
+
+r.post('/withdraw/audit', authAdmin, (req, res) => {
+  const { withdraw_id, pass, remark } = req.body;
+  try {
+    auditWithdrawOne(withdraw_id, pass, remark);
+  } catch (e) {
+    if (e.biz) return res.json(fail(e.message));
+    throw e;
+  }
   res.json(ok([], pass ? '已通过' : '已驳回'));
+});
+
+// 批量审核提现：逐笔处理，失败如实回报
+r.post('/withdraw/audit-batch', authAdmin, (req, res) => {
+  const ids = Array.isArray(req.body?.withdraw_ids) ? req.body.withdraw_ids.map(Number).filter(Boolean).slice(0, 200) : [];
+  const pass = Boolean(req.body?.pass);
+  const remark = req.body?.remark || '';
+  if (!ids.length) return res.json(fail('请先勾选提现申请'));
+  const done = [];
+  const failed = [];
+  for (const id of ids) {
+    try {
+      auditWithdrawOne(id, pass, remark);
+      done.push(id);
+    } catch (e) {
+      if (!e.biz) throw e;
+      failed.push({ withdraw_id: id, msg: e.message });
+    }
+  }
+  if (!done.length) {
+    const first = failed[0]?.msg || '没有可处理的申请';
+    return res.json(fail(failed.length > 1 ? `${failed.length} 笔都没能处理：${first}` : first));
+  }
+  const verb = pass ? '通过' : '驳回';
+  const msg = failed.length ? `已${verb} ${done.length} 笔，${failed.length} 笔跳过` : `已${verb} ${done.length} 笔`;
+  res.json(ok({ done: done.length, failed }, msg));
 });
 
 // 实名审核

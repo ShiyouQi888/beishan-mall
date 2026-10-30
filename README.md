@@ -291,6 +291,7 @@ npm test
 | `finance-board.mjs` | **财务大盘核对**：跑 3 轮真实订单链，逐项验算今日/本月/累计净利、会员负债、上架费、趋势一致性与 9 类风险判定，76 项断言 |
 | `admin-account.mjs` | **管理员账号/改密**：环境变量预置账号、重启不覆盖已改密码、`ADMIN_PASSWORD_RESET` 强制重置、改密校验规则，19 项断言 |
 | `deploy-config.mjs` | **部署配置静态检查**：compose 环境变量必须可被 .env 覆盖（防止写成字面量）、端口不写死、健康检查与 .gitignore，22 项断言 |
+| `batch-ops.mjs` | **批量操作**：订单批量确认收款（含部分成功/重复提交）、提现批量通过与驳回退余额，24 项断言 |
 | `session-window.mjs` | **场次时段**：每场各自时段、窗口外/非开放日下单被拒、已结束场次沉底，15 项断言 |
 | `session-rotation.mjs` | **场次流转**：场次顺序、成交即下架、转拍落下一场、三场环回，24 项断言 |
 | `data-reset.mjs` | **数据清除**：权限下放、预览行数、确认语校验、只清会员被拒、事务性、保留项不受影响、序列归零、素材只删未引用，50 项断言 |
@@ -324,6 +325,9 @@ node scripts/probe/finance-board.mjs
 node scripts/probe/admin-account.mjs
 
 # 数据清除（自带独立库，会真的走一遍清库与回滚保护）
+node scripts/probe/batch-ops.mjs
+
+# 场次时段
 node scripts/probe/session-window.mjs
 
 # 场次流转（成交即下架、转拍进下一场）
