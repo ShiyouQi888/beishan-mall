@@ -101,8 +101,8 @@ for (const [key, val, group] of [
   ['require_invite_code', '10', 'trade'],   // 注册必须填邀请码
   ['score_open', '10', 'store'],            // 积分商城开关
   ['score_award_open', '20', 'store'],      // 成交送积分开关（默认关，避免升级后凭空产生积分）
-  ['score_award_buyer', '0', 'store'],      // 买家每消费多少元得 1 积分
-  ['score_award_parent', '0', 'store'],     // 上级每促成多少元得 1 积分
+  ['score_award_buyer', '0', 'store'],      // 买家积分返利百分比（成交金额 × 百分比）
+  ['score_award_parent', '0', 'store'],     // 上级积分返利百分比（成交金额 × 百分比）
   ['theme_key', 'coral', 'store'],          // 外观主题
   ['home_category_show', '10', 'nav'],      // 首页商品分类栏开关
   ['pay_balance_open', '10', 'pay'],        // 余额支付开关

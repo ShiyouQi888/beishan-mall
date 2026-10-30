@@ -226,20 +226,26 @@ async function main() {
     const buy1 = await buyOne();
     ok(buyerScoreOf() === b0 && parentScoreOf() === p0, '开关关闭时成交不产生积分');
 
-    section('[10] 开启后按比例给买家与上级发积分');
-    // 买家每消费 10 元得 1 分；上级每促成 20 元得 1 分
+    section('[10] 开启后按百分比给买家与上级发积分');
+    // 买家返利 1%，上级返利 0.3%（小数百分比用来验证「向下取整」）
     await api('/admin/api/setting/save', {
       method: 'POST', token: at,
-      body: { group: 'store', values: { score_award_open: '10', score_award_buyer: '10', score_award_parent: '20' } },
+      body: { group: 'store', values: { score_award_open: '10', score_award_buyer: '1', score_award_parent: '0.3' } },
     });
     db.prepare('UPDATE member SET amount = 5000000 WHERE member_id = ?').run(buyerId);
     const b1 = buyerScoreOf();
     const p1 = parentScoreOf();
     const buy2 = await buyOne();
-    const expectBuyer = Math.floor(buy2.price / 10);
-    const expectParent = Math.floor(buy2.price / 20);
-    ok(buyerScoreOf() - b1 === expectBuyer, `买家得到 ${expectBuyer} 积分`, `实际 ${buyerScoreOf() - b1}`);
-    ok(parentScoreOf() - p1 === expectParent, `上级得到 ${expectParent} 积分`, `实际 ${parentScoreOf() - p1}`);
+    const expectBuyer = Math.floor(buy2.price * 1 / 100);
+    const expectParent = Math.floor(buy2.price * 0.3 / 100);
+    ok(expectBuyer > 0 && expectParent > 0, '测试金额下两组返利都大于 0', `买家应得 ${expectBuyer}，上级应得 ${expectParent}`);
+    ok(buyerScoreOf() - b1 === expectBuyer, `买家按 1% 得到 ${expectBuyer} 积分`, `实际 ${buyerScoreOf() - b1}`);
+    ok(parentScoreOf() - p1 === expectParent, `上级按 0.3% 得到 ${expectParent} 积分`, `实际 ${parentScoreOf() - p1}`);
+
+    // 小数百分比必须向下取整，不能四舍五入多给
+    const rawParent = buy2.price * 0.3 / 100;
+    ok(Number.isInteger(expectParent), '发放的积分是整数', `${rawParent.toFixed(4)} → ${expectParent}`);
+    ok(expectParent <= rawParent, '不超过理论值（不足 1 分的部分舍掉）', `${expectParent} <= ${rawParent.toFixed(4)}`);
 
     section('[11] 积分流水与佣金流水不再混淆');
     const buyerFlow = db.prepare(

@@ -127,8 +127,8 @@ tx(() => {
     ['theme_key', 'coral', 'store'],        // 外观主题：coral / green / ocean
     ['score_open', '10', 'store'],  // 积分商城：10 显示并开放 / 20 前台隐藏且接口关闭
     ['score_award_open', '20', 'store'],   // 成交送积分开关
-    ['score_award_buyer', '0', 'store'],   // 买家每消费多少元得 1 积分
-    ['score_award_parent', '0', 'store'],  // 上级每促成多少元得 1 积分
+    ['score_award_buyer', '0', 'store'],   // 买家积分返利百分比（成交金额 × 百分比）
+    ['score_award_parent', '0', 'store'],  // 上级积分返利百分比（成交金额 × 百分比）
     ['region_bg_img', '', 'store'],
     ['android_vision', '1.0.0', 'store'],
   ];

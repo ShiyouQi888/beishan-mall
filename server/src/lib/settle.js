@@ -125,10 +125,10 @@ function payCommission(memberId, amount, label, orderNo) {
 }
 
 /**
- * 成交送积分：按后台配置的比例给买家和直接上级发积分。
+ * 成交送积分：按后台配置的百分比给买家和直接上级发积分。
  *
- * 配置语义是「每消费 N 元得 1 积分」，取整（不足 N 元的部分不给），
- * 买家与上级各自独立配置，互不影响 —— 没有上级也不妨碍买家拿积分。
+ * 配置语义是「积分返利百分比」：积分 = 成交金额 × 百分比 ÷ 100，向下取整
+ * （不足 1 积分不给）。买家与上级各自独立配置 —— 没有上级也不妨碍买家拿积分。
  * 默认关闭，避免升级后凭空给全站会员产生积分。
  */
 function awardScore(o) {
@@ -146,14 +146,17 @@ function awardScore(o) {
     );
     total += score;
   };
+  // 先按 6 位小数收口再取整：1000 × 0.1 ÷ 100 这类浮点会算出 1.0000000000000002，
+  // 直接 floor 偶尔会把本该拿到的 1 积分算成 0
+  const scoreOf = (pct) => Math.floor(Number(((base * pct) / 100).toFixed(6)));
 
-  const buyerPer = Number(cfg('score_award_buyer', '0'));
-  if (buyerPer > 0) give(o.member_id, Math.floor(base / buyerPer), '消费奖励');
+  const buyerPct = Number(cfg('score_award_buyer', '0'));
+  if (buyerPct > 0) give(o.member_id, scoreOf(buyerPct), '消费奖励');
 
-  const parentPer = Number(cfg('score_award_parent', '0'));
-  if (parentPer > 0) {
+  const parentPct = Number(cfg('score_award_parent', '0'));
+  if (parentPct > 0) {
     const buyer = get('SELECT p_id FROM member WHERE member_id = ?', o.member_id);
-    if (buyer?.p_id) give(buyer.p_id, Math.floor(base / parentPer), '推广奖励');
+    if (buyer?.p_id) give(buyer.p_id, scoreOf(parentPct), '推广奖励');
   }
 
   return total;
