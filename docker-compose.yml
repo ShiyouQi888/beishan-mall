@@ -20,6 +20,11 @@ services:
       PUBLIC_BASE_URL: ""
       # 生产环境务必改成自己的密钥
       JWT_SECRET: "please-change-this-secret"
+      # 内置管理员账号：首次启动自动创建；账号已存在时不会覆盖密码
+      # 忘记密码时把 ADMIN_PASSWORD_RESET 设为 "1" 重启一次，改完再改回
+      ADMIN_USER: "admin1"
+      ADMIN_PASSWORD: "please-change-this-password"
+      ADMIN_PASSWORD_RESET: "0"
       TZ: Asia/Shanghai
     volumes:
       # SQLite 数据库 + 上传文件，删容器不丢数据

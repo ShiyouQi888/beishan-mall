@@ -54,7 +54,7 @@ node scripts/reset-demo.mjs --yes
 |---|---|
 | H5 注册邀请码 | `boss01` |
 | 官方账号（可登录 H5） | `13800000001` / `123456` |
-| 后台账号 | `admin1` / `123456` |
+| 后台账号 | 由环境变量 `ADMIN_USER` / `ADMIN_PASSWORD` 决定（默认 `admin1` / `123456`） |
 
 商品会复位为「全部上架、持有人=官方、流转次数归零、未拆分」，自增 id 也归零，
 所以第一个真实用户会是 `member_id = 2`、第一笔订单是 `order_id = 1`。
@@ -83,6 +83,9 @@ docker compose down               # 停止
 | `PUBLIC_DIR` | `<repo>/public` | 一体化静态站点目录，不存在则只提供接口 |
 | `PUBLIC_BASE_URL` | 空 | 留空返回相对路径（同源最稳）；反向代理/CDN 时填成 `https://域名` |
 | `JWT_SECRET` | 内置默认值 | **上线务必修改** |
+| `ADMIN_USER` | `admin1` | 内置管理员账号，首次启动自动创建 |
+| `ADMIN_PASSWORD` | `123456` | 内置管理员密码，**上线务必修改**；账号已存在时不会覆盖 |
+| `ADMIN_PASSWORD_RESET` | 空 | 设为 `1` 时启动强制把密码改回 `ADMIN_PASSWORD`（忘记密码的后门，改完记得关） |
 
 > 反向代理（Nginx / Caddy）把 80/443 转到容器 3300 即可，前端资源都用相对路径，不需要改配置。
 
@@ -113,7 +116,7 @@ cd h5     && npm install && npm run dev                   # 5273
 
 | 端 | 账号 | 密码 | 说明 |
 |---|---|---|---|
-| 后台 | `admin1` | `123456` | 超级管理员 |
+| 后台 | `ADMIN_USER`（默认 admin1） | `ADMIN_PASSWORD`（默认 123456） | 超级管理员，密码由环境变量预置，登录后可在右上角「修改密码」改掉 |
 | H5 | `13822367845` | `13822367845` | 北山（银卡会员，余额 20000） |
 | H5 | `13800000002` | `13800000002` | 玄德世家（北山的上级） |
 | H5 | `13800000001` | `13800000001` | 总部运营（顶级，无上级） |
@@ -275,6 +278,7 @@ npm test
 | `data-audit.mjs` | **数据完整性审计**：直查数据库，孤儿记录 / 口径不一致 / 越界值，38 项检查 |
 | `e2e-chain.mjs` | **联调联试**：邀请注册 → 登录 → 抢单 → 支付 → 转拍，连跑 5 轮并逐轮核对金额到分，154 项断言 |
 | `finance-board.mjs` | **财务大盘核对**：跑 3 轮真实订单链，逐项验算今日/本月/累计净利、会员负债、上架费、趋势一致性与 9 类风险判定，76 项断言 |
+| `admin-account.mjs` | **管理员账号/改密**：环境变量预置账号、重启不覆盖已改密码、`ADMIN_PASSWORD_RESET` 强制重置、改密校验规则，19 项断言 |
 | `integrated-check.mjs` | **一体化/容器自检**：同一端口下 H5、后台、接口、上传、SPA 回落是否都正常，16 项断言 |
 | `shot-h5-popup.mjs` | 打开 H5 弹窗后截图（配合查看交互效果） |
 | `shot-admin.mjs` | 后台任意页面整页截图（注入登录态，自带独立 Chrome 用户目录） |
@@ -300,6 +304,9 @@ node scripts/probe/e2e-chain.mjs
 
 # 财务大盘数字核对（自带 10000 元 3 轮转拍链，跑完自动销毁独立库）
 node scripts/probe/finance-board.mjs
+
+# 管理员账号与改密（自带独立库，含强制重置流程）
+node scripts/probe/admin-account.mjs
 
 # 后台整页截图（路由不带前导斜杠，Git Bash 会把它当路径转换）
 node scripts/probe/shot-admin.mjs finance-board out.png http://127.0.0.1:3300

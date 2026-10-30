@@ -311,6 +311,20 @@ r.get('/me', authAdmin, (req, res) => {
   res.json(ok({ id: u.store_user_id, name: u.user_name, nick: u.nick_name, role_id: u.role_id, avatar: u.avatar }));
 });
 
+// 修改自己的登录密码（任何管理员都能改自己的，不需要权限节点）
+r.post('/me/password', authAdmin, (req, res) => {
+  const u = req.admin;
+  const oldPwd = String(req.body?.old_password || '');
+  const newPwd = String(req.body?.new_password || '');
+  if (!oldPwd || !newPwd) return res.json(fail('请填写原密码和新密码'));
+  if (!verifyPwd(oldPwd, u.password)) return res.json(fail('原密码不正确'));
+  if (newPwd.length < 6) return res.json(fail('新密码至少 6 位'));
+  if (newPwd.length > 32) return res.json(fail('新密码最多 32 位'));
+  if (newPwd === oldPwd) return res.json(fail('新密码不能与原密码相同'));
+  run('UPDATE store_user SET password = ? WHERE store_user_id = ?', hashPwd(newPwd), u.store_user_id);
+  res.json(ok([], '密码已修改，下次登录请使用新密码'));
+});
+
 // ---------------- 控制面板 ----------------
 r.get('/dashboard', authAdmin, (req, res) => {
   const d = today();

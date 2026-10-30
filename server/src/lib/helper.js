@@ -58,7 +58,7 @@ function adminRequestAllowed(req, allowedPaths) {
   }[Number(type)] || null);
 
   // 身份信息与当前权限菜单可读，但不会授予任何业务操作权限。
-  if (['/me', '/menu', '/my-paths', '/modules'].includes(path)) return true;
+  if (['/me', '/me/password', '/menu', '/my-paths', '/modules'].includes(path)) return true;
   if (path === '/dashboard') return has('/');
   if (path === '/settlement') return has('/settlement');
 

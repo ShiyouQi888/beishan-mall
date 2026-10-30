@@ -50,12 +50,6 @@
             登 录
           </el-button>
         </el-form>
-
-        <div class="demo">
-          <span class="k">演示账号</span>
-          <span class="v">admin1 / 123456</span>
-          <span class="fill" @click="fill">一键填入</span>
-        </div>
       </div>
     </div>
   </div>
@@ -82,13 +76,9 @@ onMounted(async () => {
 const features = [
   { t: '场次抢购', d: '自定义每日多场次，限时限量开抢' },
   { t: '寄售转拍', d: '商品反复流转，服务费自动结算' },
-  { t: '三级分销', d: '团队佣金按级自动计算入账' },
+  { t: '一级分销', d: '直推奖实时入账，上下级终身绑定' },
 ];
 
-function fill() {
-  form.user_name = 'admin1';
-  form.password = '123456';
-}
 
 async function submit() {
   if (!form.user_name || !form.password) return ElMessage.warning('请输入账号和密码');
@@ -195,19 +185,6 @@ async function submit() {
 
 .submit { width: 100%; height: 44px; font-size: 15px; font-weight: 600; border-radius: 10px; margin-top: 4px; }
 
-.demo {
-  margin-top: 22px;
-  background: #f7f8fa;
-  border-radius: 9px;
-  padding: 11px 13px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 12px;
-}
-.demo .k { color: #8c93a0; }
-.demo .v { color: #34383f; font-variant-numeric: tabular-nums; }
-.demo .fill { margin-left: auto; color: #ff513a; cursor: pointer; font-weight: 550; }
 
 @media (max-width: 900px) {
   .login { padding: 22px; }

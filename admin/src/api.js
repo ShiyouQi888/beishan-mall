@@ -44,6 +44,7 @@ export const adminApi = {
   storeInfo: () => axios.get('/api/index/getStoreInfo').then((r) => r.data?.data || {}),
   login: (d) => http.post('/login', d),
   me: () => http.get('/me'),
+  changePassword: (d) => http.post('/me/password', d),
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
   financeOverview: () => http.get('/finance/overview'),

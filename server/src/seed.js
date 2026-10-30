@@ -1,5 +1,6 @@
 import { db, all, get, run, now, tx } from './db.js';
 import { hashPwd, randomCode } from './lib/auth.js';
+import { ADMIN_USER, ADMIN_PASSWORD } from './lib/builtinAdmin.js';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +62,7 @@ tx(() => {
     7, '运营', '日常运营，按节点授权', now());
 
   run('INSERT INTO store_user (user_name, password, nick_name, role_id, status, create_time) VALUES (?,?,?,?,?,?)',
-    'admin1', hashPwd('123456'), '超级管理员', 6, 10, now());
+    ADMIN_USER, hashPwd(ADMIN_PASSWORD), '超级管理员', 6, 10, now());
 
   // ---------- 会员等级（对齐原站等级体系） ----------
   const grades = [
@@ -285,5 +286,5 @@ tx(() => {
 });
 
 console.log('初始化完成');
-console.log('后台账号: admin1 / 123456');
+console.log(`后台账号: ${ADMIN_USER} / ${process.env.ADMIN_PASSWORD ? '（取自环境变量 ADMIN_PASSWORD）' : ADMIN_PASSWORD}`);
 console.log('H5 账号: 13822367845 / 13822367845');

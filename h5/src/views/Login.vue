@@ -36,10 +36,6 @@
         <span class="dot">·</span>
         <span @click="$router.push('/')">先逛逛</span>
       </div>
-
-      <div class="login__demo">
-        测试账号：13822367845 / 密码同手机号
-      </div>
     </div>
   </div>
 </template>
@@ -96,6 +92,5 @@ async function submit() {
 .login__foot span { cursor:pointer; }
 .login__foot span:first-child { color:#db4937;font-weight:600; }
 .login__foot .dot { opacity:.4; }
-.login__demo { margin-top:20px;padding:10px 12px;border:1px solid #fff0ed;border-radius:11px;background:#fff7f5;color:#c45a49;font-size:11px;text-align:center; }
 @media(max-width:360px) { .login__card { margin-left:12px;margin-right:12px;padding-left:18px;padding-right:18px; } }
 </style>

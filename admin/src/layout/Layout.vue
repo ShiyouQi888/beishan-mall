@@ -51,6 +51,7 @@
             <div class="avatar">{{ (user.nick || 'A').slice(0, 1) }}</div>
             <span class="uname">{{ user.nick || user.name }}</span>
           </div>
+          <button class="pwd" @click="openPwd">修改密码</button>
           <button class="logout" @click="logout">退出</button>
         </div>
       </header>
@@ -67,11 +68,31 @@
         </footer>
       </main>
     </div>
+
+    <el-dialog v-model="pwdDlg" title="修改登录密码" width="440px" @closed="resetPwd">
+      <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="96px">
+        <el-form-item label="原密码" prop="old_password">
+          <el-input v-model="pwdForm.old_password" type="password" show-password placeholder="当前登录密码" />
+        </el-form-item>
+        <el-form-item label="新密码" prop="new_password">
+          <el-input v-model="pwdForm.new_password" type="password" show-password placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="确认新密码" prop="confirm">
+          <el-input v-model="pwdForm.confirm" type="password" show-password placeholder="再输入一次新密码" @keyup.enter="submitPwd" />
+        </el-form-item>
+      </el-form>
+      <div class="pwd-tip">改完密码后，当前已登录的会话不会被强制退出；下次登录请使用新密码。</div>
+      <template #footer>
+        <el-button @click="pwdDlg = false">取消</el-button>
+        <el-button type="primary" :loading="pwdSaving" @click="submitPwd">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, onMounted, onUnmounted } from 'vue';
+import { ElMessage } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
 import { adminApi } from '../api.js';
 import http from '../api.js';
@@ -81,6 +102,52 @@ const router = useRouter();
 const collapsed = ref(false);
 const user = ref({});
 const store = ref({});
+
+// ---- 修改登录密码 ----
+const pwdDlg = ref(false);
+const pwdSaving = ref(false);
+const pwdFormRef = ref(null);
+const pwdForm = reactive({ old_password: '', new_password: '', confirm: '' });
+const pwdRules = {
+  old_password: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
+  new_password: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, max: 32, message: '新密码 6-32 位', trigger: 'blur' },
+  ],
+  confirm: [
+    { required: true, message: '请再输入一次新密码', trigger: 'blur' },
+    {
+      validator: (_r, v, cb) => (v === pwdForm.new_password ? cb() : cb(new Error('两次输入的新密码不一致'))),
+      trigger: 'blur',
+    },
+  ],
+};
+
+function openPwd() {
+  pwdDlg.value = true;
+}
+function resetPwd() {
+  pwdForm.old_password = '';
+  pwdForm.new_password = '';
+  pwdForm.confirm = '';
+  pwdFormRef.value?.clearValidate();
+}
+async function submitPwd() {
+  try {
+    await pwdFormRef.value.validate();
+  } catch {
+    return;
+  }
+  pwdSaving.value = true;
+  try {
+    await adminApi.changePassword({ old_password: pwdForm.old_password, new_password: pwdForm.new_password });
+    ElMessage.success('密码已修改，下次登录请使用新密码');
+    pwdDlg.value = false;
+  } catch {
+  } finally {
+    pwdSaving.value = false;
+  }
+}
 
 // 菜单由后端 /admin/api/menu 下发（单一数据源：server/src/lib/menu.config.js）
 const menus = ref([]);
@@ -241,6 +308,16 @@ onUnmounted(() => window.removeEventListener('store-config-updated', loadStoreIn
   font-family: var(--font);
 }
 .logout:hover { color: #d14328; }
+.pwd {
+  border: none;
+  background: transparent;
+  color: #8c93a0;
+  font-size: 12.5px;
+  cursor: pointer;
+  font-family: var(--font);
+}
+.pwd:hover { color: #ff513a; }
+.pwd-tip { margin: 2px 0 0 96px; font-size: 12px; color: #8c93a0; line-height: 1.65; }
 
 .content { flex: 1; overflow-y: auto; padding: 18px; }
 .site-footer { display:flex;flex-direction:column;align-items:center;gap:3px;padding:18px 12px 4px;color:#a5aab3;font-size:11px;text-align:center;line-height:1.45; }

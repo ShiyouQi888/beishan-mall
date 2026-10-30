@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, get, run } from './db.js';
 import { ensureNodes } from './lib/nodes.js';
+import { ensureBuiltinAdmin } from './lib/builtinAdmin.js';
 import { fail } from './lib/helper.js';
 
 import indexRouter from './routes/index.js';
@@ -102,6 +103,9 @@ if (get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'recharge_p
   run('DROP TABLE recharge_package');
   console.log('[migrate] 删除废弃表 recharge_package（充值套餐已下线）');
 }
+
+// 内置管理员：账号密码来自 ADMIN_USER / ADMIN_PASSWORD，不再写死在代码里
+ensureBuiltinAdmin();
 
 const app = express();
 app.use(cors());
