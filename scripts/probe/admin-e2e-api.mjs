@@ -218,12 +218,16 @@ async function main() {
     ).get(buyerMid)?.goods_id;
     const gid = pickGoods();
     ok(!!gid, '找到可用于订单测试的商品');
+    // 线下凭证默认是关闭的（pay_bank=20），测试前先打开
+    await api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'pay', values: { pay_bank: '10' } } });
     const madeOrder = await api('/api/order/toAddOrder', { method: 'POST', token: buyerToken, body: { goods_id: gid, num: 1, pay_type: 4 } });
     ok(madeOrder.code === 1, '构造后台测试订单', madeOrder.msg);
     const tOid = madeOrder.data.order_id;
 
     const od = await api(`/admin/api/orders/detail?id=${tOid}`, { token: at });
     ok(od.code === 1 && od.data?.order_id === tOid, '订单详情');
+    // 新规则：线下转账必须先由会员上传支付凭证，后台才能确认收款
+    await api('/api/order/toPay', { method: 'POST', token: buyerToken, body: { order_id: tOid, pay_type: 4, voucher: '/uploads/demo-1.svg' } });
     const confirmPay = await api('/admin/api/orders/confirm-pay', { method: 'POST', token: at, body: { order_id: tOid } });
     ok(confirmPay.code === 1, '线下凭证：确认收款', confirmPay.msg);
     eq(db.prepare('SELECT pay_status FROM orders WHERE order_id = ?').get(tOid).pay_status, 10, '确认收款后 pay_status=10');
