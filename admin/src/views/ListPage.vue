@@ -332,8 +332,9 @@
             v-else-if="f.type === 'timesec'"
             :model-value="timeModel(f)"
             start="00:00"
-            step="00:30"
-            end="23:30"
+            step="00:01"
+            end="23:59"
+            editable
             clearable
             :placeholder="f.k === 'end_time' ? '不限' : '00:00'"
             style="width: 150px"

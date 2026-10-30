@@ -28,9 +28,9 @@
         <!-- 抢购时段 -->
         <el-form-item label="抢购时段" required>
           <div class="time-row">
-            <el-time-select v-model="form.startText" start="00:00" step="00:30" end="23:30" placeholder="开始" style="width: 150px" />
+            <el-time-select v-model="form.startText" start="00:00" step="00:01" end="23:59" editable placeholder="开始" style="width: 150px" />
             <span class="tilde">~</span>
-            <el-time-select v-model="form.endText" start="00:00" step="00:30" end="23:30" clearable placeholder="不限" style="width: 150px" />
+            <el-time-select v-model="form.endText" start="00:00" step="00:01" end="23:59" editable clearable placeholder="不限" style="width: 150px" />
           </div>
           <div class="hint">每日在这个时段内开放抢购；结束时间留空表示不限（跨天时段不支持，请拆成两个场次）</div>
         </el-form-item>
