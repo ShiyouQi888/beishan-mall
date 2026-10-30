@@ -5,7 +5,7 @@ import { all, get, run, tx, now, today } from '../../db.js';
 import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE } from '../../lib/helper.js';
 import { hashPwd, verifyPwd, needsRehash, signAdmin, randomCode } from '../../lib/auth.js';
 import { settleOrder, goodsStillOwnedBySeller } from '../../lib/settle.js';
-import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat } from '../../lib/split.js';
+import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat, restoreStock } from '../../lib/split.js';
 import extraRouter from './extra.js';
 import mediaRouter from './media.js';
 import systemRouter from './system.js';
@@ -1187,7 +1187,10 @@ r.post('/orders/cancel', authAdmin, (req, res) => {
   const { order_id } = req.body;
   const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
   if (!o) return res.json(fail('订单不存在'));
+  // 只有「待付款」的拆分订单才归还库存：已成交的份额是真卖掉了，再还回去等于凭空多一份
+  const unpaid = Number(o.status) === 0;
   run('UPDATE orders SET status = 40 WHERE order_id = ?', o.order_id);
+  if (unpaid) restoreStock(o.goods_id, o.num);
   run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
     o.order_id, '后台取消', 'admin', '', now());
   res.json(ok([], '已取消'));

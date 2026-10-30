@@ -66,6 +66,34 @@ export function deductStock(goodsId, num) {
 }
 
 /**
+ * 取消未付款订单时归还拆分库存（与 deductStock 严格对称）
+ * - 只处理拆分商品：整件商品的 stock_num 是挂牌数量，下单不动它
+ * - 只在订单还没成交时调用。已结算的订单份额已经真卖掉了，再还就是凭空多出一份
+ * - 因售罄被自动下架的商品，库存回来后自动恢复在售；手动下架的商品库存本来就不是 0，不受影响
+ * @returns {boolean} 是否真的归还了库存
+ */
+export function restoreStock(goodsId, num) {
+  const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goodsId));
+  if (!g || Number(g.is_split) !== 1) return false;
+  const add = Number(num) || 0;
+  if (add <= 0) return false;
+
+  const cap = Number(g.split_total) || 0;
+  const wasSoldOut = Number(g.stock_num) <= 0;
+  let next = Number(g.stock_num) + add;
+  if (cap > 0 && next > cap) next = cap;
+
+  run('UPDATE goods SET stock_num = ?, update_time = ? WHERE goods_id = ?', next, now(), g.goods_id);
+  if (wasSoldOut && next > 0) {
+    run(
+      'UPDATE goods SET goods_status = 10, update_time = ? WHERE goods_id = ? AND is_split = 1 AND goods_status = 20',
+      now(), g.goods_id,
+    );
+  }
+  return true;
+}
+
+/**
  * 扫描流拍：场次结束后仍未被购买的寄售挂单
  * @param {number} specialareaId 场次（0=全部）
  * @param {string} date 日期 YYYY-MM-DD

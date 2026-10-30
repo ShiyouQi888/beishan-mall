@@ -3,7 +3,7 @@ import { all, get, run, tx, now } from '../db.js';
 import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, priceIncreaseRate, calcNextPrice, assetUrl, ORDER_STATUS, ORDER_TYPE, PAY_TYPE } from '../lib/helper.js';
 import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate, goodsStillOwnedBySeller } from '../lib/settle.js';
-import { deductStock } from '../lib/split.js';
+import { deductStock, restoreStock } from '../lib/split.js';
 import { sessionWindow } from '../lib/sessionWindow.js';
 import { nextSlot } from '../lib/sessions.js';
 import { todayStr } from '../lib/sessionWindow.js';
@@ -306,6 +306,8 @@ r.post('/cancel', authMember, (req, res) => {
   if (!o) return res.json(fail('订单不存在'));
   if (o.status !== 0) return res.json(fail('当前状态不可取消'));
   run('UPDATE orders SET status = 40 WHERE order_id = ?', o.order_id);
+  // 拆分商品的下单时就扣了份数，取消要把份额还回去，否则没付款的单也会一直占着库存
+  restoreStock(o.goods_id, o.num);
   log(o.order_id, '订单取消', 'member');
   res.json(ok([], '已取消'));
 });

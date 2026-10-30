@@ -162,6 +162,47 @@ async function main() {
       ok(true, '跳过（无可买整件商品）');
       ok(true, '跳过（无可买整件商品）');
     }
+    // ---------------- 取消未付款订单要还库存 ----------------
+    section('[7] 未付款订单取消，占用的份额要还回去');
+    const src2 = db.prepare(
+      'SELECT * FROM goods WHERE type = 1 AND goods_status = 10 AND IFNULL(is_split,0) = 0 AND member_id NOT IN (1,4) AND goods_id <> ? ORDER BY goods_id LIMIT 1',
+    ).get(src.goods_id);
+    ok(!!src2, '找到第二件可拆分商品');
+    if (src2) {
+      db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(src2.goods_id);
+      const sp2 = await api('/admin/api/goods/split', { method: 'POST', token: at, body: { goods_id: src2.goods_id, parts: 2 } });
+      ok(sp2.code === 1, '第二件拆成 2 份', sp2.msg);
+      const read2 = () => db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(src2.goods_id);
+
+      const oA = await api('/api/order/toAddOrder', { method: 'POST', token: A, body: { goods_id: src2.goods_id, num: 1, pay_type: 1 } });
+      ok(oA.code === 1, 'A 下单但先不付款', oA.msg);
+      ok(Number(read2().stock_num) === 1, '下单即扣 1 份（未付款也占库存）', `stock=${read2().stock_num}`);
+
+      const oB = await api('/api/order/toAddOrder', { method: 'POST', token: B, body: { goods_id: src2.goods_id, num: 1, pay_type: 1 } });
+      ok(oB.code === 1, 'B 抢走最后 1 份（也不付款）', oB.msg);
+      ok(Number(read2().stock_num) === 0 && Number(read2().goods_status) === 20, '两份都被占，售罄自动下架',
+        `stock=${read2().stock_num} status=${read2().goods_status}`);
+
+      const cA = await api('/api/order/cancel', { method: 'POST', token: A, body: { order_id: oA.data.order_id } });
+      ok(cA.code === 1, 'A 取消未付款订单', cA.msg);
+      const afterCancelA = read2();
+      ok(Number(afterCancelA.stock_num) === 1, '份额还回来了', `stock=${afterCancelA.stock_num}`);
+      ok(Number(afterCancelA.goods_status) === 10, '商品从「售罄下架」恢复在售', `status=${afterCancelA.goods_status}`);
+
+      const cB = await api('/admin/api/orders/cancel', { method: 'POST', token: at, body: { order_id: oB.data.order_id } });
+      ok(cB.code === 1, '后台取消 B 的未付款订单', cB.msg);
+      ok(Number(read2().stock_num) === 2, '库存回到 2 份（不超过拆分总份数）', `stock=${read2().stock_num}`);
+
+      // 已付款的份额不能被「取消」重复放出
+      const canBuyAgain = await api('/api/order/toAddOrder', { method: 'POST', token: A, body: { goods_id: src2.goods_id, num: 1, pay_type: 1 } });
+      ok(canBuyAgain.code === 1, '还回去的份额可以重新下单', canBuyAgain.msg);
+      const payAgain = await api('/api/order/toPay', { method: 'POST', token: A, body: { order_id: canBuyAgain.data.order_id, pay_type: 1 } });
+      ok(payAgain.code === 1, '重新下单的份额照常支付', payAgain.msg);
+      const beforePaidCancel = Number(read2().stock_num);
+      await api('/admin/api/orders/cancel', { method: 'POST', token: at, body: { order_id: canBuyAgain.data.order_id } });
+      ok(Number(read2().stock_num) === beforePaidCancel, '已付款订单被后台取消不退还库存（份额是真卖掉了）',
+        `${beforePaidCancel} → ${read2().stock_num}`);
+    }
   } catch (e) {
     fails.push('异常：' + e.message);
     console.error('\n异常：', e.message);
