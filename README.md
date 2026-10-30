@@ -278,7 +278,7 @@ npm test
 | `deadcode-scan.mjs` | 扫出没人读的配置键、没人引用的导出函数、没人使用的 .vue |
 | `dead-columns-scan.mjs` | 扫出 schema 里定义了但代码从未读写的字段 |
 | `console-sweep.mjs` | CDP 遍历全部路由，收集 JS 异常 / console.error / HTTP≥400 |
-| `h5-e2e-api.mjs` | **H5 端到端冒烟（接口层）**：独立 smoke 库跑完整用户旅程，129 项断言 |
+| `h5-e2e-api.mjs` | **H5 端到端冒烟（接口层）**：独立 smoke 库跑完整用户旅程，135 项断言 |
 | `h5-e2e-ui.mjs` | **H5 端到端冒烟（交互层）**：CDP 真实点击各页面，71 项断言 + 控制台错误收集 |
 | `admin-e2e-api.mjs` | **后台端到端冒烟（接口层）**：17 模块 CRUD + 全部专用操作 + 设置组 + 权限 + 结算 + 文件管理，216 项断言 |
 | `admin-e2e-ui.mjs` | **后台端到端冒烟（交互层）**：26 个页面 + 7 个设置组 + 弹窗交互 + 登录页，78 项断言 |

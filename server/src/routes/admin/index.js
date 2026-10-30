@@ -487,6 +487,7 @@ const SETTING_GROUPS = {
     { k: 'nav_invite', t: '邀请好友显示', type: 'switch' },
     { k: 'nav_loot', t: '抢购显示', type: 'switch' },
     { k: 'nav_member', t: '我的显示', type: 'switch' },
+    { k: 'home_category_show', t: '首页商品分类', type: 'switch', tip: '关闭后 H5 首页整条分类栏都不显示（商品照常展示）。单个分类还能在「商品分类」里各自设首页显示。' },
     { k: 'subscribe_open', t: '预约功能', type: 'switch' },
     { k: 'subscribe_e_card', t: '预约奖励佣金', type: 'number' },
   ],

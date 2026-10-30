@@ -754,6 +754,7 @@ function openCreate() {
   });
   if ('goods_status' in form) form.goods_status = 10;
   if ('is_open' in form) form.is_open = 10;
+  if ('home_show' in form && modKey.value === 'category') form.home_show = 10;
   if ('disabled' in form && modKey.value === 'navigation') form.disabled = 10;
   if ('disabled' in form && modKey.value === 'member') form.disabled = 10;
   if ('is_valid' in form) form.is_valid = 10;

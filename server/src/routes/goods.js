@@ -33,8 +33,20 @@ export const fmtGoods = (g) => ({
 });
 
 // ---------------- 分类 ----------------
+const CATEGORY_SQL = (homeOnly) =>
+  `SELECT * FROM goods_category WHERE type = 2 ${homeOnly ? 'AND home_show = 10' : ''} ORDER BY sort ASC, category_id ASC`;
+
 r.get('/getCategory', (req, res) => {
-  const rows = all('SELECT * FROM goods_category WHERE type = 2 ORDER BY sort ASC, category_id ASC');
+  const homeOnly = String(req.query.home || '') === '1';
+  let rows;
+  try {
+    rows = all(CATEGORY_SQL(homeOnly));
+  } catch (e) {
+    // 老库可能还没补上 home_show 列（启动迁移失败 / 手工导过库）。
+    // 这种情况退化成「不过滤」，绝不能让首页整块分类直接 500。
+    if (!/home_show/.test(String(e.message))) throw e;
+    rows = all(CATEGORY_SQL(false));
+  }
   res.json(
     ok({
       categoryList: rows.map((c) => ({

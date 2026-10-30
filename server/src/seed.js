@@ -105,6 +105,7 @@ tx(() => {
     ['nav_cart', '20', 'nav'],
     ['nav_loot', '10', 'nav'],
     ['nav_member', '10', 'nav'],
+    ['home_category_show', '10', 'nav'],  // 首页商品分类栏：10 显示 / 20 隐藏
     ['subscribe_open', '0', 'nav'],
     ['subscribe_e_card', '50', 'nav'],
     ['prompt_register', '<p>请认真阅读并同意本商城的《用户注册协议》后再进行注册。</p>', 'prompt'],

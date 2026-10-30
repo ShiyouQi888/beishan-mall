@@ -41,7 +41,7 @@ r.get('/index/getStoreInfo', (req, res) => {
       customer_service: cfg('customer_service', ''),
       customer_link: cfg('customer_link', '#'),
       toExamine: cfg('to_examine', '10'),
-      score_open: cfg('score_open', '10'),
+      score_open: cfg('score_open', '10'),
     }),
   );
 });
@@ -56,6 +56,8 @@ r.get('/index/getOpenNavigation', (req, res) => {
       invite_open: cfg('nav_invite', '10'),
       loot_open: cfg('nav_loot', '10'),
       member_open: cfg('nav_member', '10'),
+      // 首页整条商品分类栏的开关（单个分类的显隐另由 goods_category.home_show 控制）
+      home_category_open: cfg('home_category_show', '10'),
     }),
   );
 });
@@ -68,7 +70,7 @@ r.get('/index/getShareInfo', (req, res) => {
       mobile: cfg('store_mobile', ''),
       copyright: cfg('copyright', ''),
       icp_number: cfg('icp_number', ''),
-      toExamine: cfg('to_examine', '10'),
+      toExamine: cfg('to_examine', '10'),
       logo: cfg('store_logo', ''),
       region_bg_img: cfg('region_bg_img', ''),
     }),

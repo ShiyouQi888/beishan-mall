@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS goods_category (
   parent_id   INTEGER DEFAULT 0,
   type        INTEGER DEFAULT 2,          -- 1商城分类 2首页抢购分类
   image       TEXT DEFAULT '',
+  home_show   INTEGER NOT NULL DEFAULT 10, -- 首页分类导航显示：10显示 20隐藏
   sort        INTEGER DEFAULT 100,
   create_time TEXT
 );

@@ -48,7 +48,7 @@ export const api = {
   tradeConfig: () => http.get('/index/getTradeConfig'),
 
   // 商品
-  categories: () => http.get('/goods/getCategory'),
+  categories: (params) => http.get('/goods/getCategory', { params }),
   lootList: () => http.get('/goods/getLootList'),
   lootGoods: (p) => http.get('/goods/getLootGoodsList', { params: p }),
   lootDetail: (id) => http.get('/goods/getLootDetails', { params: { goods_id: id } }),

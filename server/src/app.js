@@ -21,6 +21,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // 初始化表结构
 db.exec(readFileSync(join(__dirname, 'schema.sql'), 'utf8'));
+// 老库增加首页分类显示状态；默认显示，确保升级后现有首页不变。
+if (!db.prepare('PRAGMA table_info(goods_category)').all().some((column) => column.name === 'home_show')) {
+  db.exec('ALTER TABLE goods_category ADD COLUMN home_show INTEGER NOT NULL DEFAULT 10');
+  console.log('[migrate] goods_category.home_show 已添加，现有分类默认显示');
+}
 // 初始化权限节点（幂等）
 const addedNodes = ensureNodes();
 if (addedNodes) console.log(`[nodes] 初始化 ${addedNodes} 个权限节点`);
@@ -59,6 +64,7 @@ for (const [to, from] of [
 for (const [key, val, group] of [
   ['require_invite_code', '10', 'trade'],   // 注册必须填邀请码
   ['score_open', '10', 'store'],            // 积分商城开关
+  ['home_category_show', '10', 'nav'],      // 首页商品分类栏开关
 ]) {
   if (!get('SELECT 1 FROM setting_config WHERE `key` = ?', key)) {
     run('INSERT INTO setting_config (`key`, `value`, `group`) VALUES (?,?,?)', key, val, group);

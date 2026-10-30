@@ -35,8 +35,8 @@
       </div>
     </div>
 
-    <!-- 分类 tab -->
-    <div class="home__tabs">
+    <!-- 分类 tab（后台「导航配置 → 首页商品分类」可整条关掉） -->
+    <div class="home__tabs" v-if="categoryOpen">
       <div class="home__tabs-inner">
         <div
           class="home__tab"
@@ -101,9 +101,12 @@ const navs = ref([]);
 const store = ref({});
 const areas = ref([]);
 const categories = ref([]);
+const openNav = ref({});
 const goods = ref([]);
 const activeCat = ref(0);
 const loading = ref(true);
+// 首页分类栏总开关：后台关掉后整条都不渲染，商品列表照常展示
+const categoryOpen = computed(() => String(openNav.value?.home_category_open ?? '10') !== '20');
 
 const promiseText = computed(() => {
   const t = areas.value?.[0]?.title?.ordinary_title || '';
@@ -149,14 +152,15 @@ async function loadGoods() {
 }
 
 onMounted(async () => {
-  const [b, n, s, l, c] = await Promise.allSettled([
-    api.banner(1), api.navs(), api.storeInfo(), api.lootList(), api.categories(),
+  const [b, n, s, l, c, o] = await Promise.allSettled([
+    api.banner(1), api.navs(), api.storeInfo(), api.lootList(), api.categories({ home: 1 }), api.openNav(),
   ]);
   if (b.status === 'fulfilled') banners.value = b.value.data || [];
   if (n.status === 'fulfilled') navs.value = n.value.data || [];
   if (s.status === 'fulfilled') store.value = s.value.data || {};
   if (l.status === 'fulfilled') areas.value = l.value.data?.list || [];
   if (c.status === 'fulfilled') categories.value = c.value.data?.categoryList || [];
+  if (o.status === 'fulfilled') openNav.value = o.value.data || {};
   // 默认展示「全部」，避免首页被第一个分类锁死只剩一两件商品
   await loadGoods();
 });

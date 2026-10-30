@@ -111,6 +111,26 @@ async function main() {
     const catGoods = await api(`/api/goods/category/getCategoryGoodsList?category_id=${catId}&page=1&limit=10`);
     ok(catGoods.code === 1, '分类下商品列表', catGoods.msg);
 
+    // 首页分类栏总开关
+    const nav0 = await api('/api/index/getOpenNavigation');
+    ok(nav0.code === 1 && nav0.data?.home_category_open === '10', '开放导航下发首页分类开关', `home_category_open=${nav0.data?.home_category_open}`);
+    const homeCats = await api('/api/goods/getCategory?home=1');
+    ok(homeCats.code === 1, '首页分类（只取首页显示）', homeCats.msg);
+    ok((homeCats.data?.categoryList || []).length > 0, '首页分类非空', `${(homeCats.data?.categoryList || []).length} 个`);
+
+    // 老库缺 home_show 列时不能让首页整块 500
+    db.prepare('ALTER TABLE goods_category DROP COLUMN home_show').run();
+    const noCol = await api('/api/goods/getCategory?home=1');
+    ok(noCol.code === 1 && (noCol.data?.categoryList || []).length > 0, '缺 home_show 列时退化为不过滤', noCol.msg);
+    db.prepare('ALTER TABLE goods_category ADD COLUMN home_show INTEGER NOT NULL DEFAULT 10').run();
+
+    const atNav = (await api('/admin/api/login', { method: 'POST', body: { user_name: 'admin1', password: '123456' } })).data.token;
+    await api('/admin/api/setting/save', { method: 'POST', token: atNav, body: { group: 'nav', values: { home_category_show: '20' } } });
+    const nav1 = await api('/api/index/getOpenNavigation');
+    ok(nav1.data?.home_category_open === '20', '开关关掉后导航下发 20', `home_category_open=${nav1.data?.home_category_open}`);
+    await api('/admin/api/setting/save', { method: 'POST', token: atNav, body: { group: 'nav', values: { home_category_show: '10' } } });
+    ok((await api('/api/index/getOpenNavigation')).data?.home_category_open === '10', '开关恢复为 10');
+
     const lootList = await api('/api/goods/getLootList');
     const areaArr = lootList.data?.list || [];
     ok(lootList.code === 1 && areaArr.length > 0, '抢购场次列表', `${areaArr.length} 场`);
