@@ -26,14 +26,23 @@
       <template v-else-if="list.length">
         <div class="sec-title" style="padding: 12px 0 10px"><span>找到 {{ total }} 件商品</span></div>
         <div class="slist">
-          <div v-for="g in list" :key="g.goods_id" class="sitem" @click="$router.push(`/goods/${g.goods_id}`)">
-            <div class="sitem__img"><img :src="g.good_thumb" /></div>
+          <div
+            v-for="g in list"
+            :key="g.goods_id"
+            class="sitem"
+            :class="{ 'sitem--out': isGreyState(cardState(g)) }"
+            @click="$router.push(`/goods/${g.goods_id}`)"
+          >
+            <div class="sitem__img">
+              <img :src="g.good_thumb" />
+              <span v-if="cardLabel(cardState(g))" class="sitem__flag">{{ cardLabel(cardState(g)) }}</span>
+            </div>
             <div class="sitem__info">
               <div class="sitem__name ellipsis2">{{ g.goods_name }}</div>
               <div class="muted" style="margin-top: 4px">{{ g.goods_no }}</div>
               <div class="sitem__row">
                 <div class="price"><span class="sym">¥</span>{{ Number(g.goods_min_price).toFixed(2) }}</div>
-                <div class="muted">{{ g.sales_actual || 0 }}人付款</div>
+                <div class="muted">{{ cardLabel(cardState(g)) || `${g.sales_actual || 0}人付款` }}</div>
               </div>
             </div>
           </div>
@@ -48,6 +57,7 @@
 import { ref, onMounted } from 'vue';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
+import { cardState, cardLabel, isGreyState } from '../utils/goodsState.js';
 
 const kw = ref('');
 const list = ref([]);
@@ -142,6 +152,7 @@ onMounted(() => {});
   box-shadow: var(--shadow);
 }
 .sitem__img {
+  position: relative;
   width: 86px; height: 86px;
   border-radius: 10px;
   overflow: hidden;
@@ -149,6 +160,23 @@ onMounted(() => {});
   flex: none;
 }
 .sitem__img img { width: 100%; height: 100%; object-fit: cover; }
+/* 搜索结果同样要看得出来已经买不了，否则用户搜到一件、点进去才发现抢完 */
+.sitem--out .sitem__img img { filter: grayscale(1); opacity: 0.42; }
+.sitem--out .sitem__name { color: #a8adb7; }
+.sitem--out .sitem__row .price { color: #a8adb7; }
+.sitem__flag {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 2px 8px;
+  border-radius: 9px;
+  background: rgba(38, 41, 47, 0.72);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .sitem__info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sitem__name { font-size: 13.5px; font-weight: 500; line-height: 1.45; }
 .sitem__row { display: flex; align-items: flex-end; justify-content: space-between; margin-top: auto; }

@@ -45,10 +45,24 @@
         </div>
         <div v-if="loading" class="empty">加载中…</div>
         <div v-else-if="goods.length" class="cat__grid">
-          <div v-for="g in goods" :key="g.goods_id" class="cat__item" @click="$router.push(`/goods/${g.goods_id}`)">
-            <div class="cat__img"><img :src="g.good_thumb" loading="lazy" /></div>
+          <div
+            v-for="g in goods"
+            :key="g.goods_id"
+            class="cat__item"
+            :class="{ 'cat__item--out': isGreyState(cardState(g)) }"
+            @click="$router.push(`/goods/${g.goods_id}`)"
+          >
+            <div class="cat__img">
+              <img :src="g.good_thumb" loading="lazy" />
+              <span v-if="cardLabel(cardState(g))" class="cat__flag">{{ cardLabel(cardState(g)) }}</span>
+            </div>
             <div class="cat__name ellipsis2">{{ g.goods_name }}</div>
-            <div class="cat__foot"><div class="price cat__price"><span class="sym">¥</span>{{ Number(g.goods_min_price).toFixed(0) }}</div><span class="cat__tag">臻选</span></div>
+            <div class="cat__foot">
+              <div class="price cat__price"><span class="sym">¥</span>{{ Number(g.goods_min_price).toFixed(0) }}</div>
+              <span class="cat__tag" :class="{ 'cat__tag--out': isGreyState(cardState(g)) }">
+                {{ cardLabel(cardState(g)) || '臻选' }}
+              </span>
+            </div>
           </div>
         </div>
         <div v-else class="empty">该分类暂无商品</div>
@@ -60,6 +74,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api.js';
+import { cardState, cardLabel, isGreyState } from '../utils/goodsState.js';
 import CategoryIconDisplay from '../../../shared/CategoryIconDisplay.vue';
 
 const categories = ref([]);
@@ -185,12 +200,32 @@ onMounted(async () => {
 .cat__grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
 .cat__item { background:#fff; border-radius:13px; overflow:hidden; padding:6px 6px 9px; box-shadow:0 3px 12px rgba(45,38,28,.045); }
 .cat__img {
+  position: relative;
   aspect-ratio: 1;
   border-radius: 9px;
   overflow: hidden;
   background: #f6f7f9;
 }
 .cat__img img { width: 100%; height: 100%; object-fit: cover; }
+/* 与首页/抢购页同一套灰卡语言：去饱和 + 压暗 + 居中标签 */
+.cat__item--out .cat__img img { filter: grayscale(1); opacity: 0.42; }
+.cat__item--out .cat__name { color: #a8adb7; }
+.cat__item--out .cat__price { color: #a8adb7; }
+.cat__flag {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 3px 10px;
+  border-radius: 11px;
+  background: rgba(38, 41, 47, 0.72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+.cat__tag--out { color: #8d929b; background: #f0f1f3; }
 .cat__name { font-size: 12px; line-height: 1.45; margin: 8px 2px 0; min-height: 35px; color:#383530; }
 .cat__foot { display:flex;align-items:center;justify-content:space-between;margin:5px 2px 0; }
 .cat__price { font-size: 16px; }

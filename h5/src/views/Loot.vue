@@ -42,19 +42,19 @@
             v-for="g in current.goods_list"
             :key="g.goods_id"
             class="loot-card"
-            :class="{ 'loot-card--out': !!outLabel(g) }"
+            :class="{ 'loot-card--out': greyOut(g) }"
             @click="$router.push(`/goods/${g.goods_id}`)"
           >
             <div class="loot-card__img">
               <img :src="g.good_thumb" />
               <!-- 售罄不再把卡片抽走，而是压一层灰罩 + 标签，让人看到「这东西刚才还在」 -->
-              <span v-if="outLabel(g)" class="loot-card__flag">{{ outLabel(g) }}</span>
+              <span v-if="greyOut(g)" class="loot-card__flag">{{ outLabel(g) }}</span>
             </div>
             <div class="loot-card__name ellipsis">{{ g.goods_name }}</div>
             <div class="loot-card__row">
               <div class="price"><span class="sym">¥</span>{{ Number(g.goods_min_price).toFixed(0) }}</div>
-              <div class="loot-card__btn" :class="{ done: !!outLabel(g) || !current.is_ordinary_order }">
-                {{ isOut(g) ? '已抢完' : current.is_ordinary_order ? '去抢购' : ended ? '已结束' : '未开始' }}
+              <div class="loot-card__btn" :class="{ done: greyOut(g) || !current.is_ordinary_order }">
+                {{ btnText(g) }}
               </div>
             </div>
           </div>
@@ -70,6 +70,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { api } from '../api.js';
+import { cardState, cardLabel, isGreyState } from '../utils/goodsState.js';
 
 const areas = ref([]);
 const activeIdx = ref(0);
@@ -81,15 +82,28 @@ let lastPoll = 0;
 
 const current = computed(() => areas.value[activeIdx.value]);
 const started = computed(() => current.value && nowSec.value > current.value.time.end_time);
-// 「已结束」和「未开始」是两回事，文案不能都写「未开始」
-const ended = computed(() => !!current.value && started.value && !current.value.is_ordinary_order);
-// 已抢完（成交/售罄下架）。后端的 sold_out 就是 goods_status ≠ 10，不看库存
-const isOut = (g) => Number(g.sold_out) === 1;
+
 /**
- * 卡片上的灰标签：售罄说「已抢完」，本场到时未售完说「本场已结束」。
- * 两种情况都置灰，但文案不能混 —— 商品还有货却写「已抢完」会让人以为被别人买走了。
+ * 卡片状态统一走 utils/goodsState —— 首页/分类/搜索/抢购页必须是同一套判定，
+ * 各写一份的结果就是「这个页面灰了、那个页面还亮着」。
+ * 商品自带 session_state（后端按场次算好）；万一拿到的是旧数据没有这个字段，
+ * 退回「本场是否开放 + 是否已过结束时间」，不至于把已结束的场次当成能买。
  */
-const outLabel = (g) => (isOut(g) ? '已抢完' : ended.value ? '本场已结束' : '');
+const stateOf = (g) => {
+  if (g.session_state) return cardState(g);
+  if (Number(g.sold_out) === 1) return 'sold';
+  if (!current.value?.is_ordinary_order && started.value) return 'ended';
+  return '';
+};
+const outLabel = (g) => cardLabel(stateOf(g));
+const greyOut = (g) => isGreyState(stateOf(g));
+const btnText = (g) => {
+  const st = stateOf(g);
+  if (st === 'sold') return '已抢完';
+  if (st === 'ended') return '已结束';
+  if (st === 'upcoming') return '未开始';
+  return '去抢购';
+};
 
 const fmt = (s) => {
   const h = Math.floor(s / 3600);

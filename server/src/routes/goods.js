@@ -61,6 +61,22 @@ export const fmtGoods = (g) => ({
 const CATEGORY_SQL = (homeOnly) =>
   `SELECT * FROM goods_category WHERE type = 2 ${homeOnly ? 'AND home_show = 10' : ''} ORDER BY sort ASC, category_id ASC`;
 
+/** 各场次此刻的状态（open / upcoming / ended / closed），一次查询给整页商品共用 */
+export function areaStates() {
+  const m = new Map();
+  for (const a of all('SELECT * FROM specialarea')) m.set(Number(a.specialarea_id), sessionWindow(a).state);
+  return m;
+}
+
+/**
+ * 列表专用格式化：在 fmtGoods 之上补一个 session_state。
+ * 首页 / 分类 / 搜索的商品卡片都要靠它判断「这场是不是已经结束了」——
+ * 只给抢购页加灰卡、别的入口还是彩色卡片，用户点进去才发现买不了，等于没做。
+ * 商城商品（specialarea_id=0）拿不到场次，状态是 none，前端不会置灰。
+ */
+export const fmtList = (rows, states = areaStates()) =>
+  rows.map((g) => ({ ...fmtGoods(g), session_state: states.get(Number(g.specialarea_id)) || 'none' }));
+
 r.get('/getCategory', (req, res) => {
   const homeOnly = String(req.query.home || '') === '1';
   let rows;
@@ -98,7 +114,7 @@ r.get('/category/getCategoryGoodsList', (req, res) => {
      ${ON_SALE_FIRST} LIMIT ? OFFSET ?`,
     Number(category_id), todayStr(), todayStr(), pp, (cur - 1) * pp,
   );
-  res.json(ok(page(list.map(fmtGoods), total, cur, pp)));
+  res.json(ok(page(fmtList(list), total, cur, pp)));
 });
 
 // ---------------- 抢购场次 ---------------- 
@@ -142,12 +158,13 @@ function areaPayload() {
 
 r.get('/getLootList', (req, res) => {
   const areas = areaPayload();
+  const states = areaStates();
   const list = areas.map((a) => {
-    const goods = all(
+    const goods = fmtList(all(
       `SELECT * FROM goods WHERE specialarea_id = ? AND type = 1 AND ${LIST_VISIBLE}
        ${ON_SALE_FIRST} LIMIT 20`,
       a.specialarea_id, todayStr(), todayStr(),
-    ).map(fmtGoods);
+    ), states);
     return { ...a, goods_list: goods };
   });
   res.json(ok({ list }));
@@ -170,7 +187,7 @@ r.get('/getLootGoodsList', (req, res) => {
     `SELECT * FROM goods WHERE ${w} ${ON_SALE_FIRST} LIMIT ? OFFSET ?`,
     ...args, pp, (cur - 1) * pp,
   );
-  res.json(ok(page(list.map(fmtGoods), total, cur, pp)));
+  res.json(ok(page(fmtList(list), total, cur, pp)));
 });
 
 r.get('/getLootDetails', (req, res) => {
@@ -185,6 +202,8 @@ r.get('/getLootDetails', (req, res) => {
       ...fmtGoods(g),
       // 抢购商品是否处于开放时间（统一按后台的抢购总时间）
       is_ordinary_order: g.type === 1 && area && w.open ? 1 : 0,
+      // 与列表同一口径：open / upcoming / ended / closed / none
+      session_state: area ? w.state : 'none',
       specialarea: area
         ? {
             specialarea_id: area.specialarea_id,
@@ -224,7 +243,7 @@ r.get('/searchShop', (req, res) => {
     `SELECT * FROM goods WHERE ${w} ORDER BY goods_sort ASC, goods_id DESC LIMIT ? OFFSET ?`,
     ...args, pp, (cur - 1) * pp,
   );
-  res.json(ok(page(list.map(fmtGoods), total, cur, pp)));
+  res.json(ok(page(fmtList(list), total, cur, pp)));
 });
 
 r.get('/shopgoods/getDetails', (req, res) => {

@@ -60,13 +60,13 @@
           v-for="g in goods"
           :key="g.goods_id"
           class="goods-card"
-          :class="{ 'goods-card--out': Number(g.sold_out) === 1 }"
+          :class="{ 'goods-card--out': isGreyState(cardState(g)) }"
           @click="$router.push(`/goods/${g.goods_id}`)"
         >
           <div class="goods-card__img">
             <img :src="g.good_thumb" loading="lazy" />
             <!-- 抢完的货留在场里当灰卡片，不要凭空消失；下一场开始自动被新货替换 -->
-            <span v-if="Number(g.sold_out) === 1" class="goods-card__flag">已抢完</span>
+            <span v-if="cardLabel(cardState(g))" class="goods-card__flag">{{ cardLabel(cardState(g)) }}</span>
           </div>
           <div class="goods-card__body">
             <div class="goods-card__name ellipsis2">{{ g.goods_name }}</div>
@@ -74,7 +74,7 @@
               <div class="price">
                 <span class="sym">¥</span>{{ intPart(g.goods_min_price) }}<span class="dec">.{{ decPart(g.goods_min_price) }}</span>
               </div>
-              <div class="goods-card__sales" v-if="Number(g.sold_out) === 1">已抢完</div>
+              <div class="goods-card__sales" v-if="cardLabel(cardState(g))">{{ cardLabel(cardState(g)) }}</div>
               <div class="goods-card__sales" v-else>{{ g.sales_actual || 0 }}人付款</div>
             </div>
           </div>
@@ -88,6 +88,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { api } from '../api.js';
+import { cardState, cardLabel, isGreyState } from '../utils/goodsState.js';
 import CategoryIconDisplay from '../../../shared/CategoryIconDisplay.vue';
 
 const banners = ref([]);

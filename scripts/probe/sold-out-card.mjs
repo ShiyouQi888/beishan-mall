@@ -204,6 +204,10 @@ async function main() {
         `is_ordinary_order=${d4.data?.is_ordinary_order}`);
       ok(Number(d4.data?.sold_out) === 0, '场次结束不算「已抢完」，两个状态不能混',
         `sold_out=${d4.data?.sold_out}`);
+      const listEnded = await api(`/api/goods/getLootGoodsList?page=1&limit=100&specialarea_id=${area2.specialarea_id}`, { token: B });
+      const row4 = (listEnded.data?.data || []).find((x) => x.goods_id === g4.goods_id);
+      ok(!!row4 && row4.session_state === 'ended', '列表里该商品 session_state=ended（首页/分类据此置灰）',
+        row4 && `session_state=${row4.session_state}`);
       const blocked = await api('/api/order/toAddOrder', { method: 'POST', token: buyer, body: { goods_id: g4.goods_id, num: 1, pay_type: 1 } });
       ok(blocked.code !== 1 && /抢购时间|未开放/.test(blocked.msg || ''), '场次结束后下单被拒', blocked.msg);
     } else {
@@ -212,6 +216,37 @@ async function main() {
       ok(true, '跳过（该场次无在售商品）');
     }
     db.prepare('UPDATE specialarea SET start_time = 0, end_time = 86399 WHERE specialarea_id = ?').run(area2.specialarea_id);
+    // ---------------- 各入口的卡片状态字段必须齐 ----------------
+    section('[8] 首页/分类/搜索的卡片状态与抢购页同一口径');
+    const all = await api('/api/goods/getLootGoodsList?page=1&limit=100', { token: B });
+    const allRows = all.data?.data || [];
+    ok(allRows.length > 0, '抢购列表有数据');
+    ok(allRows.every((x) => x.session_state !== undefined), '每条都带 session_state（首页据此置灰）',
+      allRows.filter((x) => x.session_state === undefined).length + ' 条缺失');
+    ok(allRows.every((x) => x.sold_out !== undefined), '每条都带 sold_out');
+    ok(allRows.every((x) => x.type !== undefined), '每条都带 type');
+
+    const endedRow = allRows.find((x) => x.session_state === 'ended' || x.session_state === 'closed');
+    const openRow = allRows.find((x) => x.session_state === 'open');
+    ok(!!openRow, '存在「进行中」的商品（session_state=open）', openRow && openRow.goods_name);
+    if (endedRow) {
+      ok(Number(endedRow.sold_out) === 0, '场次结束的商品不算已抢完（两个状态分开）', `${endedRow.goods_name} sold_out=${endedRow.sold_out}`);
+    } else {
+      ok(true, '跳过（没有已结束场次的商品）');
+    }
+
+    const catRes = await api(`/api/goods/category/getCategoryGoodsList?category_id=${openRow?.category_id || 1}&page=1&limit=100`, { token: B });
+    const catRows = catRes.data?.data || [];
+    ok(catRows.every((x) => x.session_state !== undefined), '分类列表也带 session_state');
+
+    const searchRes = await api(`/api/goods/searchShop?keywords=${encodeURIComponent('玉')}&page=1&limit=50`);
+    const searchRows = searchRes.data?.data || [];
+    ok(searchRows.every((x) => x.session_state !== undefined), '搜索结果也带 session_state',
+      searchRows.length ? `${searchRows.length} 条` : '无结果');
+
+    const dRow = await api(`/api/goods/getLootDetails?goods_id=${openRow?.goods_id || g1.goods_id}`);
+    ok(dRow.data?.session_state !== undefined, '详情接口带 session_state',
+      `session_state=${dRow.data?.session_state}`);
   } catch (e) {
     fails.push('异常：' + e.message);
     console.error('\n异常：', e.message);
