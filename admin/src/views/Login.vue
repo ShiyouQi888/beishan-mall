@@ -163,7 +163,7 @@ const features = [
   },
   {
     t: '寄售转拍',
-    d: '商品逐轮流转，服务费自动结算',
+    d: '商品逐轮流转，上架费按单收取',
     icon: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none"><path d="M4 8.4h12.6l-2.8-2.8M20 15.6H7.4l2.8 2.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   },
   {

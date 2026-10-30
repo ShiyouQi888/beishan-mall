@@ -18,7 +18,7 @@
 
     <div class="section-pad" style="padding-top: 12px">
       <div class="settle__tip">
-        场次结束后系统会按买入/卖出差额生成付款单，请线下转账后上传凭证，对方确认后完成。
+        平台不经手货款。后台完成场次结算后，这里会列出你需要付给谁、以及谁需要付给你；转账后上传凭证，对方确认即完成。
       </div>
 
       <template v-if="tab === 'pay'">
@@ -42,7 +42,7 @@
             <div class="mcard__done" v-else>已提交凭证，等待对方确认收款</div>
           </div>
         </div>
-        <div v-else class="empty">暂无待付款项</div>
+        <div v-else class="empty">暂无待付款项<small>后台结算后才会生成</small></div>
       </template>
 
       <template v-else>
@@ -64,7 +64,7 @@
             </div>
           </div>
         </div>
-        <div v-else class="empty">暂无待收款项</div>
+        <div v-else class="empty">暂无待收款项<small>后台结算后才会生成</small></div>
       </template>
     </div>
   </div>
@@ -136,6 +136,8 @@ onMounted(load);
 </script>
 
 <style scoped>
+/* 空态补充说明（后台未结算 ≠ 页面坏了） */
+.empty small { display: block; margin-top: 6px; font-size: 11.5px; color: var(--text-4); opacity: .85; }
 .settle { background: var(--bg); }
 .settle__tabs {
   display: flex;
