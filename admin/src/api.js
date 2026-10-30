@@ -18,7 +18,7 @@ http.interceptors.response.use(
       ElMessage.error(d.msg || '登录已失效');
       return Promise.reject(d);
     }
-    ElMessage.error(d?.msg || '请求失败');
+    if (!res.config?.silent) ElMessage.error(d?.msg || '请求失败');
     return Promise.reject(d);
   },
   (err) => {
@@ -26,7 +26,7 @@ http.interceptors.response.use(
       localStorage.removeItem('ADMIN_TOKEN');
       location.hash = '#/login';
     }
-    ElMessage.error(err.response?.data?.msg || '网络异常');
+    if (!err.config?.silent) ElMessage.error(err.response?.data?.msg || '网络异常');
     return Promise.reject(err);
   },
 );
@@ -51,6 +51,7 @@ export const adminApi = {
   resetData: (d) => http.post('/system/reset', d),
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
+  orderNotifications: (params) => http.get('/notifications/orders', { params, silent: true }),
   financeOverview: () => http.get('/finance/overview'),
   modules: () => http.get('/modules'),
   options: (name) => http.get(`/options/${name}`),

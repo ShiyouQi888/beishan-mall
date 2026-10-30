@@ -369,6 +369,32 @@ r.get('/dashboard', authAdmin, (req, res) => {
   );
 });
 
+// 后台订单通知：首次只建立游标，之后按订单 ID 增量读取，避免重复拉取订单列表。
+r.get('/notifications/orders', authAdmin, (req, res) => {
+  const rawType = req.query.type;
+  const requestedType = rawType === undefined || rawType === '' ? 0 : Number(rawType);
+  if (!Number.isSafeInteger(requestedType) || ![0, 3].includes(requestedType)) {
+    return res.json(fail('订单通知类型无效'));
+  }
+  const typeFilter = requestedType === 3 ? 'type IN (3,4)' : 'type IN (1,3,4)';
+  const hasCursor = req.query.after_id !== undefined && req.query.after_id !== '';
+  const afterId = hasCursor ? Number(req.query.after_id) : 0;
+  if (!Number.isSafeInteger(afterId) || afterId < 0) return res.json(fail('订单通知游标无效'));
+
+  if (!hasCursor) {
+    const latestId = Number(get(`SELECT IFNULL(MAX(order_id),0) id FROM orders WHERE ${typeFilter}`)?.id || 0);
+    return res.json(ok({ latest_id: latestId, items: [] }));
+  }
+
+  const items = all(
+    `SELECT order_id, order_no, goods_name, total_price, create_time, type
+     FROM orders WHERE ${typeFilter} AND order_id > ? ORDER BY order_id ASC LIMIT 50`,
+    afterId,
+  );
+  const latestId = items.length ? Number(items[items.length - 1].order_id) : afterId;
+  res.json(ok({ latest_id: latestId, items }));
+});
+
 function buildTrend() {
   const days = [];
   for (let i = 6; i >= 0; i--) {

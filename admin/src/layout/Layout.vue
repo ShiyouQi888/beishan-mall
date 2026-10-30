@@ -46,6 +46,37 @@
           <span class="crumb__cur">{{ route.meta.title || '' }}</span>
         </div>
         <div class="topbar__right">
+          <el-popover v-if="orderListPath" placement="bottom-end" :width="360" :persistent="false" trigger="click" @show="markNotificationsRead">
+            <template #reference>
+              <button class="notification-trigger" type="button" aria-label="订单通知">
+                <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true">
+                  <path d="M18 9a6 6 0 0 0-12 0c0 7-2.5 7-2.5 9h17C20.5 16 18 16 18 9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                  <path d="M10 21h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                </svg>
+                <span>通知</span>
+                <i v-if="unreadOrderCount" class="notification-badge">{{ unreadOrderCount > 99 ? '99+' : unreadOrderCount }}</i>
+              </button>
+            </template>
+            <div class="notification-panel">
+              <div class="notification-panel__head">
+                <div><strong>新订单通知</strong><small>{{ unreadOrderCount ? `${unreadOrderCount} 条未读` : '暂无未读通知' }}</small></div>
+                <label class="notification-voice">语音提醒<el-switch v-model="voiceEnabled" size="small" @change="setVoiceEnabled" /></label>
+              </div>
+              <div v-if="notificationList.length" class="notification-list">
+                <button v-for="item in notificationList" :key="item.order_id" type="button" class="notification-item" @click="openOrderNotice(item)">
+                  <span class="notification-item__dot" />
+                  <span class="notification-item__main"><strong>{{ item.goods_name || '新订单' }}</strong><small>{{ item.order_no }} · {{ item.create_time }}</small></span>
+                  <b>¥{{ Number(item.total_price || 0).toFixed(2) }}</b>
+                </button>
+              </div>
+              <div v-else class="notification-empty">新订单会显示在这里</div>
+              <div class="notification-panel__foot">
+                <span v-if="!canUseSpeech">当前浏览器不支持语音播报</span>
+                <button v-if="orderListPath" type="button" @click="router.push(orderListPath)">查看订单</button>
+                <button v-if="notificationList.length" type="button" @click="clearNotifications">清空</button>
+              </div>
+            </div>
+          </el-popover>
           <a class="visit" href="http://127.0.0.1:5273" target="_blank">访问商城</a>
           <div class="user">
             <div class="avatar">{{ (user.nick || 'A').slice(0, 1) }}</div>
@@ -91,8 +122,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ElMessage, ElNotification } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
 import { adminApi } from '../api.js';
 import http from '../api.js';
@@ -151,8 +182,20 @@ async function submitPwd() {
 
 // 菜单由后端 /admin/api/menu 下发（单一数据源：server/src/lib/menu.config.js）
 const menus = ref([]);
+const voiceEnabled = ref(localStorage.getItem('ADMIN_ORDER_VOICE') !== '0');
+const notificationList = ref([]);
+const unreadOrderCount = ref(0);
+const canUseSpeech = typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+let orderPollTimer = 0;
+let orderPollBusy = false;
+const orderCursors = new Map();
 
 const isActive = (p) => (p === '/' ? route.path === '/' : route.path === p);
+const visibleMenuPaths = () => new Set(menus.value.flatMap((group) => (group.items || []).map((item) => item.path)));
+const orderListPath = computed(() => {
+  const paths = visibleMenuPaths();
+  return paths.has('/orders') ? '/orders' : paths.has('/orders/shop') ? '/orders/shop' : '';
+});
 const menuIcon = (icon = '') => {
   const paths = String(icon).replace(/<\/?svg\b[^>]*>/gi, '');
   return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
@@ -171,6 +214,109 @@ async function loadStoreInfo() {
   } catch {}
 }
 
+function notificationTargets() {
+  const paths = visibleMenuPaths();
+  if (paths.has('/orders')) return [{ type: 0 }];
+  if (paths.has('/orders/shop')) return [{ type: 3 }];
+  return [];
+}
+
+function notificationRoute(type) {
+  const paths = visibleMenuPaths();
+  if ((Number(type) === 3 || Number(type) === 4) && paths.has('/orders/shop')) return '/orders/shop';
+  return orderListPath.value || '/';
+}
+
+function speak(text) {
+  if (!voiceEnabled.value || !canUseSpeech) return;
+  try {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'zh-CN';
+    const chineseVoice = window.speechSynthesis.getVoices().find((voice) => /^zh(-|_)/i.test(voice.lang));
+    if (chineseVoice) utterance.voice = chineseVoice;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  } catch {}
+}
+
+function setVoiceEnabled(enabled) {
+  voiceEnabled.value = Boolean(enabled);
+  localStorage.setItem('ADMIN_ORDER_VOICE', voiceEnabled.value ? '1' : '0');
+  if (voiceEnabled.value) speak('新订单语音提醒已开启');
+  else if (canUseSpeech) window.speechSynthesis.cancel();
+}
+
+function markNotificationsRead() {
+  unreadOrderCount.value = 0;
+}
+
+function clearNotifications() {
+  notificationList.value = [];
+  unreadOrderCount.value = 0;
+}
+
+function openOrderNotice(item) {
+  router.push(item.route || orderListPath.value || '/');
+}
+
+function notifyNewOrders(items) {
+  if (!items.length) return;
+  const ordered = items.sort((a, b) => Number(a.order_id) - Number(b.order_id));
+  const newest = ordered[ordered.length - 1];
+  notificationList.value = [
+    ...ordered.slice().reverse().map((item) => ({ ...item, route: notificationRoute(item.type) })),
+    ...notificationList.value,
+  ].slice(0, 30);
+  unreadOrderCount.value += ordered.length;
+
+  const message = ordered.length === 1
+    ? `收到新订单，${newest.goods_name || '商品'}，金额 ${Number(newest.total_price || 0).toFixed(2)} 元。`
+    : `收到 ${ordered.length} 笔新订单，请及时处理。`;
+  speak(message);
+  ElNotification({
+    title: '新订单提醒',
+    message,
+    type: 'success',
+    duration: 8000,
+    onClick: () => openOrderNotice({ ...newest, route: notificationRoute(newest.type) }),
+  });
+}
+
+async function pollOrderNotifications() {
+  if (orderPollBusy || !localStorage.getItem('ADMIN_TOKEN')) return;
+  const targets = notificationTargets();
+  if (!targets.length) return;
+  orderPollBusy = true;
+  const found = [];
+  try {
+    await Promise.all(targets.map(async (target) => {
+      const cursor = orderCursors.get(target.type);
+      const params = {};
+      if (target.type) params.type = target.type;
+      if (cursor !== undefined) params.after_id = cursor;
+      const result = await adminApi.orderNotifications(params);
+      const data = result.data || {};
+      const latestId = Number(data.latest_id) || 0;
+      if (cursor === undefined) {
+        orderCursors.set(target.type, latestId);
+        return;
+      }
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (items.length) {
+        orderCursors.set(target.type, Number(items[items.length - 1].order_id) || latestId);
+        found.push(...items);
+      } else if (Number.isSafeInteger(latestId) && latestId >= cursor) {
+        orderCursors.set(target.type, latestId);
+      }
+    }));
+    notifyNewOrders(found);
+  } catch {
+    // 通知轮询在后台静默失败，下一轮继续重试。
+  } finally {
+    orderPollBusy = false;
+  }
+}
+
 onMounted(async () => {
   loadStoreInfo();
   window.addEventListener('store-config-updated', loadStoreInfo);
@@ -184,8 +330,16 @@ onMounted(async () => {
   } catch {
     menus.value = [];
   }
+  if (notificationTargets().length) {
+    await pollOrderNotifications();
+    orderPollTimer = window.setInterval(pollOrderNotifications, 15000);
+  }
 });
-onUnmounted(() => window.removeEventListener('store-config-updated', loadStoreInfo));
+onUnmounted(() => {
+  window.removeEventListener('store-config-updated', loadStoreInfo);
+  if (orderPollTimer) window.clearInterval(orderPollTimer);
+  if (canUseSpeech) window.speechSynthesis.cancel();
+});
 </script>
 
 <style scoped>
@@ -280,6 +434,26 @@ onUnmounted(() => window.removeEventListener('store-config-updated', loadStoreIn
 .crumb__sep { opacity: 0.5; }
 
 .topbar__right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.notification-trigger { position:relative;display:inline-flex;align-items:center;gap:6px;padding:7px 9px;border:0;border-radius:8px;background:transparent;color:#68717e;font:inherit;font-size:12px;cursor:pointer; }
+.notification-trigger:hover,.notification-trigger:focus-visible { color:#e24c35;background:#fff2ef;outline:none; }
+.notification-badge { position:absolute;top:0;right:0;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#e64b36;color:#fff;font-size:10px;font-style:normal;font-weight:700;line-height:16px;text-align:center;box-shadow:0 0 0 2px #fff; }
+.notification-panel { display:flex;flex-direction:column;gap:8px;color:#29313d; }
+.notification-panel__head { display:flex;align-items:center;justify-content:space-between;padding:0 2px 10px;border-bottom:1px solid #edf0f4; }
+.notification-panel__head>div { display:flex;flex-direction:column;gap:3px; }
+.notification-panel__head strong { font-size:14px; }
+.notification-panel__head small { color:#929aa6;font-size:11px; }
+.notification-voice { display:flex;align-items:center;gap:7px;color:#67717f;font-size:11px; }
+.notification-list { max-height:330px;overflow:auto; }
+.notification-item { display:flex;width:100%;align-items:center;gap:9px;padding:10px 2px;border:0;border-bottom:1px solid #f0f2f5;background:#fff;text-align:left;cursor:pointer; }
+.notification-item:hover { background:#fafbfc; }
+.notification-item__dot { width:7px;height:7px;flex:none;border-radius:50%;background:#f26850; }
+.notification-item__main { display:flex;min-width:0;flex:1;flex-direction:column;gap:3px; }
+.notification-item__main strong { overflow:hidden;color:#323a46;font-size:12px;font-weight:600;text-overflow:ellipsis;white-space:nowrap; }
+.notification-item__main small { color:#9aa1ab;font-size:10px; }
+.notification-item>b { flex:none;color:#e24c35;font-size:12px;font-weight:650; }
+.notification-empty { padding:28px 0;text-align:center;color:#a0a6b0;font-size:12px; }
+.notification-panel__foot { display:flex;align-items:center;justify-content:flex-end;gap:12px;padding-top:5px;color:#9aa1ab;font-size:10px; }
+.notification-panel__foot button { padding:3px 0;border:0;background:transparent;color:#e24c35;font:inherit;font-size:11px;cursor:pointer; }
 .visit {
   font-size: 12.5px;
   color: #ff513a;

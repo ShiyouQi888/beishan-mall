@@ -80,6 +80,13 @@ function adminRequestAllowed(req, allowedPaths) {
   if (path === '/options/category') return has('/category', '/goods', '/shop-goods');
   if (path === '/options/specialarea') return has('/specialarea', '/goods', '/shop-goods', '/settlement');
 
+  if (path === '/notifications/orders') {
+    const type = Number(req.query.type) || 0;
+    if (!type) return has('/orders');
+    if (type === 3) return has('/orders/shop');
+    return false;
+  }
+
   if (path.startsWith('/goods/')) {
     let type = Number(req.query.type || req.body?.type || 0);
     if (path === '/goods/split') {
