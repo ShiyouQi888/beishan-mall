@@ -125,7 +125,8 @@ try {
       const txt = document.body.innerText;
       return {
         brand: q('.brandline'),
-        card: q('.card'),
+        stage: q('.stage'),
+        form: q('.form'),
         inputs: q('.field input'),
         submit: q('.submit'),
         remember: txt.includes('记住账号'),
@@ -136,7 +137,8 @@ try {
     })()`);
 
     ok(info.brand === 1, '左侧品牌区渲染');
-    ok(info.card === 1, '登录卡渲染');
+    ok(info.stage === 1, '居中的整块舞台渲染');
+    ok(info.form === 1, '表单区渲染');
     ok(info.inputs === 2, '账号 / 密码两个输入框', `${info.inputs} 个`);
     ok(info.submit === 1, '登录按钮存在');
     ok(info.remember, '有「记住账号」');
