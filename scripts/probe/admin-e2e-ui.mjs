@@ -108,6 +108,57 @@ try {
     ok((await count('.menu__item')) >= 20, '侧边栏菜单项渲染', `${await count('.menu__item')} 项`);
   });
 
+  // ---------- 登录页（独立 browser context：localStorage 同源共享，清 token 会把主标签页也登出）----------
+  await section('[1.5] 登录页渲染与交互', async () => {
+    const { browserContextId } = await send('Target.createBrowserContext');
+    const { targetId: lid } = await send('Target.createTarget', { url: 'about:blank', browserContextId });
+    const { sessionId: ls } = await send('Target.attachToTarget', { targetId: lid, flatten: true });
+    await send('Page.enable', {}, ls);
+    await send('Runtime.enable', {}, ls);
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }, ls);
+    await send('Page.navigate', { url: `${BASE}/#/login` }, ls);
+    await sleep(2800);
+    const lev = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, ls)).result.value;
+
+    const info = await lev(`(() => {
+      const q = (s) => document.querySelectorAll(s).length;
+      const txt = document.body.innerText;
+      return {
+        brand: q('.brandline'),
+        card: q('.card'),
+        inputs: q('.field input'),
+        submit: q('.submit'),
+        remember: txt.includes('记住账号'),
+        brandName: (document.querySelector('.brandline__name') || {}).textContent || '',
+        leakage: /一键填入|演示账号|测试账号/.test(txt),
+        overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      };
+    })()`);
+
+    ok(info.brand === 1, '左侧品牌区渲染');
+    ok(info.card === 1, '登录卡渲染');
+    ok(info.inputs === 2, '账号 / 密码两个输入框', `${info.inputs} 个`);
+    ok(info.submit === 1, '登录按钮存在');
+    ok(info.remember, '有「记住账号」');
+    ok(String(info.brandName).trim().length > 0, '品牌名来自店铺信息', info.brandName);
+    ok(!info.leakage, '页面不出现测试账号 / 一键填入');
+    ok(!info.overflow, '无横向溢出');
+
+    // 焦点态：品牌色描边 + 白底
+    const focus = await lev(`(async () => {
+      const input = document.querySelector('.field input');
+      input.focus();
+      await new Promise((r) => setTimeout(r, 320));
+      const wrap = document.querySelector('.field .el-input__wrapper');
+      return { focusClass: wrap.classList.contains('is-focus'), bg: getComputedStyle(wrap).backgroundColor };
+    })()`);
+    ok(focus.focusClass, '输入框聚焦时加 is-focus');
+    ok(focus.bg === 'rgb(255, 255, 255)', '聚焦时底色转白', focus.bg);
+
+    await send('Target.closeTarget', { targetId: lid });
+    await send('Target.disposeBrowserContext', { browserContextId });
+  });
+
   // ---------- 全部列表/内容页 ----------
   const pages = [
     ['/', '控制面板'],
