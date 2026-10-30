@@ -393,6 +393,7 @@ const SETTING_GROUPS = {
     { k: 'icp_number', t: 'ICP备案号', type: 'text' },
     { k: 'customer_service', t: '客服二维码', type: 'image' },
     { k: 'customer_link', t: '客服链接', type: 'text' },
+    { k: 'score_open', t: '积分商城', type: 'switch', tip: '开启：我的页面显示积分余额与「积分商城」入口，会员可用积分兑换商品；关闭：前台隐藏全部积分入口，兑换接口一并关闭。已有的积分余额与兑换记录都会保留，后台仍可在会员列表里调账。' },
     { k: 'region_bg_img', t: '首页背景图', type: 'image' },
   ],
   trade: [

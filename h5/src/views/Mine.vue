@@ -52,8 +52,8 @@
         <div class="v">{{ me.e_card_number || '0.00' }}</div>
         <div class="k">我的佣金</div>
       </div>
-      <div class="asset-div" />
-      <div class="asset" @click="$router.push('/commission?tab=score')">
+      <div class="asset-div" v-if="scoreOpen" />
+      <div class="asset" v-if="scoreOpen" @click="$router.push('/score')">
         <div class="v">{{ me.score || 0 }}</div>
         <div class="k">积分</div>
       </div>
@@ -110,13 +110,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, inject } from 'vue';
 import { useRouter } from 'vue-router';
 import { showToast } from 'vant';
 import { api } from '../api.js';
 
 const router = useRouter();
 const me = ref({});
+// 积分商城总开关由后台「商城设置 → 积分商城」控制，关闭时前台不显示任何积分入口
+const store = inject('storeInfo', ref({}));
+const scoreOpen = computed(() => String(store.value?.score_open ?? '10') !== '20');
 const logged = computed(() => !!localStorage.getItem('TOKEN'));
 const stats = reactive({ orders: 0, team: 0, teamOrders: 0 });
 const shop = reactive({ count: 0, listedCount: 0, totalNet: 0 });
@@ -128,7 +131,7 @@ const orderQuick = [
   { status: 30, label: '已完成', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="#2eb872" stroke-width="1.7"/><path d="m8.3 12.2 2.6 2.6 4.8-5" stroke="#2eb872" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>` },
 ];
 
-const funcs = [
+const allFuncs = [
   { label: '邀请好友', to: '/invite', bg: '#fff1ee', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="9" cy="8" r="3" stroke="#ff513a" stroke-width="1.7"/><path d="M3.8 19.5c0-2.9 2.3-5 5.2-5s5.2 2.1 5.2 5" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round"/><path d="M17 6.5v6M14 9.5h6" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round"/></svg>` },
   { label: '我的团队', to: '/team', bg: '#eef4ff', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="8.5" cy="8.5" r="2.8" stroke="#3d7dff" stroke-width="1.7"/><circle cx="16.5" cy="9.5" r="2.2" stroke="#3d7dff" stroke-width="1.7"/><path d="M3.5 19c0-2.7 2.2-4.6 5-4.6s5 1.9 5 4.6M14 19c0-2.2 1.4-3.7 3.5-3.7s3.5 1.5 3.5 3.7" stroke="#3d7dff" stroke-width="1.7" stroke-linecap="round"/></svg>` },
   { label: '结算待办', to: '/settle', bg: '#eefaf3', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4 8h13l-3-3M20 16H7l3 3" stroke="#2eb872" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>` },
@@ -139,6 +142,9 @@ const funcs = [
   { label: '佣金明细', to: '/commission', bg: '#fff1ee', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2" stroke="#ff513a" stroke-width="1.7"/><path d="M7.5 9h9M7.5 12.5h9M7.5 16h5" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round"/></svg>` },
   { label: '公告', to: '/notice', bg: '#eef7ff', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4.5 9.5v5l11 4.5V5L4.5 9.5Z" stroke="#3d9cff" stroke-width="1.7" stroke-linejoin="round"/><path d="M18 9.5a3 3 0 0 1 0 5" stroke="#3d9cff" stroke-width="1.7" stroke-linecap="round"/></svg>` },
 ];
+
+// 积分商城关闭时，常用功能里也不出现这个入口
+const funcs = computed(() => allFuncs.filter((f) => f.to !== '/score' || scoreOpen.value));
 
 function go(f) {
   router.push(f.to);

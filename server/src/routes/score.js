@@ -6,8 +6,13 @@ import { fmtGoods } from './goods.js';
 
 const r = Router();
 
+/** 积分商城总开关（后台「商城设置 → 积分商城」）：关闭后前台入口隐藏，接口也一并拒绝 */
+const scoreOpen = () => String(get("SELECT `value` FROM setting_config WHERE `key` = 'score_open'")?.value ?? '10') === '10';
+const closed = (res) => res.json(fail('积分商城暂未开放'));
+
 /** 积分商品列表 */
 r.get('/getScoreShopList', (req, res) => {
+  if (!scoreOpen()) return closed(res);
   const { page: p = 1, limit = 10 } = req.query;
   const pp = Number(limit);
   const cur = Number(p);
@@ -30,6 +35,7 @@ r.get('/getScoreShopList', (req, res) => {
 
 /** 积分商品详情（带兑换所需积分） */
 r.get('/getDetails', (req, res) => {
+  if (!scoreOpen()) return closed(res);
   const { goods_id } = req.query;
   if (!goods_id) return res.json(fail('method param miss:goods_id'));
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
@@ -41,6 +47,7 @@ r.get('/getDetails', (req, res) => {
 
 /** 积分兑换商品：扣积分、减库存、生成一笔 0 元兑换单 */
 r.post('/exchange', authMember, (req, res) => {
+  if (!scoreOpen()) return closed(res);
   const { goods_id } = req.body;
   const sg = get('SELECT * FROM score_goods WHERE goods_id = ?', Number(goods_id));
   if (!sg) return res.json(fail('该商品不支持积分兑换'));

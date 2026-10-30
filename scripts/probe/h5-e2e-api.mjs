@@ -403,6 +403,26 @@ async function main() {
     const exchange = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { goods_id: sg.goods_id } });
     ok(exchange.code === 1, '积分兑换成功', exchange.msg);
 
+    // 总开关：后台关闭后前台接口必须拒绝，且店铺信息里要下发关闭状态
+    const setScore = (v) =>
+      api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'store', values: { score_open: v } } });
+    const offRes = await setScore('20');
+    ok(offRes.code === 1, '后台关闭积分商城', offRes.msg);
+    const infoOff = await api('/api/index/getStoreInfo');
+    ok(String(infoOff.data?.score_open) === '20', '店铺信息下发关闭状态', `score_open=${infoOff.data?.score_open}`);
+    const listOff = await api('/api/score/getScoreShopList?page=1&limit=5', { token: newToken });
+    ok(listOff.code === 0 && /未开放/.test(listOff.msg), '关闭后列表接口拒绝', listOff.msg);
+    const exOff = await api('/api/score/exchange', { method: 'POST', token: newToken, body: { goods_id: sg.goods_id } });
+    ok(exOff.code === 0 && /未开放/.test(exOff.msg), '关闭后兑换接口拒绝', exOff.msg);
+    const detOff = await api(`/api/score/getDetails?goods_id=${sg.goods_id}`, { token: newToken });
+    ok(detOff.code === 0 && /未开放/.test(detOff.msg), '关闭后详情接口拒绝', detOff.msg);
+
+    await setScore('10');
+    const infoOn = await api('/api/index/getStoreInfo');
+    ok(String(infoOn.data?.score_open) === '10', '开启积分商城', `score_open=${infoOn.data?.score_open}`);
+    const listOn = await api('/api/score/getScoreShopList?page=1&limit=5', { token: newToken });
+    ok(listOn.code === 1, '重新开启后列表恢复', listOn.msg);
+
     // ========== 结算 ==========
     section('[13] 差价结算（待办 → 凭证 → 确认）');
     const mySettle = await api('/api/order/mySettle', { token: newToken });

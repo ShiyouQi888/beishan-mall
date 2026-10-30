@@ -7,14 +7,15 @@
       <div class="navbar__title">积分商城</div>
     </div>
 
-    <div class="score__head">
+    <div class="score__head" v-if="open">
       <div class="s-label">我的积分</div>
       <div class="s-value">{{ score }}</div>
-      <div class="s-desc">积分可通过充值、活动获得，用于兑换精选好物</div>
+      <div class="s-desc">积分可通过平台活动获得，用于兑换精选好物</div>
     </div>
 
     <div class="section-pad" style="padding-top: 14px">
-      <div v-if="list.length" class="sgrid">
+      <div v-if="!open" class="empty">积分商城暂未开放</div>
+      <div v-else-if="list.length" class="sgrid">
         <div class="scard" v-for="g in list" :key="g.goods_id">
           <div class="scard__img"><img :src="g.good_thumb" /></div>
           <div class="scard__body">
@@ -32,12 +33,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, inject, watch, onMounted } from 'vue';
 import { showToast, showConfirmDialog } from 'vant';
 import { api } from '../api.js';
 
 const list = ref([]);
 const score = ref(0);
+// 总开关来自后台「商城设置 → 积分商城」，关闭时整页显示未开放，也不去请求接口
+const store = inject('storeInfo', ref({}));
+const open = computed(() => String(store.value?.score_open ?? '10') !== '20');
 
 async function load() {
   try {
@@ -46,6 +50,17 @@ async function load() {
     if (b.status === 'fulfilled') score.value = b.value.data?.score || 0;
   } catch {}
 }
+
+// 等后台配置到位再决定要不要请求：配置说关闭就整页显示未开放，一次接口都不打
+const ready = computed(() => store.value?.score_open !== undefined);
+let started = false;
+function start(force = false) {
+  if (started) return;
+  if (!ready.value && !force) return; // 配置还没到，先等
+  started = true;
+  if (open.value) load();
+}
+watch(() => store.value?.score_open, () => start());
 
 async function exchange(g) {
   try {
@@ -60,7 +75,12 @@ async function exchange(g) {
   } catch {}
 }
 
-onMounted(load);
+onMounted(() => {
+  start();
+  // 兜底：配置接口异常时不能让页面一直空着，1.5s 后强制按默认开放去请求，
+  // 真正的开关状态仍由服务端接口兜底拦截
+  setTimeout(() => start(true), 1500);
+});
 </script>
 
 <style scoped>

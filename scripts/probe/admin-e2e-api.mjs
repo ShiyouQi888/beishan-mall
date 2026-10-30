@@ -451,12 +451,14 @@ async function main() {
     num(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(mid).amount, money(beforeReject + 300), '驳回后金额退回');
 
     // ================= 10. 设置组 =================
-    section('[10] 设置组读写（9 组）');
+    section('[10] 设置组读写（7 组）');
     const groups = ['store', 'trade', 'pay', 'storage', 'poster', 'prompt', 'nav'];
     for (const g of groups) {
       const r = await api(`/admin/api/setting/${g}`, { token: at });
       ok(r.code === 1 && (r.data?.items || []).length > 0, `设置组可读：${g}`, `${(r.data?.items || []).length} 项`);
     }
+    const storeSet = await api('/admin/api/setting/store', { token: at });
+    ok((storeSet.data?.items || []).some((x) => x.k === 'score_open'), '商城设置含「积分商城」开关');
     const tradeSet = await api('/admin/api/setting/trade', { token: at });
     const firstTradeKey = tradeSet.data.items[0].k;
     const originVal = tradeSet.data.values[firstTradeKey];

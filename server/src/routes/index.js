@@ -40,7 +40,8 @@ r.get('/index/getStoreInfo', (req, res) => {
       customer_type: cfg('customer_type', '1'),
       customer_service: cfg('customer_service', ''),
       customer_link: cfg('customer_link', '#'),
-      toExamine: cfg('to_examine', '10'),
+      toExamine: cfg('to_examine', '10'),
+      score_open: cfg('score_open', '10'),
     }),
   );
 });
