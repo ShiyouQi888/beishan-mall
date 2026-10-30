@@ -31,7 +31,11 @@ export function ensureNodes() {
 
     let childSort = 100;
     for (const it of g.items) {
-      const exist = get('SELECT id FROM store_node WHERE action_name = ?', it.path);
+      const exist = get('SELECT id, node_name FROM store_node WHERE action_name = ?', it.path);
+      // 菜单改名后把节点名一起改掉，否则「角色分配权限」里还显示旧名字
+      if (exist && exist.node_name !== it.name) {
+        run('UPDATE store_node SET node_name = ? WHERE id = ?', it.name, exist.id);
+      }
       if (!exist) {
         run(
           'INSERT INTO store_node (node_name, controller_name, action_name, menu_icon, parent_id, type, sort) VALUES (?,?,?,?,?,1,?)',

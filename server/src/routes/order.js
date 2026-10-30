@@ -471,47 +471,9 @@ r.post('/evaluation', authMember, (req, res) => {
 });
 
 
-// ---------------- 结算待办（差价匹配的付款/收款） ----------------
-r.get('/mySettle', authMember, (req, res) => {
-  const me = req.member.member_id;
-  const pay = all(
-    `SELECT sm.*, m.nick_name payee_name, m.mobile payee_mobile, m.pay_setting
-     FROM settle_match sm LEFT JOIN member m ON m.member_id = sm.payee_id
-     WHERE sm.payer_id = ? AND sm.pay_status < 20 ORDER BY sm.match_id DESC`,
-    me,
-  );
-  const receive = all(
-    `SELECT sm.*, m.nick_name payer_name, m.mobile payer_mobile
-     FROM settle_match sm LEFT JOIN member m ON m.member_id = sm.payer_id
-     WHERE sm.payee_id = ? AND sm.pay_status < 20 ORDER BY sm.match_id DESC`,
-    me,
-  );
-  res.json(ok({ pay, receive }));
-});
-
-// 付款方上传转账凭证
-r.post('/settleVoucher', authMember, (req, res) => {
-  const { match_id, voucher } = req.body;
-  if (!voucher) return res.json(fail('请上传付款凭证'));
-  const m = get('SELECT * FROM settle_match WHERE match_id = ? AND payer_id = ?',
-    Number(match_id), req.member.member_id);
-  if (!m) return res.json(fail('付款单不存在'));
-  if (m.pay_status === 20) return res.json(fail('该笔已完成'));
-  run('UPDATE settle_match SET voucher = ?, pay_status = 10, pay_time = ? WHERE match_id = ?',
-    voucher, now(), m.match_id);
-  res.json(ok([], '凭证已提交，等待对方确认收款'));
-});
-
-// 收款方确认收款
-r.post('/settleConfirm', authMember, (req, res) => {
-  const { match_id } = req.body;
-  const m = get('SELECT * FROM settle_match WHERE match_id = ? AND payee_id = ?',
-    Number(match_id), req.member.member_id);
-  if (!m) return res.json(fail('收款单不存在'));
-  if (m.pay_status !== 10) return res.json(fail('对方尚未上传付款凭证'));
-  if (m.pay_status === 20) return res.json(fail('该笔已确认'));
-  run('UPDATE settle_match SET pay_status = 20, confirm_time = ? WHERE match_id = ?', now(), m.match_id);
-  res.json(ok([], '已确认收款'));
-});
+// ---------------- 会员间结算待办：已下线 ----------------
+// 原来这里有 mySettle / settleVoucher / settleConfirm，用于「差价匹配」生成的付款单。
+// 但成交流程早已改为即时入账（付款时卖家当场到账），这套会员间付款会重复收钱，
+// 前台页面与后台生成入口都已移除，接口一并删除。历史 settle_match 数据仍可在后台查看。
 
 export default r;

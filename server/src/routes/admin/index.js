@@ -4,7 +4,6 @@ import { all, get, run, tx, now, today } from '../../db.js';
 import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE } from '../../lib/helper.js';
 import { hashPwd, verifyPwd, signAdmin, randomCode } from '../../lib/auth.js';
 import { settleOrder } from '../../lib/settle.js';
-import { runSettlement } from '../../lib/settlement.js';
 import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat } from '../../lib/split.js';
 import extraRouter from './extra.js';
 import mediaRouter from './media.js';
@@ -603,11 +602,13 @@ r.post('/setting/save', authAdmin, (req, res) => {
 
 
 // ---------------- 场次结算（差价匹配） ----------------
+// 差价结算：已停用（仅保留历史批次的查看）
+//
+// 原因：成交流程早已改成「即时入账」——买家付款时扣余额、卖家当场到账（lib/settle.js）。
+// 再跑一遍差价匹配会额外生成「会员之间互相打款」的付款单，等于让收款方收第二次钱。
+// 如果你确实要把会员余额当虚拟账、货款全部走线下，需要重新实现差价匹配（原实现已删）。
 r.post('/settle/run', authAdmin, (req, res) => {
-  const { specialarea_id = 0, date = '' } = req.body || {};
-  const out = runSettlement(Number(specialarea_id), date);
-  if (!out.ok) return res.json(fail(out.reason));
-  res.json(ok(out, '结算完成'));
+  res.json(fail('差价结算已停用：现在成交即入账，再生成会员间付款单会导致重复收款'));
 });
 
 r.get('/settle/batches', authAdmin, (req, res) => {

@@ -174,61 +174,26 @@ async function main() {
     ok(net > 0, '平台本轮净收入为正', `净收 ${net}（服务费 ${svcFee} + 上架费 ${feeExpect} − 直推奖 ${driveExpect}）`);
 
     
-    console.log('\n[3] 场次结算与差价匹配');
+    console.log('\n[3] 差价结算已停用（防重复收款）');
     const at = (await api('/admin/api/login', { method: 'POST', body: { user_name: 'admin1', password: '123456' } })).data.token;
-    // 防御性回归：万一库里还留着历史 type=2 挂单（这里故意造一条 status=30 的），
-    // 也不能被算进「卖出」，否则同一笔卖会被挂单+成交重复计一次收益
-    const fakeSeller = db.prepare('SELECT member_id FROM member ORDER BY member_id LIMIT 1').get().member_id;
-    const fakeInfo = db.prepare(
-      `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, type, price, num, total_price, status, pay_status, create_time)
-       VALUES ('C-FAKE-REGRESSION', 0, ?, 1, '历史寄卖挂单', 2, 99999, 1, 99999, 30, 0, datetime('now','localtime'))`,
-    ).run(fakeSeller);
 
-    const settleRun = await api('/admin/api/settle/run', {
-      method: 'POST', token: at, body: { specialarea_id: 0 },
-    });
-    ok(settleRun.code === 1, '触发场次结算', settleRun.msg);
-    const batchId = settleRun.data?.batch_id;
-    db.prepare('DELETE FROM orders WHERE order_id = ?').run(Number(fakeInfo.lastInsertRowid));
+    // 成交即入账：卖家在付款那一刻就拿到钱了，再跑差价匹配会让他收第二次
+    const settleRun = await api('/admin/api/settle/run', { method: 'POST', token: at, body: { specialarea_id: 0 } });
+    ok(settleRun.code === 0 && /停用/.test(settleRun.msg), '执行结算被拒绝', settleRun.msg);
 
-    const accs = (await api(`/admin/api/settle/accounts?batch_id=${batchId}`, { token: at })).data || [];
-    ok(accs.length >= 2, '中账记录已生成', `${accs.length} 条`);
+    // 会员端三个接口必须真的没了，避免「有接口没入口」的半死状态卷土重来
+    const gone = await api('/api/order/mySettle', { token: buyer });
+    ok(gone.code !== 1 && /不存在/.test(gone.msg), '会员端结算接口已删除', gone.msg);
+    ok((await api('/api/order/settleConfirm', { method: 'POST', token: buyer, body: { match_id: 1 } })).code !== 1, '确认收款接口已删除');
 
-    let balanceOk = true;
-    let sumBuy = 0, sumSell = 0;
-    for (const a of accs) {
-      if (Math.abs(Number(a.balance) - (Number(a.consignment_amount) - Number(a.buy_amount))) > 0.011) balanceOk = false;
-      sumBuy += Number(a.buy_amount);
-      sumSell += Number(a.consignment_amount);
-    }
-    ok(balanceOk, '每条中账：差额 = 卖出 − 买入');
-    eq(money(sumBuy), money(sumSell), '全场买入总额 == 卖出总额（买卖配平）');
-    const maxSell = Math.max(0, ...accs.map((a) => Number(a.consignment_amount)));
-    ok(maxSell < 99999, '结算把 type=2 寄卖挂单排除在卖出之外', `最大卖出 ${maxSell}`);
+    // 只读对账接口还在（后台对账要用）
+    ok((await api('/admin/api/settle/batches', { token: at })).code === 1, '结算批次可读（对账）');
+    ok((await api('/admin/api/settle/accounts?batch_id=0', { token: at })).code === 1, '中账可读（对账）');
 
-    const matches = (await api(`/admin/api/settle/matches?batch_id=${batchId}`, { token: at })).data || [];
-    ok(matches.length >= 1, '生成差价匹配付款单', `${matches.length} 笔`);
-
-    const debtSum = accs.filter((a) => Number(a.balance) < 0).reduce((s, a) => s + -Number(a.balance), 0);
-    const matchSum = matches.reduce((s, m) => s + Number(m.amount), 0);
-    eq(money(matchSum), money(debtSum), '匹配总额 == 应付总额（应收应付配平）');
-
-    // 付款方上传凭证 → 收款方确认
-    const mt0 = matches[0];
-    const voucherRes = await api('/api/order/settleVoucher', {
-      method: 'POST', token: await login(db.prepare('SELECT mobile FROM member WHERE member_id = ?').get(mt0.payer_id).mobile),
-      body: { match_id: mt0.match_id, voucher: '/uploads/test.png' },
-    });
-    ok(voucherRes.code === 1, '付款方上传转账凭证', voucherRes.msg);
-
-    const confirmRes = await api('/api/order/settleConfirm', {
-      method: 'POST', token: await login(db.prepare('SELECT mobile FROM member WHERE member_id = ?').get(mt0.payee_id).mobile),
-      body: { match_id: mt0.match_id },
-    });
-    ok(confirmRes.code === 1, '收款方确认收款', confirmRes.msg);
-
-    const done = db.prepare('SELECT pay_status FROM settle_match WHERE match_id = ?').get(mt0.match_id);
-    eq(done.pay_status, 20, '付款单状态流转至已完成');
+    // 卖家确实在支付时就到账了，这是停用差价匹配的根本原因
+    const sellerOfOrder = db.prepare('SELECT seller_id FROM orders WHERE order_id = ?').get(oid)?.seller_id;
+    const sellerRow = db.prepare('SELECT amount FROM member WHERE member_id = ?').get(sellerOfOrder);
+    ok(!!sellerRow && Number(sellerRow.amount) > 0, '卖家在成交时已到账（即时入账）', '余额 ' + money(sellerRow?.amount));
 
     console.log('\n[4] 风控拦截');
 

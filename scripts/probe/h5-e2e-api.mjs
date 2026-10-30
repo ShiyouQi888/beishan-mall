@@ -449,30 +449,17 @@ async function main() {
     const listOn = await api('/api/score/getScoreShopList?page=1&limit=5', { token: newToken });
     ok(listOn.code === 1, '重新开启后列表恢复', listOn.msg);
 
-    // ========== 结算 ==========
-    section('[13] 差价结算（待办 → 凭证 → 确认）');
+    // ========== 结算（会员端已下线） ==========
+    section('[13] 差价结算：会员端已下线，后台已停用生成');
+    // 成交即入账，会员间再结一次就是重复收款 → 页面与接口都删了，这里守住不回归
     const mySettle = await api('/api/order/mySettle', { token: newToken });
-    ok(mySettle.code === 1, '我的结算待办可读', mySettle.msg);
+    ok(mySettle.code !== 1 && /不存在/.test(mySettle.msg), '我的结算待办接口已删除', mySettle.msg);
+    const settleVoucher = await api('/api/order/settleVoucher', { method: 'POST', token: newToken, body: { match_id: 1, voucher: '/uploads/x.png' } });
+    ok(settleVoucher.code !== 1, '上传凭证接口已删除', settleVoucher.msg);
+    const settleConfirm = await api('/api/order/settleConfirm', { method: 'POST', token: newToken, body: { match_id: 1 } });
+    ok(settleConfirm.code !== 1, '确认收款接口已删除', settleConfirm.msg);
     const settleRun = await api('/admin/api/settle/run', { method: 'POST', token: at, body: { specialarea_id: 0 } });
-    ok(settleRun.code === 1, '触发场次结算', settleRun.msg);
-    const matches = (await api(`/admin/api/settle/matches?batch_id=${settleRun.data?.batch_id}`, { token: at })).data || [];
-    if (matches.length) {
-      const m0 = matches[0];
-      const payerPhone = db.prepare('SELECT mobile FROM member WHERE member_id = ?').get(m0.payer_id).mobile;
-      const payeePhone = db.prepare('SELECT mobile FROM member WHERE member_id = ?').get(m0.payee_id).mobile;
-      const v = await api('/api/order/settleVoucher', {
-        method: 'POST', token: await login(payerPhone), body: { match_id: m0.match_id, voucher: '/uploads/test.png' },
-      });
-      ok(v.code === 1, '付款方上传凭证', v.msg);
-      const c = await api('/api/order/settleConfirm', {
-        method: 'POST', token: await login(payeePhone), body: { match_id: m0.match_id },
-      });
-      ok(c.code === 1, '收款方确认收款', c.msg);
-      eq(db.prepare('SELECT pay_status FROM settle_match WHERE match_id = ?').get(m0.match_id).pay_status, 20, '付款单流转为已完成');
-    } else {
-      ok(true, '本次无匹配付款单（数据不足，跳过凭证流转）');
-    }
-
+    ok(settleRun.code === 0 && /停用/.test(settleRun.msg), '后台执行结算已停用', settleRun.msg);
     // ========== 设置 ==========
     section('[14] 设置：昵称、登录密码、支付密码');
     const nick = await api('/api/member/editMember', { method: 'POST', token: newToken, body: { nickName: '改名后的我' } });

@@ -529,36 +529,22 @@ async function main() {
       ok(r.code === 1, `下拉选项可读：${opt}`, r.msg);
     }
 
-    // ================= 13. 结算 =================
-    section('[13] 差价结算：批次 / 中账 / 匹配 / 确认');
+    // ================= 13. 差价结算（已停用生成） =================
+    section('[13] 差价结算：生成已停用，只读对账还在');
+    // 成交即入账，再生成会员间付款单会重复收款 → 后端已停用，这里守住这条线
     const srun = await api('/admin/api/settle/run', { method: 'POST', token: at, body: { specialarea_id: 0 } });
-    ok(srun.code === 1, '执行结算', srun.msg);
-    const batchId = srun.data?.batch_id;
-    const batches = await api('/admin/api/settle/batches', { token: at });
-    ok(batches.code === 1 && (batches.data?.data || batches.data || []).length >= 1, '结算批次列表');
-    const accounts = await api(`/admin/api/settle/accounts?batch_id=${batchId}`, { token: at });
-    ok(accounts.code === 1 && (accounts.data || []).length >= 1, '中账列表', `${(accounts.data || []).length} 条`);
-    let balanceOk = true;
-    for (const a of accounts.data || []) {
-      if (Math.abs(Number(a.balance) - (Number(a.consignment_amount) - Number(a.buy_amount))) > 0.011) balanceOk = false;
-    }
-    ok(balanceOk, '每条中账：差额 = 卖出 − 买入');
-    const matches = await api(`/admin/api/settle/matches?batch_id=${batchId}`, { token: at });
-    ok(matches.code === 1, '匹配付款单列表', `${(matches.data || []).length} 笔`);
-    if ((matches.data || []).length) {
-      const m0 = matches.data[0];
-      const payer = db.prepare('SELECT mobile FROM member WHERE member_id = ?').get(m0.payer_id)?.mobile;
-      const payee = db.prepare('SELECT mobile FROM member WHERE member_id = ?').get(m0.payee_id)?.mobile;
-      const payerToken = (await api('/api/member/accountLogin', { method: 'POST', body: { phone: payer, password: payer } })).data?.token;
-      const payeeToken = (await api('/api/member/accountLogin', { method: 'POST', body: { phone: payee, password: payee } })).data?.token;
-      await api('/api/order/settleVoucher', { method: 'POST', token: payerToken, body: { match_id: m0.match_id, voucher: '/uploads/demo-1.svg' } });
-      const conf = await api('/admin/api/settle/confirm-match', { method: 'POST', token: at, body: { match_id: m0.match_id } });
-      ok(conf.code === 1, '后台确认匹配付款单', conf.msg);
-      void payeeToken;
-    } else {
-      ok(true, '无匹配单（跳过确认）');
-    }
+    ok(srun.code === 0 && /停用/.test(srun.msg), '执行结算已被停用', srun.msg);
 
+    const batches = await api('/admin/api/settle/batches', { token: at });
+    ok(batches.code === 1, '结算批次列表仍可读（对账用）');
+    const accounts = await api('/admin/api/settle/accounts?batch_id=0', { token: at });
+    ok(accounts.code === 1, '中账接口可读');
+    const matches = await api('/admin/api/settle/matches?batch_id=0', { token: at });
+    ok(matches.code === 1, '匹配单接口可读');
+
+    // 会员端三个接口已删除，确认真的下线了（不再是「有接口没入口」的半死状态）
+    const mySettle = await api('/api/order/mySettle', { token: buyerToken });
+    ok(mySettle.code !== 1 && /不存在/.test(mySettle.msg), '会员端结算接口已删除', mySettle.msg);
     // ================= 14. 文件管理 =================
     section('[14] 文件管理：分组 / 上传 / 改名 / 移动 / 引用保护 / 删除');
     const mg = await api('/admin/api/media/groups', { token: at });

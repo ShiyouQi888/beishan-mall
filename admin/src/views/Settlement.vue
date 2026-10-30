@@ -2,25 +2,18 @@
   <div>
     <div class="page-head">
       <div>
-        <h2>差价结算</h2>
-        <div class="desc">统计场次内每人的买入/卖出差额，用于对账</div>
+        <h2>差价对账</h2>
+        <div class="desc">按场次统计每人的买入/卖出差额，只读对账用</div>
       </div>
-      <div style="display: flex; gap: 10px; align-items: center">
-        <el-select v-model="areaId" placeholder="全部场次" style="width: 170px" clearable>
-          <el-option label="全部场次" :value="0" />
-          <el-option v-for="a in areas" :key="a.specialarea_id" :label="a.title_main" :value="a.specialarea_id" />
-        </el-select>
-        <el-date-picker v-model="settleDate" type="date" placeholder="结算日期" style="width: 150px" value-format="YYYY-MM-DD" />
-        <el-button type="primary" :loading="running" @click="doRun">执行结算</el-button>
-      </div>
+      <el-button @click="loadBatches">刷新</el-button>
     </div>
 
     <div class="settle-warn">
-      <b>先看清楚再点「执行结算」</b>
+      <b>这里不再执行结算，只做对账</b>
       <span>
-        现在成交时就已经入账了：买家扣余额、卖家当场收到货款。
-        再执行结算，会另外生成「会员之间互相打款」的付款单，等于让收款方再收一次钱。
-        除非你确实要把余额当虚拟账、货款全部走线下，否则<em>不要执行</em>，只用这一页对账。
+        成交时就已经入账了：买家扣余额、卖家当场收到货款，钱当场结清。
+        原来那套「场次结束再按差价生成会员间付款单」会让收款方收第二次钱，已停用并移除。
+        这一页保留历史批次、中账与付款单，供你核对每场谁进谁出多少。
       </span>
     </div>
 
@@ -130,7 +123,6 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { adminApi } from '../api.js';
 import axios from 'axios';
 
 const http = axios.create({ baseURL: '/admin/api' });
@@ -144,13 +136,9 @@ const batches = ref([]);
 const accounts = ref([]);
 const matches = ref([]);
 const curBatch = ref(null);
-const areas = ref([]);
-const areaId = ref(0);
-const settleDate = ref('');
 const loading = ref(false);
-const running = ref(false);
 
-async function load() {
+async function loadBatches() {
   loading.value = true;
   try {
     const r = await http.get('/settle/batches');
@@ -171,31 +159,6 @@ async function pickBatch(row) {
   matches.value = m.data || [];
 }
 
-async function doRun() {
-  let tip = '确定执行结算？将统计所选场次当日的买卖差额并生成付款单。';
-  try {
-    await ElMessageBox.confirm(tip, '执行结算', { type: 'warning' });
-  } catch {
-    return;
-  }
-  running.value = true;
-  try {
-    const r = await http.post('/settle/run', { specialarea_id: areaId.value || 0, date: settleDate.value || '' });
-    if (r.code === 1) {
-      ElMessage.success(`结算完成：${r.data.member_count} 人参与，生成 ${r.data.match_count} 笔付款单`);
-      await load();
-      if (batches.value.length) {
-        const b = batches.value.find((x) => x.batch_id === r.data.batch_id);
-        if (b) pickBatch(b);
-      }
-    } else {
-      ElMessage.warning(r.msg);
-    }
-  } finally {
-    running.value = false;
-  }
-}
-
 async function confirmMatch(row) {
   try {
     await ElMessageBox.confirm(`确认已收到 ¥${Number(row.amount).toFixed(2)}？`, '确认收款', { type: 'warning' });
@@ -209,13 +172,7 @@ async function confirmMatch(row) {
   } else ElMessage.warning(r.msg);
 }
 
-onMounted(async () => {
-  await load();
-  try {
-    const r = await adminApi.options('specialarea');
-    areas.value = (r.data || []).map((x) => ({ specialarea_id: x.id, title_main: x.name }));
-  } catch {}
-});
+onMounted(loadBatches);
 </script>
 
 <style scoped>

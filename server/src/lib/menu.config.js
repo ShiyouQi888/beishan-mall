@@ -72,7 +72,7 @@ export const MENU = [
       },
       {
         path: '/settlement',
-        title: '差价结算',
+        title: '差价对账',
         icon: `<path d="M4 8h13l-3-3M20 16H7l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
       },
       {
