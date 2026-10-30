@@ -57,6 +57,7 @@ export const adminApi = {
   modules: () => http.get('/modules'),
   options: (name) => http.get(`/options/${name}`),
   batchCategoryHomeShow: (d) => http.post('/category/home-show-all', d),
+  themes: () => http.get('/themes'),
   list: (mod, params) => http.get(`/${mod}/list`, { params }),
   detail: (mod, id) => http.get(`/${mod}/detail`, { params: { id } }),
   save: (mod, data) => http.post(`/${mod}/save`, data),

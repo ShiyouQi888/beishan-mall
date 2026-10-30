@@ -243,7 +243,7 @@ onMounted(load);
 
 .invite__hero {
   padding: 26px 20px 30px;
-  background: linear-gradient(160deg, #ff7a52 0%, #f0402a 60%, #cf2e19 100%);
+  background: linear-gradient(160deg, var(--brand-hero-1) 0%, var(--brand-hero-2) 60%, var(--brand-hero-3) 100%);
   border-radius: 0 0 28px 28px;
   color: #fff;
   position: relative;

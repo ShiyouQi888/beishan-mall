@@ -131,7 +131,7 @@ onUnmounted(() => clearInterval(timer));
 }
 .loot__tab.on {
   background: var(--brand-soft);
-  border-color: rgba(255, 81, 58, 0.3);
+  border-color: rgba(var(--brand-rgb), 0.3);
 }
 .loot__tab .t { font-size: 13px; font-weight: 600; color: var(--text-2); }
 .loot__tab.on .t { color: var(--brand); }

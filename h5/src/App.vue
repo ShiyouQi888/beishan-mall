@@ -24,6 +24,22 @@ const showTab = computed(() => !route.meta.hideTab);
 const store = ref({});
 provide('storeInfo', store);
 
+// 主题：把后台选中的那套 CSS 变量写到 :root，页面刷新即生效
+function applyTheme(info = {}) {
+  const vars = info.theme && info.theme.vars;
+  if (!vars) return;
+  const root = document.documentElement;
+  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  // 顺带让手机浏览器状态栏跟着品牌色
+  let meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    document.head.appendChild(meta);
+  }
+  meta.content = vars['--brand'] || '#ff513a';
+}
+
 function applyBrand(info = {}) {
   if (info.name) document.title = info.name;
   if (info.logo) {
@@ -37,6 +53,7 @@ onMounted(async () => {
   try {
     const r = await api.storeInfo();
     store.value = r.data || {};
+    applyTheme(store.value);
     applyBrand(store.value);
   } catch {}
 });

@@ -123,7 +123,7 @@ onMounted(async () => {
 
 <style scoped>
 .reg { min-height:100vh;min-height:100dvh;max-width:520px;margin:0 auto;background:#f4f5f7;position:relative;overflow:hidden;padding-bottom:max(28px,env(safe-area-inset-bottom)); }
-.reg__hero { position:relative;min-height:244px;padding:max(28px,env(safe-area-inset-top)) 24px 66px;color:#fff;background:linear-gradient(145deg,#ff795d 0%,#f04c36 48%,#d83727 100%);border-radius:0 0 30px 30px; }
+.reg__hero { position:relative;min-height:244px;padding:max(28px,env(safe-area-inset-top)) 24px 66px;color:#fff;background:linear-gradient(145deg, var(--brand-hero-1) 0%, var(--brand-hero-2) 48%, var(--brand-hero-3) 100%);border-radius:0 0 30px 30px; }
 .reg__back { display:grid;place-items:center;width:40px;height:40px;margin:0 0 22px -9px;border:1px solid rgba(255,255,255,.24);border-radius:13px;background:rgba(255,255,255,.14);color:#fff;cursor:pointer; }
 .reg__eyebrow { font-size:10px;font-weight:700;letter-spacing:2px;opacity:.72; }
 .reg__brand { display:flex;align-items:center;gap:10px;margin-top:9px; }
@@ -141,7 +141,7 @@ onMounted(async () => {
 .reg__field small { margin-left:5px;color:#a2a8b2;font-size:11px;font-weight:400; }
 .reg__field input { display:block;width:100%;height:47px;padding:0 14px;border:1px solid #e8ebf0;border-radius:12px;background:#f8f9fb;color:#303641;font-family:var(--font);font-size:14px;outline:none;transition:border-color .16s,box-shadow .16s,background .16s; }
 .reg__field input::placeholder { color:#aab0ba; }
-.reg__field input:focus { border-color:#ff806b;background:#fff;box-shadow:0 0 0 3px rgba(255,81,58,.08); }
+.reg__field input:focus { border-color:#ff806b;background:#fff;box-shadow:0 0 0 3px rgba(var(--brand-rgb),.08); }
 .reg__field--last { margin-bottom:0; }
 .reg__agreement { display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:3px;margin:15px 0 13px;color:#969da7;font-size:10.5px;line-height:1.55; }
 .reg__agreement input { width:15px;height:15px;margin:0 4px 0 0;accent-color:#e45443; }
@@ -154,9 +154,9 @@ onMounted(async () => {
 .reg__agreement-content :deep(p) { margin:0 0 10px; }
 .reg__agreement-content :deep(h3) { margin:12px 0 8px;color:#252a32;font-size:14px; }
 .reg__agreement-confirm { margin-top:16px; }
-.reg__submit { height:49px;border-radius:15px;box-shadow:0 8px 18px rgba(255,81,58,.2);font-size:15px;font-weight:650; }
+.reg__submit { height:49px;border-radius:15px;box-shadow:0 8px 18px rgba(var(--brand-rgb),.2);font-size:15px;font-weight:650; }
 .reg__submit:disabled { opacity:.68;box-shadow:none; }
 .reg__login { margin-top:18px;color:#818995;font-size:13px;text-align:center;cursor:pointer; }
-.reg__login b { color:#db4937;font-weight:650; }
+.reg__login b { color:var(--brand-dark);font-weight:650; }
 @media(max-width:360px) { .reg__content { margin-left:10px;margin-right:10px; }.reg__card { padding-left:17px;padding-right:17px; } }
 </style>

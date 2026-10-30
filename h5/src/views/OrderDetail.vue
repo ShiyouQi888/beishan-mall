@@ -196,7 +196,7 @@ onMounted(load);
 .odetail { background: var(--bg); padding-bottom: 80px; }
 .status {
   padding: 18px 18px 22px;
-  background: linear-gradient(135deg, #ff6a4d, #e63c26);
+  background: linear-gradient(135deg, var(--brand-light), var(--brand-dark));
   border-radius: 14px;
   color: #fff;
 }

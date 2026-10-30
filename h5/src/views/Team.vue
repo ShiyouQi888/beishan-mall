@@ -59,7 +59,7 @@ onMounted(async () => {
 .team__hero {
   display: flex;
   align-items: center;
-  background: linear-gradient(135deg, #ff6a4d, #e63c26);
+  background: linear-gradient(135deg, var(--brand-light), var(--brand-dark));
   border-radius: 16px;
   padding: 20px 0;
   color: #fff;

@@ -64,6 +64,7 @@ for (const [to, from] of [
 for (const [key, val, group] of [
   ['require_invite_code', '10', 'trade'],   // 注册必须填邀请码
   ['score_open', '10', 'store'],            // 积分商城开关
+  ['theme_key', 'coral', 'store'],          // 外观主题
   ['home_category_show', '10', 'nav'],      // 首页商品分类栏开关
   ['pay_balance_open', '10', 'pay'],        // 余额支付开关
   ['withdraw_wx_open', '10', 'trade'],      // 提现到微信

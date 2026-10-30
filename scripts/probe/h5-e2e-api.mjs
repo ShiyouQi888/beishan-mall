@@ -514,6 +514,29 @@ async function main() {
     const paySetting = await api('/api/index/getPaySeeting');
     ok(paySetting.code === 1, '支付设置可读', paySetting.msg);
 
+    // ========== 外观主题 ==========
+    section('[16.5] 外观主题：后台切换 → 前台读到新变量');
+    const t0 = await api('/api/index/getStoreInfo');
+    ok(t0.data?.theme?.key === 'coral' && t0.data.theme.vars['--brand'] === '#ff513a', '默认是珊瑚红', JSON.stringify(t0.data?.theme?.key));
+
+    const setTheme = (key) => api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'store', values: { theme_key: key } } });
+
+    await setTheme('green');
+    const t1 = await api('/api/index/getStoreInfo');
+    ok(t1.data?.theme?.key === 'green', '切到绿色健康', t1.data?.theme?.key);
+    ok(t1.data.theme.vars['--brand'] === '#2f9d5b', '下发绿色主色', t1.data.theme.vars['--brand']);
+    ok(t1.data.theme.vars['--brand-rgb'] === '47, 157, 91', '下发 rgb 供半透明阴影用', t1.data.theme.vars['--brand-rgb']);
+
+    const themes = await api('/admin/api/themes', { token: at });
+    ok((themes.data?.themes || []).length >= 3 && themes.data.themes.some((x) => x.key === 'green'), '后台可取预设列表', `${(themes.data?.themes || []).length} 套`);
+
+    await setTheme('not-exist');
+    const t2 = await api('/api/index/getStoreInfo');
+    ok(t2.data?.theme?.key === 'coral', '未知主题回落到默认', t2.data?.theme?.key);
+
+    await setTheme('coral');
+    ok((await api('/api/index/getStoreInfo')).data?.theme?.key === 'coral', '恢复珊瑚红');
+
     // ========== 数据一致性收尾 ==========
     section('[17] 冒烟后的数据一致性');
     eq(db.prepare('SELECT COUNT(*) c FROM member WHERE amount < 0').get().c, 0, '没有会员出现负余额');

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { themeOptions } from '../../lib/themes.js';
 import { all, get, run, tx, now, today } from '../../db.js';
 import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE } from '../../lib/helper.js';
 import { hashPwd, verifyPwd, signAdmin, randomCode } from '../../lib/auth.js';
@@ -372,6 +373,11 @@ r.get('/dashboard', authAdmin, (req, res) => {
   );
 });
 
+// 外观主题候选列表（后台设置页用）
+r.get('/themes', authAdmin, (req, res) => {
+  res.json(ok({ themes: themeOptions() }));
+});
+
 // 分类：一键设置「首页显示」（10 显示 / 20 隐藏）
 r.post('/category/home-show-all', authAdmin, (req, res) => {
   const value = Number(req.body?.value);
@@ -473,6 +479,7 @@ const SETTING_GROUPS = {
     { k: 'icp_number', t: 'ICP备案号', type: 'text' },
     { k: 'customer_service', t: '客服二维码', type: 'image' },
     { k: 'customer_link', t: '客服链接', type: 'text' },
+    { k: 'theme_key', t: '外观主题', type: 'theme', tip: '选一套配色，前台刷新页面即生效。只影响 H5 商城，后台界面不变。' },
     { k: 'score_open', t: '积分商城', type: 'switch', tip: '开启：我的页面显示积分余额与「积分商城」入口，会员可用积分兑换商品；关闭：前台隐藏全部积分入口，兑换接口一并关闭。已有的积分余额与兑换记录都会保留，后台仍可在会员列表里调账。' },
     { k: 'region_bg_img', t: '首页背景图', type: 'image' },
   ],

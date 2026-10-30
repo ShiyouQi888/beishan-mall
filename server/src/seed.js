@@ -122,6 +122,7 @@ tx(() => {
     ['prompt_withdraw', '<p>提现申请审核通过后 T+1 个工作日到账。</p>', 'prompt'],
     ['customer_type', '1', 'store'],
     ['to_examine', '10', 'store'],
+    ['theme_key', 'coral', 'store'],        // 外观主题：coral / green / ocean
     ['score_open', '10', 'store'],  // 积分商城：10 显示并开放 / 20 前台隐藏且接口关闭
     ['region_bg_img', '', 'store'],
     ['android_vision', '1.0.0', 'store'],

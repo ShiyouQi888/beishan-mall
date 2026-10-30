@@ -66,7 +66,7 @@ onMounted(async () => {
 .wall__card {
   padding: 20px 18px;
   border-radius: 18px;
-  background: linear-gradient(150deg, #ff7a52, #e63c26 70%, #c92b17);
+  background: linear-gradient(150deg, var(--brand-hero-1), var(--brand-hero-2) 70%, var(--brand-hero-3));
   color: #fff;
   box-shadow: 0 10px 26px rgba(230, 60, 38, 0.22);
 }

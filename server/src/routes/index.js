@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { themeOf, DEFAULT_THEME } from '../lib/themes.js';
 import { all, get } from '../db.js';
 import { ok, fail, authMember } from '../lib/helper.js';
 
@@ -49,6 +50,8 @@ r.get('/index/getStoreInfo', (req, res) => {
       customer_link: cfg('customer_link', '#'),
       toExamine: cfg('to_examine', '10'),
       score_open: cfg('score_open', '10'),
+      // 外观主题：key + 该主题的全部 CSS 变量，H5 启动时写到 :root
+      theme: (() => { const t = themeOf(cfg('theme_key', DEFAULT_THEME)); return { key: t.key, name: t.name, vars: t.vars }; })(),
     }),
   );
 });

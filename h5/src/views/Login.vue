@@ -71,7 +71,7 @@ async function submit() {
 
 <style scoped>
 .login { min-height:100vh;min-height:100dvh;max-width:520px;margin:0 auto;padding-bottom:max(28px,env(safe-area-inset-bottom));background:#f4f5f7;position:relative;overflow:hidden; }
-.login__bg { position:absolute;top:0;left:0;right:0;height:328px;background:linear-gradient(145deg,#ff795d 0%,#f04c36 48%,#d83727 100%);border-radius:0 0 32px 32px; }
+.login__bg { position:absolute;top:0;left:0;right:0;height:328px;background:linear-gradient(145deg, var(--brand-hero-1) 0%, var(--brand-hero-2) 48%, var(--brand-hero-3) 100%);border-radius:0 0 32px 32px; }
 .login__brand { position:relative;padding:max(46px,calc(env(safe-area-inset-top) + 28px)) 26px 70px;color:#fff; }
 .login__logo { display:flex;align-items:center;justify-content:center;width:58px;height:58px;margin-bottom:13px;border:1px solid rgba(255,255,255,.35);border-radius:18px;background:rgba(255,255,255,.18);box-shadow:0 8px 22px rgba(124,30,17,.14);overflow:hidden; }
 .login__logo img { width:100%;height:100%;object-fit:contain;border-radius:16px;background:#fff;padding:4px; }
@@ -84,13 +84,13 @@ async function submit() {
 .field { margin-bottom:16px; }
 .field label { display:block;margin:0 0 7px 2px;color:#727b88;font-size:12px;font-weight:550; }
 .field input { width:100%;height:48px;padding:0 15px;border:1px solid #e8ebf0;border-radius:13px;background:#f8f9fb;font-family:var(--font);font-size:14px;font-weight:450;outline:none;transition:border-color .16s,background .16s,box-shadow .16s; }
-.field input:focus { border-color:#ff806b;background:#fff;box-shadow:0 0 0 3px rgba(255,81,58,.08); }
+.field input:focus { border-color:#ff806b;background:#fff;box-shadow:0 0 0 3px rgba(var(--brand-rgb),.08); }
 .field input::placeholder { color:#aab0ba; }
-.btn-main { height:49px;margin-top:5px;border-radius:15px;box-shadow:0 8px 18px rgba(255,81,58,.2);font-size:15px;font-weight:650; }
+.btn-main { height:49px;margin-top:5px;border-radius:15px;box-shadow:0 8px 18px rgba(var(--brand-rgb),.2);font-size:15px;font-weight:650; }
 .btn-main:disabled { opacity:.68;box-shadow:none; }
 .login__foot { display:flex;align-items:center;justify-content:center;gap:8px;margin-top:19px;color:#818995;font-size:13px; }
 .login__foot span { cursor:pointer; }
-.login__foot span:first-child { color:#db4937;font-weight:600; }
+.login__foot span:first-child { color:var(--brand-dark);font-weight:600; }
 .login__foot .dot { opacity:.4; }
 @media(max-width:360px) { .login__card { margin-left:12px;margin-right:12px;padding-left:18px;padding-right:18px; } }
 </style>

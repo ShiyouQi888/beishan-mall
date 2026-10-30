@@ -76,7 +76,7 @@
     <!-- 我的店铺 -->
     <div class="card mine__block shop-entry" @click="router.push('/my-shop')">
       <div class="shop-entry__ico">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4 9.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19V9.5" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round"/><path d="M3 9.5 5.2 4.5h13.6L21 9.5M3 9.5h18M9 13v3M15 13v3" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4 9.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19V9.5" stroke="var(--brand)" stroke-width="1.7" stroke-linecap="round"/><path d="M3 9.5 5.2 4.5h13.6L21 9.5M3 9.5h18M9 13v3M15 13v3" stroke="var(--brand)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <div class="shop-entry__main">
         <div class="shop-entry__title">
@@ -125,21 +125,21 @@ const stats = reactive({ orders: 0, team: 0, teamOrders: 0 });
 const shop = reactive({ count: 0, listedCount: 0, totalNet: 0 });
 
 const orderQuick = [
-  { status: 0, label: '待付款', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="#ff513a" stroke-width="1.7"/><path d="M3 10h18" stroke="#ff513a" stroke-width="1.7"/></svg>` },
+  { status: 0, label: '待付款', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="var(--brand)" stroke-width="1.7"/><path d="M3 10h18" stroke="var(--brand)" stroke-width="1.7"/></svg>` },
   { status: 10, label: '待发货', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M3.5 8.5 12 4l8.5 4.5v7L12 20l-8.5-4.5v-7Z" stroke="#ff8a3d" stroke-width="1.7" stroke-linejoin="round"/><path d="M3.5 8.5 12 13l8.5-4.5M12 13v7" stroke="#ff8a3d" stroke-width="1.7"/></svg>` },
   { status: 20, label: '待收货', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><rect x="2.5" y="7" width="12" height="10" rx="1.6" stroke="#3d9cff" stroke-width="1.7"/><path d="M14.5 10h4l3 3v4h-7v-7Z" stroke="#3d9cff" stroke-width="1.7" stroke-linejoin="round"/><circle cx="7" cy="18" r="1.8" stroke="#3d9cff" stroke-width="1.7"/><circle cx="17.5" cy="18" r="1.8" stroke="#3d9cff" stroke-width="1.7"/></svg>` },
   { status: 30, label: '已完成', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="#2eb872" stroke-width="1.7"/><path d="m8.3 12.2 2.6 2.6 4.8-5" stroke="#2eb872" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>` },
 ];
 
 const allFuncs = [
-  { label: '邀请好友', to: '/invite', bg: '#fff1ee', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="9" cy="8" r="3" stroke="#ff513a" stroke-width="1.7"/><path d="M3.8 19.5c0-2.9 2.3-5 5.2-5s5.2 2.1 5.2 5" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round"/><path d="M17 6.5v6M14 9.5h6" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round"/></svg>` },
+  { label: '邀请好友', to: '/invite', bg: 'var(--brand-soft)', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="9" cy="8" r="3" stroke="var(--brand)" stroke-width="1.7"/><path d="M3.8 19.5c0-2.9 2.3-5 5.2-5s5.2 2.1 5.2 5" stroke="var(--brand)" stroke-width="1.7" stroke-linecap="round"/><path d="M17 6.5v6M14 9.5h6" stroke="var(--brand)" stroke-width="1.7" stroke-linecap="round"/></svg>` },
   { label: '我的团队', to: '/team', bg: '#eef4ff', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="8.5" cy="8.5" r="2.8" stroke="#3d7dff" stroke-width="1.7"/><circle cx="16.5" cy="9.5" r="2.2" stroke="#3d7dff" stroke-width="1.7"/><path d="M3.5 19c0-2.7 2.2-4.6 5-4.6s5 1.9 5 4.6M14 19c0-2.2 1.4-3.7 3.5-3.7s3.5 1.5 3.5 3.7" stroke="#3d7dff" stroke-width="1.7" stroke-linecap="round"/></svg>` },
   { label: '结算待办', to: '/settle', bg: '#eefaf3', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4 8h13l-3-3M20 16H7l3 3" stroke="#2eb872" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>` },
   { label: '提现', to: '/withdraw', bg: '#fff7e8', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M12 4v11" stroke="#e8a33d" stroke-width="1.8" stroke-linecap="round"/><path d="m7.8 11 4.2 4.2 4.2-4.2" stroke="#e8a33d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 19.5h15" stroke="#e8a33d" stroke-width="1.8" stroke-linecap="round"/></svg>` },
   { label: '实名认证', to: '/identify', bg: '#eefaf3', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="3" y="5" width="18" height="14" rx="2.4" stroke="#2eb872" stroke-width="1.7"/><circle cx="9" cy="11" r="2" stroke="#2eb872" stroke-width="1.6"/><path d="M5.6 16.2c.4-1.5 1.7-2.4 3.4-2.4s3 .9 3.4 2.4M15 10h3.5M15 13.5h3.5" stroke="#2eb872" stroke-width="1.6" stroke-linecap="round"/></svg>` },
   { label: '收货地址', to: '/address', bg: '#f1efff', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M12 21s7-5.3 7-11a7 7 0 1 0-14 0c0 5.7 7 11 7 11Z" stroke="#7a5cf5" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.6" stroke="#7a5cf5" stroke-width="1.7"/></svg>` },
   { label: '积分商城', to: '/score', bg: '#fff1f5', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.2 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.7l5.9-.8L12 3.5Z" stroke="#e8548a" stroke-width="1.7" stroke-linejoin="round"/></svg>` },
-  { label: '佣金明细', to: '/commission', bg: '#fff1ee', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2" stroke="#ff513a" stroke-width="1.7"/><path d="M7.5 9h9M7.5 12.5h9M7.5 16h5" stroke="#ff513a" stroke-width="1.7" stroke-linecap="round"/></svg>` },
+  { label: '佣金明细', to: '/commission', bg: 'var(--brand-soft)', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2" stroke="var(--brand)" stroke-width="1.7"/><path d="M7.5 9h9M7.5 12.5h9M7.5 16h5" stroke="var(--brand)" stroke-width="1.7" stroke-linecap="round"/></svg>` },
   { label: '公告', to: '/notice', bg: '#eef7ff', icon: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4.5 9.5v5l11 4.5V5L4.5 9.5Z" stroke="#3d9cff" stroke-width="1.7" stroke-linejoin="round"/><path d="M18 9.5a3 3 0 0 1 0 5" stroke="#3d9cff" stroke-width="1.7" stroke-linecap="round"/></svg>` },
 ];
 
@@ -195,7 +195,7 @@ onMounted(load);
 .mine { background: var(--bg); }
 
 .mine__head {
-  background: linear-gradient(165deg, #ff6a4d 0%, #f0402a 55%, #d3321d 100%);
+  background: linear-gradient(165deg, var(--brand-hero-1) 0%, var(--brand-hero-2) 55%, var(--brand-hero-3) 100%);
   padding: 22px 18px 58px;
   border-radius: 0 0 26px 26px;
   position: relative;

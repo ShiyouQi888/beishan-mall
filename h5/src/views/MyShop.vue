@@ -109,7 +109,7 @@ onMounted(load);
 .shop { background: var(--bg); min-height: 100vh; }
 
 .sum {
-  background: linear-gradient(135deg, #fff 0%, #fff7f5 100%);
+  background: linear-gradient(135deg, #fff 0%, var(--brand-soft) 100%);
   border: 1px solid #ffe6e0; border-radius: 14px; padding: 16px 14px 13px;
   margin-bottom: 12px;
 }

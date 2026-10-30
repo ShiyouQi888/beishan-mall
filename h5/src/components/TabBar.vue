@@ -25,7 +25,7 @@ import { api } from '../api.js';
 const route = useRoute();
 const router = useRouter();
 
-const c = (on) => (on ? '#ff513a' : '#9aa0aa');
+const c = (on) => (on ? 'var(--brand)' : '#9aa0aa');
 
 const config = ref({ index_open: '10', category_open: '10', loot_open: '10', invite_open: '10', member_open: '10' });
 const definitions = [

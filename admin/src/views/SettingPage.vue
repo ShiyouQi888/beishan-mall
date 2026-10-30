@@ -61,6 +61,24 @@
                 周{{ DAY_NAMES[d - 1] }}
               </button>
             </div>
+            <!-- 外观主题：卡片选择，存 theme_key -->
+            <div v-else-if="it.type === 'theme'" class="theme-grid">
+              <button
+                v-for="t in themes"
+                :key="t.key"
+                type="button"
+                class="theme-card"
+                :class="{ on: values[it.k] === t.key }"
+                @click="values[it.k] = t.key"
+              >
+                <span class="theme-card__dots">
+                  <i v-for="(c, i) in t.preview" :key="i" :style="{ background: c }" />
+                </span>
+                <b>{{ t.name }}</b>
+                <small>{{ t.desc }}</small>
+                <em v-if="values[it.k] === t.key" class="theme-card__badge">使用中</em>
+              </button>
+            </div>
             <!-- 时分选择 → 存秒数；留空表示不限 -->
             <el-time-select
               v-else-if="it.type === 'timesec'"
@@ -98,6 +116,15 @@ const route = useRoute();
 const items = ref([]);
 const values = reactive({});
 const loading = ref(false);
+// 外观主题候选（服务端 lib/themes.js 里维护）
+const themes = ref([]);
+async function loadThemes() {
+  if (themes.value.length) return;
+  try {
+    const r = await adminApi.themes();
+    themes.value = r.data?.themes || [];
+  } catch {}
+}
 
 // ---- 周一~周日 多选（存成 "1,2,3,4,5"；空字符串 = 不限/每天）----
 const DAY_NAMES = ['一', '二', '三', '四', '五', '六', '日'];
@@ -167,6 +194,7 @@ function imagePresets(key) {
 
 async function load() {
   loading.value = true;
+  loadThemes();
   try {
     const r = await adminApi.setting(route.params.group);
     items.value = r.data.items || [];
@@ -247,6 +275,31 @@ onMounted(load);
 .setting-form :deep(.el-form-item__content) { flex-wrap: wrap; }
 /* 控件与说明竖排，避免说明文字被挤到控件右侧 */
 .ctl { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+
+.theme-grid { display: flex; gap: 12px; flex-wrap: wrap; }
+.theme-card {
+  position: relative;
+  width: 176px;
+  padding: 14px 14px 12px;
+  border: 1px solid #e8ecf2;
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.theme-card:hover { border-color: #ffcdc5; }
+.theme-card.on { border-color: #ff8f7a; box-shadow: 0 0 0 3px rgba(255, 81, 58, 0.1); }
+.theme-card__dots { display: flex; gap: 5px; margin-bottom: 10px; }
+.theme-card__dots i { width: 20px; height: 20px; border-radius: 6px; display: block; }
+.theme-card b { display: block; font-size: 13px; color: #22252b; }
+.theme-card small { display: block; margin-top: 3px; font-size: 11.5px; color: #929aa6; line-height: 1.5; }
+.theme-card__badge {
+  position: absolute; top: 10px; right: 10px;
+  font-style: normal; font-size: 10.5px;
+  color: #d14328; background: #fff1ee; border-radius: 4px; padding: 1px 6px;
+}
 
 .days { display: flex; gap: 6px; flex-wrap: wrap; }
 .day {

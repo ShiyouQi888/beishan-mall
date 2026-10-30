@@ -31,7 +31,7 @@
         <div class="form-row">
           <div class="form-row__label">设为默认</div>
           <div class="form-row__ctrl">
-            <van-switch v-model="form.is_default" size="20" active-color="#ff513a" :active-value="1" :inactive-value="0" />
+            <van-switch v-model="form.is_default" size="20" active-color="var(--brand)" :active-value="1" :inactive-value="0" />
           </div>
         </div>
       </div>
