@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { all, get, run, now } from '../db.js';
 import { ok, fail, authMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
 import { splitGoods } from '../lib/split.js';
-import { buyWindow } from '../lib/buyWindow.js';
+import { sessionWindow } from '../lib/sessionWindow.js';
 import { activeSessions } from '../lib/sessions.js';
 
 const r = Router();
@@ -80,11 +80,11 @@ r.get('/category/getCategoryGoodsList', (req, res) => {
 
 // ---------------- 抢购场次 ---------------- 
 function areaPayload() {
-  // 时间统一取「抢购总时间」（交易设置），场次里各自的 start_time / end_time / open_days 已停用
-  const w = buyWindow();
-  // 场次顺序统一走 lib/sessions.js：开放中的在前，再按时间/上午-下午-晚上的语义排
-  const list = activeSessions(() => w.open);
+  const now = new Date();
+  // 场次顺序统一走 lib/sessions.js：开放中的在前，再按各自开始时间 / 上午-下午-晚上语义排
+  const list = activeSessions((a) => sessionWindow(a, now));
   return list.map((a) => {
+    const w = sessionWindow(a, now);
     const start = w.dayStart + w.start;
     const end = w.end ? w.dayStart + w.end : w.dayStart + 86399;
     return {
@@ -111,7 +111,7 @@ function areaPayload() {
       is_introduction_order: 0,
       is_subscribe: a.is_subscribe,
       buy_num: a.buy_num,
-      open_days: w.days.length ? w.days.join(',') : '1,2,3,4,5,6,7',
+      open_days: a.open_days || '1,2,3,4,5,6,7',
       transposition_hours: a.transposition_hours,
     };
   });
@@ -156,7 +156,7 @@ r.get('/getLootDetails', (req, res) => {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在或已下架'));
   const area = get('SELECT * FROM specialarea WHERE specialarea_id = ?', g.specialarea_id);
-  const w = buyWindow();
+  const w = area ? sessionWindow(area) : { open: false, startText: '', endText: '' };
   res.json(
     ok({
       ...fmtGoods(g),

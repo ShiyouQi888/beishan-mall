@@ -68,6 +68,8 @@ async function main() {
 
   try {
     const at = (await api('/admin/api/login', { method: 'POST', body: { user_name: 'admin1', password: '123456' } })).data.token;
+    // 场次时间放开成全天然，避免探针在非营业时段跑不通（时段本身由 session-window.mjs 覆盖）
+    db.prepare('UPDATE specialarea SET start_time = 0, end_time = 86399').run();
     // 上架费设 0，避免余额不足挡住转拍
     await api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'trade', values: { listing_fee_rate: '0', service_charge: '0' } } });
 

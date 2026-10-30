@@ -14,12 +14,19 @@ import { all } from '../db.js';
 
 const NAME_RANK = { forenoon: 1, afternoon: 2, evening: 3 };
 
-/** 场次排序：openFirst 传一个 (session) => boolean 用来判断是否还在开放 */
-export function orderSessions(list, openFirst = () => true) {
+// 三态权重：进行中 → 未开始 → 已结束 → 今天不开放
+const STATE_RANK = { open: 0, upcoming: 1, ended: 2, closed: 3 };
+
+/**
+ * 场次排序
+ * @param {Array} list 场次行
+ * @param {(s) => {state: string}} stateOf 取每个场次此刻的状态（来自 lib/sessionWindow）
+ */
+function orderSessions(list, stateOf = () => ({ state: 'open' })) {
   return [...list].sort((a, b) => {
-    const oa = openFirst(a) ? 0 : 1;
-    const ob = openFirst(b) ? 0 : 1;
-    if (oa !== ob) return oa - ob;
+    const ra0 = STATE_RANK[stateOf(a).state] ?? 0;
+    const rb0 = STATE_RANK[stateOf(b).state] ?? 0;
+    if (ra0 !== rb0) return ra0 - rb0;
 
     const sa = Number(a.start_time) || 0;
     const sb = Number(b.start_time) || 0;
@@ -38,16 +45,16 @@ export function orderSessions(list, openFirst = () => true) {
 }
 
 /** 启用中的场次，已按规范顺序排好 */
-export function activeSessions(openFirst) {
-  return orderSessions(all('SELECT * FROM specialarea WHERE is_open = 10'), openFirst);
+export function activeSessions(stateOf) {
+  return orderSessions(all('SELECT * FROM specialarea WHERE is_open = 10'), stateOf);
 }
 
 /**
  * 下一场：按规范顺序往后挪一格，到末尾回到第一场
  * 商品被抢走后转拍上架，就用它决定落到哪个场次
  */
-export function nextSessionId(currentId, openFirst) {
-  const list = activeSessions(openFirst);
+export function nextSessionId(currentId) {
+  const list = activeSessions();
   if (!list.length) return 0;
   const idx = list.findIndex((s) => Number(s.specialarea_id) === Number(currentId));
   if (idx < 0) return Number(list[0].specialarea_id);

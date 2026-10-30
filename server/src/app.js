@@ -63,9 +63,6 @@ for (const [to, from] of [
 // 新增配置项：老库没有这些键时补默认值（否则后台开关会按「关闭」显示）
 for (const [key, val, group] of [
   ['require_invite_code', '10', 'trade'],   // 注册必须填邀请码
-  ['buy_open_days', '1,2,3,4,5,6,7', 'trade'], // 抢购开放日（全站统一）
-  ['buy_start_time', '0', 'trade'],         // 每日开始（秒）
-  ['buy_end_time', '0', 'trade'],           // 每日结束（秒，0=不限时）
   ['score_open', '10', 'store'],            // 积分商城开关
   ['home_category_show', '10', 'nav'],      // 首页商品分类栏开关
 ]) {

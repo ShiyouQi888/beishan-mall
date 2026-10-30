@@ -3,19 +3,36 @@
     <div class="page-head">
       <div>
         <h2>抢购专场配置</h2>
-        <div class="desc">设置该专场的标题、配图、限购与转拍时限；开放时间由「交易设置」统一控制</div>
+        <div class="desc">设置该专场的开放日期、抢购时段、限购与转拍时限</div>
       </div>
       <el-button @click="$router.back()">返回列表</el-button>
     </div>
 
     <div class="panel" v-loading="loading">
       <el-form label-width="150px" label-position="right" class="cfg-form">
-        <!-- 开放时间：全站统一，这里只展示 -->
-        <el-form-item label="开放时间">
-          <div class="window-info">
-            <b>{{ windowText }}</b>
-            <span>对所有场次生效 · <a @click="goTrade">去交易设置修改</a></span>
+        <!-- 开放日期 -->
+        <el-form-item label="开放日期" required>
+          <div class="days">
+            <button
+              v-for="d in dayOptions"
+              :key="d.v"
+              type="button"
+              class="day-btn"
+              :class="{ on: days.includes(d.v) }"
+              @click="toggleDay(d.v)"
+            >{{ d.t }}</button>
           </div>
+          <div class="hint">点击切换，实心为开启，灰色为关闭</div>
+        </el-form-item>
+
+        <!-- 抢购时段 -->
+        <el-form-item label="抢购时段" required>
+          <div class="time-row">
+            <el-time-select v-model="form.startText" start="00:00" step="00:30" end="23:30" placeholder="开始" style="width: 150px" />
+            <span class="tilde">~</span>
+            <el-time-select v-model="form.endText" start="00:00" step="00:30" end="23:30" clearable placeholder="不限" style="width: 150px" />
+          </div>
+          <div class="hint">每日在这个时段内开放抢购；结束时间留空表示不限（跨天时段不支持，请拆成两个场次）</div>
         </el-form-item>
 
         <!-- 限购 -->
@@ -67,31 +84,37 @@ const form = reactive({
   name: '',
   title_main: '',
   title_ordinary: '',
+  startText: '09:00',
+  endText: '',
   buy_num: 10,
   transposition_hours: 10,
   image_ordinary: '',
 });
 
-// 开放时间全站统一（交易设置 → 抢购总时间），这里只读展示，避免手输格式出错
-const windowText = ref('');
-const DAY_NAMES = ['一', '二', '三', '四', '五', '六', '日'];
-const hm = (sec) => `${String(Math.floor(Number(sec || 0) / 3600)).padStart(2, '0')}:${String(Math.floor((Number(sec || 0) % 3600) / 60)).padStart(2, '0')}`;
+const dayOptions = [
+  { v: 1, t: '周一' }, { v: 2, t: '周二' }, { v: 3, t: '周三' }, { v: 4, t: '周四' },
+  { v: 5, t: '周五' }, { v: 6, t: '周六' }, { v: 7, t: '周日' },
+];
+const days = ref([1, 2, 3, 4, 5, 6, 7]);
 
-async function loadWindow() {
-  try {
-    const r = await http.get('/setting/trade');
-    const v = r.data?.values || {};
-    const days = String(v.buy_open_days || '1,2,3,4,5,6,7').split(',').map((x) => Number(x)).filter((n) => n >= 1 && n <= 7);
-    const start = Number(v.buy_start_time || 0);
-    const end = Number(v.buy_end_time || 0);
-    const daysText = days.length === 0 || days.length === 7 ? '每天' : days.map((d) => `周${DAY_NAMES[d - 1]}`).join(' ');
-    windowText.value = `${daysText} · ${hm(start)} ~ ${end ? hm(end) : '不限时'}`;
-  } catch {
-    windowText.value = '读取失败，请到交易设置查看';
+// 秒 ⇄ HH:mm（0 秒要显示 00:00，不能当空值；结束时间空 = 不限）
+const secToHm = (sec) => {
+  const n = Math.max(0, Number(sec) || 0);
+  return `${String(Math.floor(n / 3600)).padStart(2, '0')}:${String(Math.floor((n % 3600) / 60)).padStart(2, '0')}`;
+};
+const hmToSec = (txt) => {
+  const m = String(txt || '').match(/^(\d{1,2}):(\d{1,2})$/);
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 : 0;
+};
+
+function toggleDay(v) {
+  if (days.value.includes(v)) {
+    if (days.value.length === 1) return ElMessage.warning('至少保留一天');
+    days.value = days.value.filter((x) => x !== v);
+  } else {
+    days.value = [...days.value, v].sort((a, b) => a - b);
   }
 }
-
-const goTrade = () => router.push('/setting/trade');
 
 async function uploadImage(file) {
   const r = await adminApi.upload(file);
@@ -110,16 +133,25 @@ async function load() {
       name: d.name || '',
       title_main: d.title_main || '',
       title_ordinary: d.title_ordinary || '',
+      startText: secToHm(d.start_time),
+      endText: Number(d.end_time) ? secToHm(d.end_time) : '',
       buy_num: Number(d.buy_num || 1),
       transposition_hours: Number(d.transposition_hours || 0),
       image_ordinary: d.image_ordinary || '',
     });
+    days.value = String(d.open_days || '1,2,3,4,5,6,7')
+      .split(',').map(Number).filter((x) => x >= 1 && x <= 7);
+    if (!days.value.length) days.value = [1, 2, 3, 4, 5, 6, 7];
   } finally {
     loading.value = false;
   }
 }
 
 async function save() {
+  const st = hmToSec(form.startText);
+  const et = form.endText ? hmToSec(form.endText) : 0;
+  if (!form.startText) return ElMessage.warning('请选择抢购开始时间');
+  if (et && et <= st) return ElMessage.warning('结束时间必须晚于开始时间');
   if (!form.title_main) return ElMessage.warning('请填写专场标题');
   if (!form.image_ordinary) return ElMessage.warning('请上传专区图片');
 
@@ -130,6 +162,9 @@ async function save() {
         name: form.name,
         title_main: form.title_main,
         title_ordinary: form.title_ordinary,
+        open_days: days.value.join(','),
+        start_time: st,
+        end_time: et,
         buy_num: form.buy_num,
         transposition_hours: form.transposition_hours,
         image_ordinary: form.image_ordinary,
@@ -143,21 +178,37 @@ async function save() {
   }
 }
 
-onMounted(() => {
-  load();
-  loadWindow();
-});
+onMounted(load);
 </script>
 
 <style scoped>
 .cfg-form { max-width: 760px; padding: 10px 0 4px; }
 .cfg-form :deep(.el-form-item) { margin-bottom: 24px; }
 
-.window-info { display: flex; flex-direction: column; gap: 4px; }
-.window-info b { font-size: 14px; color: #22252b; letter-spacing: 0.3px; }
-.window-info span { font-size: 12px; color: #a8adb7; }
-.window-info a { color: #ff513a; cursor: pointer; }
-.window-info a:hover { text-decoration: underline; }
+.days { display: flex; gap: 8px; flex-wrap: wrap; }
+.day-btn {
+  min-width: 54px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #e4e7ed;
+  background: #f4f5f7;
+  color: #7d848f;
+  font-size: 13px;
+  font-family: var(--font);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.day-btn:hover { border-color: #ffb3a6; color: #ff513a; }
+.day-btn.on {
+  background: linear-gradient(135deg, #ff6a4d, #ff513a);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(255, 81, 58, 0.24);
+}
+
+.time-row { display: flex; align-items: center; gap: 10px; }
+.tilde { color: #a8adb7; }
 
 .unit { margin-left: 10px; font-size: 12.5px; color: #8c93a0; }
 

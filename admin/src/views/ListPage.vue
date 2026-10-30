@@ -137,7 +137,7 @@
             </span>
 
             <!-- 秒 → 时间 -->
-            <span v-else-if="f.type === 'timesec'" class="mono">{{ secToTime(row[f.k]) }}</span>
+            <span v-else-if="f.type === 'timesec'" class="mono">{{ timeCell(f, row) }}</span>
 
             <!-- 开启日期 -->
             <span v-else-if="f.type === 'days'">{{ dayLabel(row[f.k]) }}</span>
@@ -252,7 +252,7 @@
         <el-descriptions-item label="审核状态">{{ Number(form.is_examine) === 10 ? '已通过' : Number(form.is_examine) === 20 ? '已拒绝' : '待审核' }}</el-descriptions-item>
         <el-descriptions-item label="下单时间">{{ form.create_time || '—' }}</el-descriptions-item>
       </el-descriptions>
-      <el-form v-else label-width="104px" label-position="right">
+      <el-form v-else label-width="124px" label-position="right">
         <el-form-item v-for="f in formFields" :key="f.k" :label="f.t">
           <template v-if="f.type === 'image'">
             <div class="image-field">
@@ -295,7 +295,29 @@
             <el-option v-for="(label, idx) in VIP_LABELS" :key="idx" :value="idx" :label="label" />
           </el-select>
           <el-input v-else-if="f.type === 'rich'" v-model="form[f.k]" type="textarea" :rows="5" placeholder="支持 HTML" />
-          <el-input v-else-if="f.type === 'timesec'" :model-value="secToTime(form[f.k])" placeholder="如 09:00" @update:model-value="(v) => (form[f.k] = timeToSec(v))" />
+          <el-time-select
+            v-else-if="f.type === 'timesec'"
+            :model-value="timeModel(f)"
+            start="00:00"
+            step="00:30"
+            end="23:30"
+            clearable
+            :placeholder="f.k === 'end_time' ? '不限' : '00:00'"
+            style="width: 150px"
+            @update:model-value="(v) => (form[f.k] = hmToSec(v))"
+          />
+          <div v-else-if="f.type === 'days'" class="days-field">
+            <button
+              v-for="d in 7"
+              :key="d"
+              type="button"
+              class="day-btn"
+              :class="{ on: dayOn(f.k, d) }"
+              @click="toggleFormDay(f.k, d)"
+            >
+              周{{ DAY_NAMES[d - 1] }}
+            </button>
+          </div>
           <el-input-number
             v-else-if="f.type === 'money' || f.type === 'number'"
             v-model="form[f.k]"
@@ -684,16 +706,30 @@ const dayLabel = (v) => {
   return arr.map((x) => '周' + DAY_NAMES[x - 1]).join(' ');
 };
 
-const secToTime = (sec) => {
-  const n = Number(sec) || 0;
-  if (!n) return '—';
+
+/* ---- 时间字段：列表展示与表单选择器（0 秒必须显示 00:00，不能当空值） ---- */
+const secToHm = (sec) => {
+  const n = Math.max(0, Number(sec) || 0);
   return `${String(Math.floor(n / 3600)).padStart(2, '0')}:${String(Math.floor((n % 3600) / 60)).padStart(2, '0')}`;
 };
-const timeToSec = (txt) => {
+const hmToSec = (txt) => {
   const m = String(txt || '').match(/^(\d{1,2}):(\d{1,2})$/);
-  if (!m) return 0;
-  return Number(m[1]) * 3600 + Number(m[2]) * 60;
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 : 0;
 };
+// 结束时间 0 表示不限时，列表里显示「不限」而不是 00:00
+const timeCell = (f, row) => (f.k === 'end_time' && !Number(row[f.k]) ? '不限' : secToHm(row[f.k]));
+const timeModel = (f) => (f.k === 'end_time' && !Number(form[f.k]) ? '' : secToHm(form[f.k]));
+
+/* ---- 星期多选（存成 "1,2,3,4,5"） ---- */
+const formDayArr = (k) =>
+  String(form[k] ?? '').split(',').map((s) => Number(String(s).trim())).filter((n) => n >= 1 && n <= 7);
+const dayOn = (k, d) => formDayArr(k).includes(d);
+function toggleFormDay(k, d) {
+  const set = new Set(formDayArr(k));
+  if (set.has(d)) set.delete(d);
+  else set.add(d);
+  form[k] = [...set].sort((a, b) => a - b).join(',');
+}
 
 const stripHtml = (h) => String(h || '').replace(/<[^>]+>/g, '').slice(0, 40);
 const imgList = (s) => {
@@ -759,6 +795,8 @@ function openCreate() {
   if ('goods_status' in form) form.goods_status = 10;
   if ('is_open' in form) form.is_open = 10;
   if ('home_show' in form && modKey.value === 'category') form.home_show = 10;
+  // 新建场次默认周一到周日全开，避免一上来七个按钮都是灰的
+  if ('open_days' in form && !form.open_days) form.open_days = '1,2,3,4,5,6,7';
   if ('disabled' in form && modKey.value === 'navigation') form.disabled = 10;
   if ('disabled' in form && modKey.value === 'member') form.disabled = 10;
   if ('is_valid' in form) form.is_valid = 10;
@@ -1326,4 +1364,22 @@ onMounted(load);
 
 .mono { font-variant-numeric: tabular-nums; }
 .muted { color: #a8adb7; }
+
+/* 星期多选（场次开放日期等） */
+.days-field { display: flex; gap: 6px; flex-wrap: wrap; }
+.day-btn {
+  min-width: 44px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid #e5e9ef;
+  border-radius: 7px;
+  background: #fafbfc;
+  color: #6b7280;
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.day-btn:hover { border-color: #ffcdc5; color: #d14328; }
+.day-btn.on { border-color: #ff8f7a; background: #fff1ee; color: #d14328; font-weight: 600; }
 </style>

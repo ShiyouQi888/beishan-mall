@@ -4,7 +4,7 @@ import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceCharg
 import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate } from '../lib/settle.js';
 import { deductStock } from '../lib/split.js';
-import { buyWindow } from '../lib/buyWindow.js';
+import { sessionWindow } from '../lib/sessionWindow.js';
 import { nextSessionId } from '../lib/sessions.js';
 
 const r = Router();
@@ -66,13 +66,13 @@ r.post('/toAddOrder', authMember, (req, res) => {
   if (g.goods_status !== 10) return res.json(fail('商品已下架'));
   if (g.member_id === m.member_id) return res.json(fail('不能购买自己持有的商品'));
 
-  // 场次时间校验：统一按后台「交易设置 → 抢购总时间」判断（所有场次共用一套）
+  // 场次时间校验：按该商品所属场次自己的「周几 + 时段」判断
   if (g.specialarea_id) {
     const a = get('SELECT * FROM specialarea WHERE specialarea_id = ?', g.specialarea_id);
     if (a) {
-      const w = buyWindow();
-      if (!w.dayOk) return res.json(fail(`今日不是抢购日（开放：${w.daysText}）`));
-      if (!w.timeOk) return res.json(fail(`当前不在抢购时间内（${w.text}）`));
+      const w = sessionWindow(a);
+      if (!w.dayOk) return res.json(fail(`今日未开放该场次（开放：${w.daysText}）`));
+      if (!w.timeOk) return res.json(fail(`当前不在该场次抢购时间内（${w.text}）`));
       // 限购
       const bought = get(
         'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND type = 1 AND status <> 40 AND create_time >= ?',
