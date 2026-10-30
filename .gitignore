@@ -3,6 +3,9 @@
 **/dist/
 # 一体化构建产物（由 npm run build 生成）
 public/
+# 例外：H5 的 PWA 静态资源（sw.js / 图标）属于源码，构建时会复制到产物根目录
+!h5/public/
+!h5/public/**
 
 
 # Docker compose 挂载的数据目录（SQLite + 上传文件）

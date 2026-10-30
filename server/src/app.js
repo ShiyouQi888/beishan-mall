@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { db, get, run } from './db.js';
 import { ensureNodes } from './lib/nodes.js';
 import { ensureBuiltinAdmin } from './lib/builtinAdmin.js';
-import { fail } from './lib/helper.js';
+import { fail, cfg } from './lib/helper.js';
+import { themeOf, DEFAULT_THEME } from './lib/themes.js';
 
 import indexRouter from './routes/index.js';
 import memberRouter from './routes/member.js';
@@ -148,6 +149,41 @@ const ADMIN_DIR = join(PUBLIC_DIR, 'admin');
 const H5_DIR = join(PUBLIC_DIR, 'h5');
 const hasAdmin = existsSync(join(ADMIN_DIR, 'index.html'));
 const hasH5 = existsSync(join(H5_DIR, 'index.html'));
+
+// ---- PWA：清单与 iOS 主屏图标（跟随店铺名与当前主题）----
+app.get('/manifest.webmanifest', (req, res) => {
+  const theme = themeOf(cfg('theme_key', DEFAULT_THEME));
+  const name = cfg('store_name', '北山商城') || '北山商城';
+  const icons = [
+    { src: '/pwa/' + theme.key + '-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+    { src: '/pwa/' + theme.key + '-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+    { src: '/pwa/' + theme.key + '-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+  ];
+  const logo = cfg('store_logo', '');
+  if (logo) icons.push({ src: logo, sizes: 'any', purpose: 'any' });
+  res.type('application/manifest+json').send(JSON.stringify({
+    name,
+    short_name: name.length > 12 ? name.slice(0, 12) : name,
+    description: name + ' · 手机端商城',
+    start_url: '/',
+    scope: '/',
+    display: 'standalone',
+    orientation: 'portrait',
+    lang: 'zh-CN',
+    theme_color: theme.vars['--brand'],
+    background_color: theme.vars['--bg'],
+    icons,
+  }));
+});
+
+// iOS 添加到主屏时用的图标（同样跟随主题）
+app.get('/apple-touch-icon.png', (req, res) => {
+  const theme = themeOf(cfg('theme_key', DEFAULT_THEME));
+  const file = join(H5_DIR, 'pwa', theme.key + '-apple-180.png');
+  if (existsSync(file)) return res.sendFile(file);
+  res.status(404).end();
+});
+
 
 if (hasAdmin) {
   // 后台构建时 base=/admin/，资源在 /admin/assets/*

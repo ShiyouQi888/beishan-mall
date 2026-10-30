@@ -10,6 +10,7 @@
       <span v-if="store.icp_number">{{ store.icp_number }}</span>
     </footer>
     <TabBar v-if="showTab" />
+    <InstallApp v-if="showTab" />
   </div>
 </template>
 
@@ -17,6 +18,7 @@
 import { computed, onMounted, provide, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import TabBar from './components/TabBar.vue';
+import InstallApp from './components/InstallApp.vue';
 import { api } from './api.js';
 
 const route = useRoute();
@@ -42,6 +44,8 @@ function applyTheme(info = {}) {
 
 function applyBrand(info = {}) {
   if (info.name) document.title = info.name;
+  const appTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+  if (appTitle && info.name) appTitle.content = info.name;
   if (info.logo) {
     let icon = document.querySelector('link[rel~="icon"]');
     if (!icon) { icon = document.createElement('link'); icon.rel = 'icon'; document.head.appendChild(icon); }

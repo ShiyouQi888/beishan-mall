@@ -537,6 +537,29 @@ async function main() {
     await setTheme('coral');
     ok((await api('/api/index/getStoreInfo')).data?.theme?.key === 'coral', '恢复珊瑚红');
 
+    // ========== PWA ==========
+    section('[16.8] PWA：清单 / Service Worker / 图标');
+    const mfRes = await fetch(BASE + '/manifest.webmanifest');
+    const mf = await mfRes.json();
+    ok(mfRes.ok && mfRes.headers.get('content-type').includes('manifest+json'), '清单可访问且类型正确', mfRes.headers.get('content-type'));
+    ok(mf.display === 'standalone' && mf.start_url === '/', '清单是独立窗口模式', mf.display);
+    ok(/^#/.test(mf.theme_color || '') && mf.icons.length >= 3, '带主题色与至少 3 个图标', mf.theme_color);
+    let iconOk = 0;
+    for (const ic of mf.icons) {
+      if (!ic.src.startsWith("http") && !ic.src.startsWith("/")) continue;
+      const r = await fetch(BASE + ic.src);
+      if (r.ok && (r.headers.get("content-type") || "").includes("image")) iconOk += 1;
+    }
+    ok(iconOk >= 3, '图标文件都能取到', iconOk + ' 个');
+
+    const swRes = await fetch(BASE + '/sw.js');
+    const swText = await swRes.text();
+    ok(swRes.ok && swText.includes("addEventListener('fetch'"), 'Service Worker 可访问且有 fetch 处理', String(swRes.status));
+
+    const html = await fetch(BASE + '/').then((r) => r.text());
+    ok(/rel="manifest"/.test(html), '首页挂了 manifest 链接');
+    ok(/apple-touch-icon/.test(html) && /apple-mobile-web-app-capable/.test(html), 'iOS 主屏相关 meta 齐全');
+
     // ========== 数据一致性收尾 ==========
     section('[17] 冒烟后的数据一致性');
     eq(db.prepare('SELECT COUNT(*) c FROM member WHERE amount < 0').get().c, 0, '没有会员出现负余额');
