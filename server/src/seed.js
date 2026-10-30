@@ -1,6 +1,7 @@
 import { db, all, get, run, now, tx } from './db.js';
 import { hashPwd, randomCode } from './lib/auth.js';
 import { ADMIN_USER, ADMIN_PASSWORD } from './lib/builtinAdmin.js';
+import { useCascaderAreaData } from '@vant/area-data';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -251,26 +252,15 @@ tx(() => {
   run('INSERT INTO notice (title, content, sort, create_time) VALUES (?,?,?,?)',
     '关于提现到账时间', '<p>提现申请审核通过后 T+1 个工作日到账。</p>', 99, now());
 
-  // ---------- 地区（演示数据） ----------
-  const regions = {
-    北京市: [['北京市', ['东城区', '西城区', '朝阳区', '海淀区', '丰台区']]],
-    上海市: [['上海市', ['黄浦区', '徐汇区', '长宁区', '静安区', '浦东新区']]],
-    广东省: [['广州市', ['天河区', '越秀区', '海珠区', '番禺区']], ['深圳市', ['福田区', '南山区', '罗湖区', '宝安区']], ['东莞市', ['莞城街道', '南城街道', '东城街道']]],
-    浙江省: [['杭州市', ['西湖区', '上城区', '拱墅区', '余杭区']], ['宁波市', ['海曙区', '江北区', '鄞州区']]],
-    江苏省: [['南京市', ['玄武区', '鼓楼区', '建邺区', '江宁区']], ['苏州市', ['姑苏区', '吴中区', '工业园区']]],
-    四川省: [['成都市', ['锦江区', '青羊区', '武侯区', '高新区']]],
-    湖北省: [['武汉市', ['江岸区', '武昌区', '洪山区', '江汉区']]],
-    河南省: [['郑州市', ['金水区', '二七区', '中原区', '郑东新区']]],
-  };
-  let rid = 1;
-  for (const [prov, cities] of Object.entries(regions)) {
-    const pid = rid;
-    run('INSERT INTO region (id, pid, name, level) VALUES (?,0,?,1)', rid++, prov);
-    for (const [city, districts] of cities) {
-      const cid = rid;
-      run('INSERT INTO region (id, pid, name, level) VALUES (?,?,?,2)', rid++, pid, city);
-      for (const d of districts) {
-        run('INSERT INTO region (id, pid, name, level) VALUES (?,?,?,3)', rid++, cid, d);
+  // ---------- 完整省市区 ----------
+  for (const province of useCascaderAreaData()) {
+    const provinceId = Number(province.value);
+    run('INSERT INTO region (id, pid, name, level) VALUES (?,0,?,1)', provinceId, province.text);
+    for (const city of province.children || []) {
+      const cityId = Number(city.value);
+      run('INSERT INTO region (id, pid, name, level) VALUES (?,?,?,2)', cityId, provinceId, city.text);
+      for (const district of city.children || []) {
+        run('INSERT INTO region (id, pid, name, level) VALUES (?,?,?,3)', Number(district.value), cityId, district.text);
       }
     }
   }

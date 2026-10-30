@@ -93,6 +93,7 @@ function onConfirm({ selectedOptions }) {
 async function save() {
   if (!form.name) return showToast('请输入收货人');
   if (!/^1\d{10}$/.test(form.mobile)) return showToast('请输入正确的手机号');
+  if (!form.province || !form.city || !form.district) return showToast('请选择所在地区');
   if (!form.detail) return showToast('请输入详细地址');
   loading.value = true;
   try {

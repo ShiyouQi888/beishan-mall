@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { useCascaderAreaData } from '@vant/area-data';
 import { themeOf, DEFAULT_THEME } from '../lib/themes.js';
 import { all, get } from '../db.js';
 import { ok, fail, authMember } from '../lib/helper.js';
@@ -231,26 +232,28 @@ r.get('/member/getNotice', (req, res) => {
   res.json(ok({ content: cfg('prompt_register', cfg('register_agreement', '')) }));
 });
 
-// 地区树
+// 地区树：服务启动时加载完整省市区数据，避免依赖数据库里的演示地区。
+const regionList = useCascaderAreaData().map((province) => ({
+  id: Number(province.value),
+  pid: 0,
+  name: province.text,
+  level: 1,
+  city: (province.children || []).map((city) => ({
+    id: Number(city.value),
+    pid: Number(province.value),
+    name: city.text,
+    level: 2,
+    region: (city.children || []).map((district) => ({
+      id: Number(district.value),
+      pid: Number(city.value),
+      name: district.text,
+      level: 3,
+    })),
+  })),
+}));
+
 r.get('/region/getAllList', (req, res) => {
-  const provinces = all('SELECT * FROM region WHERE pid = 0 ORDER BY id');
-  const out = provinces.map((p) => {
-    const cities = all('SELECT * FROM region WHERE pid = ? ORDER BY id', p.id);
-    return {
-      id: p.id,
-      pid: 0,
-      name: p.name,
-      level: 1,
-      city: cities.map((c) => ({
-        id: c.id,
-        pid: p.id,
-        name: c.name,
-        level: 2,
-        region: all('SELECT id, pid, name, level FROM region WHERE pid = ? ORDER BY id', c.id),
-      })),
-    };
-  });
-  res.json(ok(out));
+  res.json(ok(regionList));
 });
 
 export default r;

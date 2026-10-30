@@ -1,7 +1,7 @@
 // Service Worker：只做「可安装 + 断网兜底」，不缓存接口与上传图片
 // 换版本时改 CACHE 名即可让旧缓存整体作废
-const CACHE = 'mall-h5-v1';
-const SHELL = ['/', '/manifest.webmanifest'];
+const CACHE = 'mall-h5-v2';
+const SHELL = ['/'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
@@ -25,6 +25,8 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // Manifest depends on current store settings and must never be served from a stale cache.
+  if (url.pathname === '/manifest.webmanifest') return;
   // 接口与上传的图片不进缓存：数据要实时，图片体积大
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/') || url.pathname.startsWith('/admin')) return;
 
