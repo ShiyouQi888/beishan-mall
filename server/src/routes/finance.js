@@ -57,14 +57,17 @@ r.get('/getSystemInfo', authMember, (req, res) => {
 
 // 提现申请
 r.post('/withdraw/apply', authMember, (req, res) => {
-  const { amount, account_type, account_info } = req.body;
+  const { amount } = req.body;
+  const accountType = Number(req.body.account_type);
+  const accountInfo = accountType === 4 ? '线下打款' : String(req.body.account_info || '').trim();
   const m = req.member;
   const amt = Number(amount);
   const min = Number(cfg('withdraw_min', '10'));
   if (!amt || amt <= 0) return res.json(fail('请输入提现金额'));
   if (amt < min) return res.json(fail(`最低提现金额为 ${min} 元`));
   if (amt > m.amount) return res.json(fail('可提现余额不足'));
-  if (!account_info) return res.json(fail('请选择收款账户'));
+  if (![1, 2, 3, 4].includes(accountType)) return res.json(fail('请选择有效的收款方式'));
+  if (!accountInfo) return res.json(fail('请选择收款账户'));
   const fee = money((amt * Number(cfg('withdraw_fee', '0'))) / 100);
 
   tx(() => {
@@ -72,7 +75,7 @@ r.post('/withdraw/apply', authMember, (req, res) => {
     run(
       `INSERT INTO finance_withdraw (member_id, amount, fee, actual_amount, account_type, account_info, status, create_time)
        VALUES (?,?,?,?,?,?,0,?)`,
-      m.member_id, amt, fee, money(amt - fee), Number(account_type) || 1, account_info, now(),
+      m.member_id, amt, fee, money(amt - fee), accountType, accountInfo, now(),
     );
     run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
       m.member_id, -amt, 2, '提现申请', `手续费 ${fee.toFixed(2)}`, now());

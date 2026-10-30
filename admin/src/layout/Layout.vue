@@ -46,33 +46,37 @@
           <span class="crumb__cur">{{ route.meta.title || '' }}</span>
         </div>
         <div class="topbar__right">
-          <el-popover v-if="orderListPath" placement="bottom-end" :width="360" :persistent="false" trigger="click" @show="markNotificationsRead">
+          <el-popover v-if="canReceiveNotifications" placement="bottom-end" :width="360" :persistent="false" trigger="click" @show="markNotificationsRead">
             <template #reference>
-              <button class="notification-trigger" type="button" aria-label="订单通知">
+              <button class="notification-trigger" type="button" aria-label="消息通知">
                 <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true">
                   <path d="M18 9a6 6 0 0 0-12 0c0 7-2.5 7-2.5 9h17C20.5 16 18 16 18 9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
                   <path d="M10 21h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
                 </svg>
-                <span>通知</span>
-                <i v-if="unreadOrderCount" class="notification-badge">{{ unreadOrderCount > 99 ? '99+' : unreadOrderCount }}</i>
+                <span>消息</span>
+                <i v-if="unreadNotificationCount" class="notification-badge">{{ unreadNotificationCount > 99 ? '99+' : unreadNotificationCount }}</i>
               </button>
             </template>
             <div class="notification-panel">
               <div class="notification-panel__head">
-                <div><strong>新订单通知</strong><small>{{ unreadOrderCount ? `${unreadOrderCount} 条未读` : '暂无未读通知' }}</small></div>
+                <div><strong>消息通知</strong><small>{{ unreadNotificationCount ? `${unreadNotificationCount} 条未读` : '暂无未读通知' }}</small></div>
                 <label class="notification-voice">语音提醒<el-switch v-model="voiceEnabled" size="small" @change="setVoiceEnabled" /></label>
               </div>
               <div v-if="notificationList.length" class="notification-list">
-                <button v-for="item in notificationList" :key="item.order_id" type="button" class="notification-item" @click="openOrderNotice(item)">
+                <button v-for="item in notificationList" :key="item.key" type="button" class="notification-item" @click="openNotification(item)">
                   <span class="notification-item__dot" />
-                  <span class="notification-item__main"><strong>{{ item.goods_name || '新订单' }}</strong><small>{{ item.order_no }} · {{ item.create_time }}</small></span>
-                  <b>¥{{ Number(item.total_price || 0).toFixed(2) }}</b>
+                  <span class="notification-item__main">
+                    <strong>{{ notificationTitle(item) }}</strong>
+                    <small>{{ notificationDescription(item) }}</small>
+                  </span>
+                  <b>¥{{ notificationAmount(item) }}</b>
                 </button>
               </div>
-              <div v-else class="notification-empty">新订单会显示在这里</div>
+              <div v-else class="notification-empty">新订单或提现申请会显示在这里</div>
               <div class="notification-panel__foot">
                 <span v-if="!canUseSpeech">当前浏览器不支持语音播报</span>
                 <button v-if="orderListPath" type="button" @click="router.push(orderListPath)">查看订单</button>
+                <button v-if="withdrawListPath" type="button" @click="router.push(withdrawListPath)">查看提现</button>
                 <button v-if="notificationList.length" type="button" @click="clearNotifications">清空</button>
               </div>
             </div>
@@ -184,11 +188,11 @@ async function submitPwd() {
 const menus = ref([]);
 const voiceEnabled = ref(localStorage.getItem('ADMIN_ORDER_VOICE') !== '0');
 const notificationList = ref([]);
-const unreadOrderCount = ref(0);
+const unreadNotificationCount = ref(0);
 const canUseSpeech = typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
-let orderPollTimer = 0;
-let orderPollBusy = false;
-const orderCursors = new Map();
+let notificationPollTimer = 0;
+let notificationPollBusy = false;
+const notificationCursors = new Map();
 
 const isActive = (p) => (p === '/' ? route.path === '/' : route.path === p);
 const visibleMenuPaths = () => new Set(menus.value.flatMap((group) => (group.items || []).map((item) => item.path)));
@@ -196,6 +200,8 @@ const orderListPath = computed(() => {
   const paths = visibleMenuPaths();
   return paths.has('/orders') ? '/orders' : paths.has('/orders/shop') ? '/orders/shop' : '';
 });
+const withdrawListPath = computed(() => (visibleMenuPaths().has('/withdraw') ? '/withdraw' : ''));
+const canReceiveNotifications = computed(() => Boolean(orderListPath.value || withdrawListPath.value));
 const menuIcon = (icon = '') => {
   const paths = String(icon).replace(/<\/?svg\b[^>]*>/gi, '');
   return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
@@ -216,14 +222,17 @@ async function loadStoreInfo() {
 
 function notificationTargets() {
   const paths = visibleMenuPaths();
-  if (paths.has('/orders')) return [{ type: 0 }];
-  if (paths.has('/orders/shop')) return [{ type: 3 }];
-  return [];
+  const targets = [];
+  if (paths.has('/orders')) targets.push({ key: 'orders:all', kind: 'order', idField: 'order_id', type: 0 });
+  else if (paths.has('/orders/shop')) targets.push({ key: 'orders:shop', kind: 'order', idField: 'order_id', type: 3 });
+  if (paths.has('/withdraw')) targets.push({ key: 'withdrawals', kind: 'withdrawal', idField: 'withdraw_id' });
+  return targets;
 }
 
-function notificationRoute(type) {
+function notificationRoute(item) {
+  if (item.kind === 'withdrawal') return withdrawListPath.value || '/';
   const paths = visibleMenuPaths();
-  if ((Number(type) === 3 || Number(type) === 4) && paths.has('/orders/shop')) return '/orders/shop';
+  if ((Number(item.type) === 3 || Number(item.type) === 4) && paths.has('/orders/shop')) return '/orders/shop';
   return orderListPath.value || '/';
 }
 
@@ -242,78 +251,108 @@ function speak(text) {
 function setVoiceEnabled(enabled) {
   voiceEnabled.value = Boolean(enabled);
   localStorage.setItem('ADMIN_ORDER_VOICE', voiceEnabled.value ? '1' : '0');
-  if (voiceEnabled.value) speak('新订单语音提醒已开启');
+  if (voiceEnabled.value) speak('消息语音提醒已开启');
   else if (canUseSpeech) window.speechSynthesis.cancel();
 }
 
 function markNotificationsRead() {
-  unreadOrderCount.value = 0;
+  unreadNotificationCount.value = 0;
 }
 
 function clearNotifications() {
   notificationList.value = [];
-  unreadOrderCount.value = 0;
+  unreadNotificationCount.value = 0;
 }
 
-function openOrderNotice(item) {
-  router.push(item.route || orderListPath.value || '/');
+function openNotification(item) {
+  router.push(item.route || '/');
 }
 
-function notifyNewOrders(items) {
+function notificationTitle(item) {
+  if (item.kind === 'withdrawal') {
+    const member = item.nick_name || `会员 #${item.member_id}`;
+    return `${member} 提交了提现申请`;
+  }
+  return item.goods_name || '新订单';
+}
+
+function notificationDescription(item) {
+  return item.kind === 'withdrawal'
+    ? `提现申请 · ${item.create_time}`
+    : `${item.order_no} · ${item.create_time}`;
+}
+
+function notificationAmount(item) {
+  return Number(item.kind === 'withdrawal' ? item.amount : item.total_price || 0).toFixed(2);
+}
+
+function notifyNewItems(items) {
   if (!items.length) return;
-  const ordered = items.sort((a, b) => Number(a.order_id) - Number(b.order_id));
+  const ordered = items.slice().sort((a, b) => String(a.create_time || '').localeCompare(String(b.create_time || '')));
   const newest = ordered[ordered.length - 1];
   notificationList.value = [
-    ...ordered.slice().reverse().map((item) => ({ ...item, route: notificationRoute(item.type) })),
+    ...ordered.slice().reverse().map((item) => ({ ...item, key: `${item.kind}-${item.id}`, route: notificationRoute(item) })),
     ...notificationList.value,
   ].slice(0, 30);
-  unreadOrderCount.value += ordered.length;
+  unreadNotificationCount.value += ordered.length;
 
+  const withdrawalCount = ordered.filter((item) => item.kind === 'withdrawal').length;
+  const member = newest.nick_name || `会员 #${newest.member_id}`;
   const message = ordered.length === 1
-    ? `收到新订单，${newest.goods_name || '商品'}，金额 ${Number(newest.total_price || 0).toFixed(2)} 元。`
-    : `收到 ${ordered.length} 笔新订单，请及时处理。`;
+    ? newest.kind === 'withdrawal'
+      ? `${member}提交了提现申请，金额 ${Number(newest.amount || 0).toFixed(2)} 元。`
+      : `收到新订单，${newest.goods_name || '商品'}，金额 ${Number(newest.total_price || 0).toFixed(2)} 元。`
+    : `收到 ${ordered.length} 条新消息${withdrawalCount ? `，其中提现申请 ${withdrawalCount} 笔` : ''}，请及时处理。`;
   speak(message);
   ElNotification({
-    title: '新订单提醒',
+    title: '新业务消息',
     message,
     type: 'success',
     duration: 8000,
-    onClick: () => openOrderNotice({ ...newest, route: notificationRoute(newest.type) }),
+    onClick: () => openNotification({ ...newest, route: notificationRoute(newest) }),
   });
 }
 
-async function pollOrderNotifications() {
-  if (orderPollBusy || !localStorage.getItem('ADMIN_TOKEN')) return;
+async function pollNotifications() {
+  if (notificationPollBusy || !localStorage.getItem('ADMIN_TOKEN')) return;
   const targets = notificationTargets();
   if (!targets.length) return;
-  orderPollBusy = true;
+  notificationPollBusy = true;
   const found = [];
   try {
     await Promise.all(targets.map(async (target) => {
-      const cursor = orderCursors.get(target.type);
+      const cursor = notificationCursors.get(target.key);
       const params = {};
       if (target.type) params.type = target.type;
       if (cursor !== undefined) params.after_id = cursor;
-      const result = await adminApi.orderNotifications(params);
-      const data = result.data || {};
-      const latestId = Number(data.latest_id) || 0;
-      if (cursor === undefined) {
-        orderCursors.set(target.type, latestId);
-        return;
-      }
-      const items = Array.isArray(data.items) ? data.items : [];
-      if (items.length) {
-        orderCursors.set(target.type, Number(items[items.length - 1].order_id) || latestId);
-        found.push(...items);
-      } else if (Number.isSafeInteger(latestId) && latestId >= cursor) {
-        orderCursors.set(target.type, latestId);
+      try {
+        const request = target.kind === 'withdrawal'
+          ? adminApi.withdrawalNotifications(params)
+          : adminApi.orderNotifications(params);
+        const result = await request;
+        const data = result.data || {};
+        const latestId = Number(data.latest_id) || 0;
+        if (cursor === undefined) {
+          notificationCursors.set(target.key, latestId);
+          return;
+        }
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (items.length) {
+          const normalized = items.map((item) => ({ ...item, id: Number(item[target.idField]), kind: target.kind }));
+          notificationCursors.set(target.key, normalized[normalized.length - 1].id || latestId);
+          found.push(...normalized);
+        } else if (Number.isSafeInteger(latestId) && latestId >= cursor) {
+          notificationCursors.set(target.key, latestId);
+        }
+      } catch {
+        // Один通知源短暂失败时，保留其他通知源的结果，下一轮继续重试。
       }
     }));
-    notifyNewOrders(found);
+    notifyNewItems(found);
   } catch {
     // 通知轮询在后台静默失败，下一轮继续重试。
   } finally {
-    orderPollBusy = false;
+    notificationPollBusy = false;
   }
 }
 
@@ -331,13 +370,13 @@ onMounted(async () => {
     menus.value = [];
   }
   if (notificationTargets().length) {
-    await pollOrderNotifications();
-    orderPollTimer = window.setInterval(pollOrderNotifications, 15000);
+    await pollNotifications();
+    notificationPollTimer = window.setInterval(pollNotifications, 15000);
   }
 });
 onUnmounted(() => {
   window.removeEventListener('store-config-updated', loadStoreInfo);
-  if (orderPollTimer) window.clearInterval(orderPollTimer);
+  if (notificationPollTimer) window.clearInterval(notificationPollTimer);
   if (canUseSpeech) window.speechSynthesis.cancel();
 });
 </script>

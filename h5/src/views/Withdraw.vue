@@ -36,9 +36,25 @@
             </div>
           </div>
         </div>
-        <div v-else class="acct__empty">
-          还没有收款账户
+        <div v-if="!cards.length" class="acct__empty">
+          暂无收款账户，也可以选择线下打款
           <span class="link" @click="$router.push('/address?tab=card')">去添加</span>
+        </div>
+        <div
+          class="acct"
+          :class="{ on: selected === 'offline' }"
+          role="button"
+          tabindex="0"
+          :aria-pressed="selected === 'offline'"
+          @click="selected = 'offline'"
+          @keyup.enter="selected = 'offline'"
+          @keyup.space.prevent="selected = 'offline'"
+        >
+          <span class="radio" :class="{ on: selected === 'offline' }" />
+          <div class="acct__body">
+            <div class="acct__t">线下打款 · 平台审核</div>
+            <div class="acct__d">提交后由平台审核并安排线下转账</div>
+          </div>
         </div>
       </div>
 
@@ -76,7 +92,7 @@ const amount = ref('');
 const avail = ref('0.00');
 const sys = ref({});
 const cards = ref([]);
-const selected = ref(0);
+const selected = ref('offline');
 const loading = ref(false);
 const records = ref([]);
 const typeText = (t) => ({ 1: '微信', 2: '支付宝', 3: '银行卡' }[t] || '账户');
@@ -96,7 +112,7 @@ onMounted(async () => {
     if (s.status === 'fulfilled') sys.value = s.value.data || {};
     if (c.status === 'fulfilled') {
       cards.value = c.value.data || [];
-      if (cards.value.length) selected.value = cards.value[0].card_id;
+      selected.value = cards.value.length ? cards.value[0].card_id : 'offline';
     }
   } catch {}
   loadRecords();
@@ -106,14 +122,16 @@ async function submit() {
   const amt = Number(amount.value);
   if (!amt || amt <= 0) return showToast('请输入提现金额');
   if (amt > Number(avail.value)) return showToast('可提现余额不足');
-  if (!selected.value) return showToast('请先添加收款账户');
+  if (!selected.value) return showToast('请选择收款方式');
   loading.value = true;
   try {
-    const c = cards.value.find((x) => x.card_id === selected.value);
+    const isOffline = selected.value === 'offline';
+    const c = isOffline ? null : cards.value.find((x) => x.card_id === selected.value);
+    if (!isOffline && !c) return showToast('收款账户无效，请重新选择');
     await api.withdraw({
       amount: amt,
-      account_type: c?.type || 1,
-      account_info: `${typeText(c?.type)} ${c?.account} ${c?.name || ''}`,
+      account_type: isOffline ? 4 : Number(c.type),
+      account_info: isOffline ? '线下打款' : `${typeText(c.type)} ${c.account} ${c.name || ''}`,
     });
     showToast('申请已提交，等待审核');
     setTimeout(() => router.back(), 800);
@@ -156,7 +174,9 @@ async function submit() {
   gap: 10px;
   padding: 12px 0;
   border-top: 1px solid var(--line);
+  cursor: pointer;
 }
+.acct:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 .radio {
   width: 17px; height: 17px; border-radius: 50%;
   border: 1.6px solid #d3d7de; flex: none; position: relative;

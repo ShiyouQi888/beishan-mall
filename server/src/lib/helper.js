@@ -86,6 +86,7 @@ function adminRequestAllowed(req, allowedPaths) {
     if (type === 3) return has('/orders/shop');
     return false;
   }
+  if (path === '/notifications/withdrawals') return has('/withdraw');
 
   if (path.startsWith('/goods/')) {
     let type = Number(req.query.type || req.body?.type || 0);

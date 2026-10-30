@@ -52,6 +52,7 @@ export const adminApi = {
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
   orderNotifications: (params) => http.get('/notifications/orders', { params, silent: true }),
+  withdrawalNotifications: (params) => http.get('/notifications/withdrawals', { params, silent: true }),
   financeOverview: () => http.get('/finance/overview'),
   modules: () => http.get('/modules'),
   options: (name) => http.get(`/options/${name}`),

@@ -92,7 +92,7 @@ const M = {
       { k: 'nick_name', t: '昵称', type: 'text', w: 120 },
       { k: 'mobile', t: '手机号', type: 'text', w: 130 },
       { k: 'password', t: '登录密码', type: 'password', hide: true },
-      { k: 'invitation_code', t: '邀请码', type: 'text', w: 100, hide: true, readonly: true },
+      { k: 'invitation_code', t: '邀请码', type: 'text', w: 112, readonly: true },
       { k: 'identity_vip', t: '会员等级', type: 'vip', w: 100 },
       { k: 'is_valid', t: '会员身份', type: 'select', opts: { 10: '有效会员', 20: '无效会员' }, w: 110, hide: true },
       { k: 'is_certification', t: '实名', type: 'cert', w: 90, readonly: true },
@@ -212,6 +212,7 @@ const M = {
       { k: 'amount', t: '申请金额', type: 'money', w: 110 },
       { k: 'fee', t: '手续费', type: 'money', w: 90 },
       { k: 'actual_amount', t: '实际到账', type: 'money', w: 110 },
+      { k: 'account_type', t: '打款方式', type: 'select', opts: { 1: '微信', 2: '支付宝', 3: '银行卡', 4: '线下打款' }, w: 104, readonly: true },
       { k: 'account_info', t: '收款账户', type: 'text' },
       { k: 'status', t: '状态', type: 'select', opts: { 0: '待审核', 10: '已通过', 20: '已拒绝' }, w: 100 },
       { k: 'create_time', t: '申请时间', type: 'text', readonly: true, w: 160 },
@@ -393,6 +394,27 @@ r.get('/notifications/orders', authAdmin, (req, res) => {
     afterId,
   );
   const latestId = items.length ? Number(items[items.length - 1].order_id) : afterId;
+  res.json(ok({ latest_id: latestId, items }));
+});
+
+// 提现申请通知：按提现记录 ID 增量读取，仅供有提现审核权限的管理员使用。
+r.get('/notifications/withdrawals', authAdmin, (req, res) => {
+  const hasCursor = req.query.after_id !== undefined && req.query.after_id !== '';
+  const afterId = hasCursor ? Number(req.query.after_id) : 0;
+  if (!Number.isSafeInteger(afterId) || afterId < 0) return res.json(fail('提现通知游标无效'));
+
+  if (!hasCursor) {
+    const latestId = Number(get('SELECT IFNULL(MAX(withdraw_id),0) id FROM finance_withdraw')?.id || 0);
+    return res.json(ok({ latest_id: latestId, items: [] }));
+  }
+
+  const items = all(
+    `SELECT w.withdraw_id, w.member_id, m.nick_name, w.amount, w.create_time
+     FROM finance_withdraw w LEFT JOIN member m ON m.member_id = w.member_id
+     WHERE w.withdraw_id > ? ORDER BY w.withdraw_id ASC LIMIT 50`,
+    afterId,
+  );
+  const latestId = items.length ? Number(items[items.length - 1].withdraw_id) : afterId;
   res.json(ok({ latest_id: latestId, items }));
 });
 
