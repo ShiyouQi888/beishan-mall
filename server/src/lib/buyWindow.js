@@ -18,16 +18,9 @@ const cfg = (key, fallback) => {
 };
 
 /** 秒 → HH:MM */
-export function hhmm(sec) {
+function hhmm(sec) {
   const n = Math.max(0, Number(sec) || 0);
   return `${String(Math.floor(n / 3600)).padStart(2, '0')}:${String(Math.floor((n % 3600) / 60)).padStart(2, '0')}`;
-}
-
-/** HH:MM → 秒（非法输入返回 0） */
-export function toSec(text) {
-  const m = String(text || '').match(/^(\d{1,2}):(\d{1,2})$/);
-  if (!m) return 0;
-  return Math.min(86399, Number(m[1]) * 3600 + Number(m[2]) * 60);
 }
 
 /**

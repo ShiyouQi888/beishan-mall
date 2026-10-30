@@ -412,32 +412,43 @@ async function main() {
     }
 
 
-    console.log('\n[10] 专场配置（开启日期 / 转拍时限）');
+    console.log('\n[10] 抢购总时间（全局）+ 专场转拍时限');
     const cfgSave = await api('/admin/api/specialarea/save', {
       method: 'POST', token: at,
-      body: { specialarea_id: 1, open_days: '6,7', title_main: '测试专场' },
+      body: { specialarea_id: 1, title_main: '测试专场' },
     });
     ok(cfgSave.code === 1, '保存专场配置', cfgSave.msg);
 
     const cfgBack = (await api('/admin/api/specialarea/detail?id=1', { token: at })).data || {};
-    ok(cfgBack.open_days === '6,7', '配置回读正确', `open_days=${cfgBack.open_days}`);
+    ok(cfgBack.title_main === '测试专场', '配置回读正确', `title_main=${cfgBack.title_main}`);
 
+    // 时间已统一到「交易设置 → 抢购总时间」，场次里的 open_days 不再参与判断
     const jsDay = new Date().getDay();
     const todayNum = jsDay === 0 ? 7 : jsDay;
+    const otherDay = todayNum === 1 ? 2 : 1;
     const gArea1 = db.prepare(
       "SELECT * FROM goods WHERE specialarea_id = 1 AND goods_status = 10 AND member_id <> ? LIMIT 1",
     ).get(bid);
-    if (gArea1 && todayNum < 6) {
+
+    await api('/admin/api/setting/save', {
+      method: 'POST', token: at,
+      body: { group: 'trade', values: { buy_open_days: String(otherDay), buy_start_time: '0', buy_end_time: '0' } },
+    });
+    if (gArea1) {
       const closed = await api('/api/order/toAddOrder', {
         method: 'POST', token: buyer, body: { goods_id: gArea1.goods_id, num: 1, pay_type: 1 },
       });
-      ok(closed.code === 0 && /未开启/.test(closed.msg), '非开放日下单被拒', closed.msg);
+      ok(closed.code === 0 && /不是抢购日/.test(closed.msg), '非开放日下单被拒', closed.msg);
     }
 
-    // 恢复全周 + 24 小时转拍时限
+    // 恢复全周开放 + 24 小时转拍时限
+    await api('/admin/api/setting/save', {
+      method: 'POST', token: at,
+      body: { group: 'trade', values: { buy_open_days: '1,2,3,4,5,6,7', buy_start_time: '0', buy_end_time: '0' } },
+    });
     await api('/admin/api/specialarea/save', {
       method: 'POST', token: at,
-      body: { specialarea_id: 1, open_days: '1,2,3,4,5,6,7', transposition_hours: 24, start_time: 0, end_time: 86399 },
+      body: { specialarea_id: 1, transposition_hours: 24 },
     });
 
     if (gArea1) {
