@@ -48,6 +48,12 @@
           <el-option label="禁用" :value="20" />
         </el-select>
         <el-button @click="reload">查询</el-button>
+        <template v-if="modKey === 'member' && sel.length">
+          <span class="muted" style="margin-left: 6px">已选 {{ sel.length }} 项</span>
+          <el-button size="small" type="warning" plain @click="batchMemberStatus(20)">批量禁用</el-button>
+          <el-button size="small" type="success" plain @click="batchMemberStatus(10)">批量启用</el-button>
+          <el-button size="small" type="danger" plain @click="batchMemberRemove">批量删除</el-button>
+        </template>
         <div class="spacer" />
         <span class="total-hint">共 {{ total }} 条</span>
       </div>
@@ -140,7 +146,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="modKey === 'member' ? 430 : modKey === 'orders' ? 300 : 210" fixed="right">
+        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 300 : 210" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <template v-if="modKey === 'orders'">
@@ -179,6 +185,13 @@
                 <el-button size="small" :type="Number(row.is_advance) === 10 ? 'warning' : 'primary'" @click="toggleAdvance(row)">
                   {{ Number(row.is_advance) === 10 ? '关闭提前抢购' : '开通提前抢购' }}
                 </el-button>
+                <el-button
+                  size="small"
+                  :type="Number(row.disabled) === 10 ? 'danger' : 'success'"
+                  plain
+                  @click="toggleMemberStatus(row)"
+                >{{ Number(row.disabled) === 10 ? '禁用' : '启用' }}</el-button>
+                <el-button size="small" type="danger" @click="removeMember(row)">删除</el-button>
               </template>
               <template v-else-if="modKey === 'role'">
                 <el-button v-if="row.role_id !== 6" size="small" type="primary" @click="openPerm(row)">分配权限</el-button>
@@ -1032,6 +1045,62 @@ async function viewTeamOrders(row) {
   const r = await adminApi.teamOrders(row.member_id);
   teamData.value = r.data || {};
   teamDlg.value = true;
+}
+
+// ---------- 会员启停用 / 删除 ----------
+async function toggleMemberStatus(row) {
+  const toDisable = Number(row.disabled) === 10;
+  try {
+    await ElMessageBox.confirm(
+      toDisable
+        ? `禁用后「${row.nick_name}」将无法登录、无法下单转拍，已登录的会话也会立刻失效。确定禁用？`
+        : `启用后「${row.nick_name}」恢复正常使用。确定启用？`,
+      toDisable ? '禁用会员' : '启用会员',
+      { type: 'warning' },
+    );
+  } catch { return; }
+  await http.post('/member/status', { ids: [row.member_id], disabled: toDisable ? 20 : 10 });
+  ElMessage.success(toDisable ? '已禁用' : '已启用');
+  load();
+}
+
+async function batchMemberStatus(disabled) {
+  const ids = (sel.value || []).map((r) => r.member_id);
+  if (!ids.length) return;
+  const word = disabled === 20 ? '禁用' : '启用';
+  try {
+    await ElMessageBox.confirm(`确定${word}选中的 ${ids.length} 个会员？`, `批量${word}`, { type: 'warning' });
+  } catch { return; }
+  await http.post('/member/status', { ids, disabled });
+  ElMessage.success(`已${word} ${ids.length} 个会员`);
+  load();
+}
+
+async function removeMember(row) {
+  try {
+    await ElMessageBox.confirm(
+      `删除后不可恢复。「${row.nick_name}」若已有订单、流水或下级会员，系统会拒绝并提示改用禁用。确定删除？`,
+      '删除会员',
+      { type: 'warning', confirmButtonText: '确认删除' },
+    );
+  } catch { return; }
+  await http.post('/member/remove', { ids: [row.member_id] });
+  ElMessage.success('已删除');
+  load();
+}
+
+async function batchMemberRemove() {
+  const ids = (sel.value || []).map((r) => r.member_id);
+  if (!ids.length) return;
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${ids.length} 个会员？有业务记录的会被跳过（请改用禁用）。`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '确认删除' },
+    );
+  } catch { return; }
+  await http.post('/member/remove', { ids });
+  load();
 }
 
 async function clearCommission(row) {

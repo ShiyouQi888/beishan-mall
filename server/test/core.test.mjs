@@ -1142,6 +1142,82 @@ async function main() {
     ).get(xId, `%${yOrder.data.order_no}%`).c;
     eq(xAward, 0, '旧上级 X 拿不到这笔佣金');
 
+    console.log('\n[18] 会员管理：启用 / 禁用 / 删除');
+    const memberStatus = async (ids, disabled) =>
+      api('/admin/api/member/status', { method: 'POST', token: at, body: { ids, disabled } });
+    const memberRemove = async (ids) =>
+      api('/admin/api/member/remove', { method: 'POST', token: at, body: { ids } });
+    const superCode = db.prepare("SELECT invitation_code c FROM member WHERE member_id = 1").get().c;
+
+    // 注册一个干净账号用于启停用与删除
+    const regU1 = await api('/api/member/registerAnAccount', {
+      method: 'POST', body: { phone: '13955550001', password: '123456', code: superCode, nickName: '启停用测试' },
+    });
+    ok(regU1.code === 1, '注册测试账号 U1', regU1.msg);
+    const u1Id = regU1.data.member_id;
+    const u1Token = regU1.data.token;
+
+    // 登录正常
+    ok((await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13955550001', password: '123456' } })).code === 1,
+      '禁用前可正常登录');
+    ok((await api('/api/member/getMemberDetails', { token: u1Token })).code === 1, '禁用前旧 token 可用');
+
+    // 禁用
+    const dis = await memberStatus([u1Id], 20);
+    ok(dis.code === 1 && dis.data?.count === 1, '禁用会员', dis.msg);
+    eq(db.prepare('SELECT disabled FROM member WHERE member_id = ?').get(u1Id).disabled, 20, '禁用状态落库');
+    const loginBlocked = await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13955550001', password: '123456' } });
+    ok(loginBlocked.code === 0 && /禁用/.test(loginBlocked.msg), '禁用后无法登录', loginBlocked.msg);
+    const tokenBlocked = await api('/api/member/getMemberDetails', { token: u1Token });
+    eq(tokenBlocked.code, -1, '禁用后已登录的 token 立即失效');
+
+    // 启用
+    const en = await memberStatus([u1Id], 10);
+    ok(en.code === 1, '启用会员', en.msg);
+    eq(db.prepare('SELECT disabled FROM member WHERE member_id = ?').get(u1Id).disabled, 10, '启用状态落库');
+    ok((await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13955550001', password: '123456' } })).code === 1,
+      '启用后可重新登录');
+
+    // 批量启停用
+    const batchDis = await memberStatus([u1Id, yId], 20);
+    eq(batchDis.data?.count, 2, '批量禁用 2 个账号');
+    const batchEn = await memberStatus([u1Id, yId], 10);
+    eq(batchEn.data?.count, 2, '批量启用 2 个账号');
+
+    // 有订单的会员：不能删，提示改用禁用
+    const yOrders = db.prepare('SELECT COUNT(*) c FROM orders WHERE member_id = ? OR seller_id = ?').get(yId, yId).c;
+    ok(yOrders > 0, 'Y 名下有订单（构造前提）', `${yOrders} 笔`);
+    const delY = await memberRemove([yId]);
+    ok(delY.code === 0 && /订单/.test(delY.msg) && /禁用/.test(delY.msg), '有订单的会员不可删除，提示改用禁用', delY.msg);
+    ok(!!db.prepare('SELECT 1 FROM member WHERE member_id = ?').get(yId), '被拒后会员仍在');
+
+    // 有下级的会员：不能删（先把 Y 挂回 X 名下，构造「X 有下级」）
+    await api('/admin/api/member/save', { method: 'POST', token: at, body: { member_id: yId, p_id: xId } });
+    eq(db.prepare('SELECT p_id FROM member WHERE member_id = ?').get(yId).p_id, xId, 'Y 已挂回 X 名下');
+    const delX = await memberRemove([xId]);
+    ok(delX.code === 0 && /下级/.test(delX.msg), '有下级会员的不可删除', delX.msg);
+    ok(!!db.prepare('SELECT 1 FROM member WHERE member_id = ?').get(xId), '被拒后 X 仍在');
+
+    // 干净账号：可删，并从上级 child_id 移除
+    const parentChildBefore = String(db.prepare('SELECT child_id FROM member WHERE member_id = 1').get().child_id || '');
+    ok(parentChildBefore.split(',').includes(String(u1Id)), '删除前上级 child_id 含 U1');
+    const delU1 = await memberRemove([u1Id]);
+    ok(delU1.code === 1, '干净账号可删除', delU1.msg);
+    ok(!db.prepare('SELECT 1 FROM member WHERE member_id = ?').get(u1Id), '删除后会员表中已无记录');
+    const parentChildAfter = String(db.prepare('SELECT child_id FROM member WHERE member_id = 1').get().child_id || '');
+    ok(!parentChildAfter.split(',').includes(String(u1Id)), '删除后上级 child_id 已移除 U1');
+
+    // 混批：有记录的跳过，干净的删掉
+    const regU2 = await api('/api/member/registerAnAccount', {
+      method: 'POST', body: { phone: '13955550002', password: '123456', code: superCode, nickName: '混批测试' },
+    });
+    const mixed = await memberRemove([regU2.data.member_id, yId]);
+    ok(mixed.code === 1 && mixed.data?.removed?.length === 1 && mixed.data?.skipped?.length === 1, '批量删除：干净的删掉、有记录的跳过',
+      JSON.stringify(mixed.data));
+
+    ok((await memberStatus([], 20)).code === 0, '空选择启停用被拒');
+    ok((await memberRemove([])).code === 0, '空选择删除被拒');
+
   } finally {
     srv.kill();
     await sleep(300);

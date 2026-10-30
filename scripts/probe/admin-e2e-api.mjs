@@ -199,10 +199,14 @@ async function main() {
 
     // ================= 4. 业务记录不可删除 =================
     section('[4] 业务记录的删除保护');
-    for (const mod of ['orders', 'member', 'energy', 'withdraw', 'settle', 'certification', 'report']) {
+    // 订单/流水/提现/结算/实名/举报：通用删除直接禁止
+    for (const mod of ['orders', 'energy', 'withdraw', 'settle', 'certification', 'report']) {
       const r = await api(`/admin/api/${mod}/remove`, { method: 'POST', token: at, body: { id: 1 } });
       ok(r.code === 0 && /审计/.test(r.msg), `禁止删除：${mod}`, r.msg);
     }
+    // 会员走专用删除接口：有业务记录时按原因拦截，并引导改用禁用
+    const memberDel = await api('/admin/api/member/remove', { method: 'POST', token: at, body: { ids: [1] } });
+    ok(memberDel.code === 0 && /禁用/.test(memberDel.msg), '有业务记录的会员不可删除（建议禁用）', memberDel.msg);
     const noIdRemove = await api('/admin/api/category/remove', { method: 'POST', token: at, body: {} });
     ok(noIdRemove.code === 0, '删除未指定记录被拒', noIdRemove.msg);
 

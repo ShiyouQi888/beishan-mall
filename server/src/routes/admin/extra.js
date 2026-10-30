@@ -146,6 +146,85 @@ r.post('/award/grant', authAdmin, (req, res) => {
 
 // ---------------- 指派订单 ----------------
 /** 可指派会员列表 */
+// ---------------- 会员：启停用 / 删除 ----------------
+/** 批量启用 / 禁用会员 */
+r.post('/member/status', authAdmin, (req, res) => {
+  const ids = (Array.isArray(req.body?.ids) ? req.body.ids : [req.body?.id]).map(Number).filter(Boolean);
+  const disabled = Number(req.body?.disabled) === 20 ? 20 : 10;
+  if (!ids.length) return res.json(fail('请选择要操作的会员'));
+  let n = 0;
+  tx(() => {
+    for (const id of ids) {
+      if (!get('SELECT 1 FROM member WHERE member_id = ?', id)) continue;
+      run('UPDATE member SET disabled = ?, update_time = ? WHERE member_id = ?', disabled, now(), id);
+      run('INSERT INTO member_msg (member_id, title, content, create_time) VALUES (?,?,?,?)',
+        id, disabled === 20 ? '账号已禁用' : '账号已启用',
+        disabled === 20 ? '你的账号已被平台禁用，如有疑问请联系客服。' : '你的账号已恢复正常使用。', now());
+      n += 1;
+    }
+  });
+  res.json(ok({ count: n }, disabled === 20 ? `已禁用 ${n} 个账号` : `已启用 ${n} 个账号`));
+});
+
+/**
+ * 批量删除会员。
+ * 有业务记录的账号不能删——订单/流水/提现都引用会员，删了会变成孤儿数据，这种情况会提示改用禁用。
+ * 支持的删除前提：无订单、无资金流水、无提现、无下级、无地址/收款卡/实名/举报。
+ */
+r.post('/member/remove', authAdmin, (req, res) => {
+  const ids = (Array.isArray(req.body?.ids) ? req.body.ids : [req.body?.id]).map(Number).filter(Boolean);
+  if (!ids.length) return res.json(fail('请选择要删除的会员'));
+
+  const reasonsOf = (id) => {
+    const m = get('SELECT member_id, nick_name, p_id, child_id FROM member WHERE member_id = ?', id);
+    if (!m) return ['会员不存在'];
+    const reasons = [];
+    const cnt = (sql, ...args) => get(sql, ...args).c;
+    const orders = cnt('SELECT COUNT(*) c FROM orders WHERE member_id = ? OR seller_id = ?', id, id);
+    if (orders) reasons.push(`${orders} 笔订单`);
+    const flows = cnt('SELECT COUNT(*) c FROM finance_energy WHERE member_id = ?', id);
+    if (flows) reasons.push(`${flows} 条资金流水`);
+    const wd = cnt('SELECT COUNT(*) c FROM finance_withdraw WHERE member_id = ?', id);
+    if (wd) reasons.push(`${wd} 笔提现`);
+    const childs = cnt('SELECT COUNT(*) c FROM member WHERE p_id = ?', id);
+    if (childs) reasons.push(`${childs} 个下级会员`);
+    const addr = cnt('SELECT COUNT(*) c FROM member_address WHERE member_id = ?', id);
+    if (addr) reasons.push(`${addr} 条收货地址`);
+    const card = cnt('SELECT COUNT(*) c FROM member_card WHERE member_id = ?', id);
+    if (card) reasons.push(`${card} 张收款卡`);
+    const cert = cnt('SELECT COUNT(*) c FROM member_certification WHERE member_id = ?', id);
+    if (cert) reasons.push('实名认证记录');
+    const rep = cnt('SELECT COUNT(*) c FROM order_report WHERE member_id = ?', id);
+    if (rep) reasons.push(`${rep} 条举报`);
+    return reasons;
+  };
+
+  const removed = [];
+  const skipped = [];
+  tx(() => {
+    for (const id of ids) {
+      const reasons = reasonsOf(id);
+      if (reasons.length) { skipped.push({ member_id: id, reasons }); continue; }
+      const m = get('SELECT p_id FROM member WHERE member_id = ?', id);
+      if (m?.p_id) {
+        const p = get('SELECT child_id FROM member WHERE member_id = ?', m.p_id);
+        const kept = String(p?.child_id || '').split(',').filter((x) => x && Number(x) !== id);
+        run('UPDATE member SET child_id = ? WHERE member_id = ?', kept.join(','), m.p_id);
+      }
+      run('DELETE FROM member WHERE member_id = ?', id);
+      removed.push(id);
+    }
+  });
+
+  if (!removed.length) {
+    const first = skipped[0];
+    const detail = first ? `：该会员存在 ${first.reasons.join('、')}，请改用「禁用」` : '';
+    return res.json(fail(`没有可删除的会员${detail}`));
+  }
+  const skipMsg = skipped.length ? `，${skipped.length} 个跳过（有业务记录，请用禁用）` : '';
+  res.json(ok({ removed, skipped }, `已删除 ${removed.length} 个会员${skipMsg}`));
+});
+
 // 会员下拉（编辑会员时选上级用）
 r.get('/member/options', authAdmin, (req, res) => {
   const kw = String(req.query.keyword || '').trim();
