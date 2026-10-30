@@ -55,7 +55,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
-import { showToast } from 'vant';
+import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 import ImageUploader from '../components/ImageUploader.vue';
 

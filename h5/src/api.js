@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { showToast } from 'vant';
+import { showToast } from './utils/feedback.js';
 
 const http = axios.create({
   baseURL: '/api',

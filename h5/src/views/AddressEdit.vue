@@ -55,7 +55,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { showToast } from 'vant';
+import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 
 const route = useRoute();

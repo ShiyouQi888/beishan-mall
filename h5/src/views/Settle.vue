@@ -72,7 +72,8 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
-import { showToast, showConfirmDialog, showImagePreview } from 'vant';
+import { showImagePreview } from 'vant';
+import { showToast, showConfirmDialog } from '../utils/feedback.js';
 import { api } from '../api.js';
 import ImageUploader from '../components/ImageUploader.vue';
 

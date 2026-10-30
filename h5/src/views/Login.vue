@@ -43,7 +43,7 @@
 <script setup>
 import { inject, ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { showToast } from 'vant';
+import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 
 const router = useRouter();

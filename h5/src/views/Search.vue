@@ -46,7 +46,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { showToast } from 'vant';
+import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 
 const kw = ref('');

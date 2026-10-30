@@ -62,7 +62,7 @@
 
 <script setup>
 import { reactive, ref, onMounted } from 'vue';
-import { showToast } from 'vant';
+import { showToast } from '../utils/feedback.js';
 import QRCode from 'qrcode';
 import { api } from '../api.js';
 

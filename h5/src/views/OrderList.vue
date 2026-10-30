@@ -98,7 +98,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { showToast, showConfirmDialog, showDialog } from 'vant';
+import { showToast, showConfirmDialog } from '../utils/feedback.js';
 import { api } from '../api.js';
 
 const route = useRoute();

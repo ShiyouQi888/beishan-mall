@@ -102,7 +102,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { showToast, showImagePreview } from 'vant';
+import { showImagePreview } from 'vant';
+import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 import ImageUploader from '../components/ImageUploader.vue';
 

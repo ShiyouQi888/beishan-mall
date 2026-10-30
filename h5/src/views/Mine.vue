@@ -112,7 +112,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, inject } from 'vue';
 import { useRouter } from 'vue-router';
-import { showToast } from 'vant';
+import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 
 const router = useRouter();

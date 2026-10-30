@@ -34,7 +34,7 @@
 
 <script setup>
 import { ref, computed, inject, watch, onMounted } from 'vue';
-import { showToast, showConfirmDialog } from 'vant';
+import { showToast, showConfirmDialog } from '../utils/feedback.js';
 import { api } from '../api.js';
 
 const list = ref([]);

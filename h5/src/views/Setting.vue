@@ -53,7 +53,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
-import { showToast } from 'vant';
+import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 
 const me = ref({});
