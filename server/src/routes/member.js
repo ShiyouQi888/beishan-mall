@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { all, get, run, tx, now, today } from '../db.js';
 import { ok, fail, authMember, page, money, cfg, calcNextPrice, priceIncreaseRate, assetUrl } from '../lib/helper.js';
 import { calcListingFee } from '../lib/settle.js';
-import { hashPwd, verifyPwd, signMember, randomCode } from '../lib/auth.js';
+import { hashPwd, verifyPwd, needsRehash, signMember, randomCode } from '../lib/auth.js';
 
 const r = Router();
 
@@ -22,6 +22,10 @@ r.post('/accountLogin', (req, res) => {
   if (!m) return res.json(fail('该账号不存在，请先注册'));
   if (m.disabled !== 10) return res.json(fail('账号已被禁用，请联系客服'));
   if (!verifyPwd(password, m.password)) return res.json(fail('密码错误,请修改后重新登录'));
+  // 旧哈希在登录成功时升级成 scrypt，存量会员不需要重置密码
+  if (needsRehash(m.password)) {
+    run('UPDATE member SET password = ? WHERE member_id = ?', hashPwd(password), m.member_id);
+  }
   run('UPDATE member SET update_time = ? WHERE member_id = ?', now(), m.member_id);
   res.json(ok({ token: signMember(m.member_id), member_id: m.member_id }, '登录成功'));
 });
@@ -150,6 +154,10 @@ r.post('/verificationPayPassword', authMember, (req, res) => {
     return res.json(ok([], '支付密码设置成功'));
   }
   if (!verifyPwd(pwd, m.pay_password)) return res.json(fail('支付密码错误'));
+  // 同步升级旧哈希；支付密码不常改，逮到一次验证就顺手换掉
+  if (needsRehash(m.pay_password)) {
+    run('UPDATE member SET pay_password = ? WHERE member_id = ?', hashPwd(pwd), m.member_id);
+  }
   res.json(ok([], '验证成功'));
 });
 

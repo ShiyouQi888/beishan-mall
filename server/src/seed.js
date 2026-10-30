@@ -57,10 +57,10 @@ if (already) {
 
 tx(() => {
   // ---------- 后台角色（会员等级见 member_grade，两者不再混用一张表） ----------
-  run('INSERT INTO store_role (role_id, role_name, description, create_time) VALUES (?,?,?,?)',
-    6, '超级管理员', '拥有全部权限，不受节点限制', now());
-  run('INSERT INTO store_role (role_id, role_name, description, create_time) VALUES (?,?,?,?)',
-    7, '运营', '日常运营，按节点授权', now());
+  run('INSERT INTO store_role (role_id, role_name, description, is_super, create_time) VALUES (?,?,?,?,?)',
+    6, '超级管理员', '拥有全部权限，不受节点限制', 1, now());
+  run('INSERT INTO store_role (role_id, role_name, description, is_super, create_time) VALUES (?,?,?,?,?)',
+    7, '运营', '日常运营，按节点授权', 0, now());
 
   run('INSERT INTO store_user (user_name, password, nick_name, role_id, status, create_time) VALUES (?,?,?,?,?,?)',
     ADMIN_USER, hashPwd(ADMIN_PASSWORD), '超级管理员', 6, 10, now());

@@ -127,9 +127,45 @@ r.post('/media/group/remove', authAdmin, (req, res) => {
   res.json(ok({ moved }, moved ? `已删除分组，${moved} 个文件移回未分组` : '已删除分组'));
 });
 
+/**
+ * 清掉「记录还在、文件没了」的失效条目。
+ *
+ * syncDisk 只做增量（磁盘新文件入库），从不处理反向情况，于是文件被手工删掉、
+ * 或换过数据卷之后，素材库里会留一堆点开就是 404 的死链。
+ *
+ * 防误删：如果整个上传目录一个文件都没有、库里却有记录，更像数据卷没挂上，
+ * 这时跳过清理并告警 —— 宁可留着死链，也不能把索引一次性清空。
+ */
+function pruneMissing() {
+  let files;
+  try {
+    files = new Set(readdirSync(UPLOAD_DIR));
+  } catch {
+    return 0;
+  }
+  const rows = all('SELECT file_id, path FROM media_file');
+  if (!rows.length) return 0;
+  if (!files.size) {
+    console.warn('[media] 上传目录为空但索引里有记录，跳过失效清理（请检查 UPLOAD_DIR 挂载）');
+    return 0;
+  }
+  let removed = 0;
+  for (const r of rows) {
+    const name = basename(String(r.path || ''));
+    if (!name) continue;
+    if (!files.has(name)) {
+      run('DELETE FROM media_file WHERE file_id = ?', r.file_id);
+      removed += 1;
+    }
+  }
+  if (removed) console.log(`[media] 清理 ${removed} 条失效索引（文件已不存在）`);
+  return removed;
+}
+
 // ---------------- 文件 ----------------
 r.get('/media/list', authAdmin, (req, res) => {
   syncDisk();
+  pruneMissing();
   const page = Math.max(1, Number(req.query.page) || 1);
   const size = Math.min(200, Math.max(1, Number(req.query.limit) || 60));
   const keyword = String(req.query.keyword || '').trim();

@@ -32,6 +32,13 @@ if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'area_d
   db.exec("ALTER TABLE goods ADD COLUMN area_date TEXT DEFAULT ''");
   console.log('[migrate] goods.area_date 已添加，老商品视为不限日期');
 }
+// 角色增加「是否超管」标记：原来靠 role_id === 6 硬编码判断，换个库或改 seed 就失效
+if (!db.prepare('PRAGMA table_info(store_role)').all().some((c) => c.name === 'is_super')) {
+  db.exec('ALTER TABLE store_role ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0');
+  const marked = run("UPDATE store_role SET is_super = 1 WHERE role_id = 6 OR role_name = '超级管理员'");
+  console.log(`[migrate] store_role.is_super 已添加，标记 ${Number(marked.changes) || 0} 个超管角色`);
+}
+
 // 初始化权限节点（幂等）
 const addedNodes = ensureNodes();
 if (addedNodes) console.log(`[nodes] 初始化 ${addedNodes} 个权限节点`);

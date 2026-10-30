@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS store_role (
   role_id     INTEGER PRIMARY KEY AUTOINCREMENT,
   role_name   TEXT NOT NULL,
   description TEXT DEFAULT '',
+  is_super    INTEGER DEFAULT 0,          -- 1 = 超级管理员：不受权限节点限制
   create_time TEXT
 );
 

@@ -487,6 +487,17 @@ r.post('/toOrderReport', authMember, (req, res) => {
   if (!reason) return res.json(fail('请先选择举报原因'));
   const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
   if (!o) return res.json(fail('订单不存在'));
+  // 只能举报自己参与的单：否则任何人都能拿订单号给别人刷举报
+  if (Number(o.member_id) !== Number(req.member.member_id)
+    && Number(o.seller_id) !== Number(req.member.member_id)) {
+    return res.json(fail('无权举报该订单'));
+  }
+  // 同一订单同一人只留一条待处理的举报，避免重复刷
+  const dup = get(
+    "SELECT report_id FROM order_report WHERE order_id = ? AND member_id = ? AND status = 0",
+    o.order_id, req.member.member_id,
+  );
+  if (dup) return res.json(fail('你已举报过该订单，平台正在处理'));
   run(
     `INSERT INTO order_report (order_id, member_id, target_id, goods_id, reason, content, images, status, create_time)
      VALUES (?,?,?,?,?,?,?,0,?)`,

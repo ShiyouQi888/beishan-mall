@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { themeOptions } from '../../lib/themes.js';
+import { isSuperRole } from '../../lib/nodes.js';
 import { all, get, run, tx, now, today } from '../../db.js';
 import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE } from '../../lib/helper.js';
-import { hashPwd, verifyPwd, signAdmin, randomCode } from '../../lib/auth.js';
+import { hashPwd, verifyPwd, needsRehash, signAdmin, randomCode } from '../../lib/auth.js';
 import { settleOrder, goodsStillOwnedBySeller } from '../../lib/settle.js';
 import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat } from '../../lib/split.js';
 import extraRouter from './extra.js';
@@ -351,6 +352,10 @@ r.post('/login', (req, res) => {
   if (!u) return res.json(fail('账号不存在'));
   if (u.status !== 10) return res.json(fail('账号已停用'));
   if (!verifyPwd(password, u.password)) return res.json(fail('密码错误'));
+  // 旧哈希（sha256 + 固定盐）在登录成功这一刻顺手升级成 scrypt，用户无感
+  if (needsRehash(u.password)) {
+    run('UPDATE store_user SET password = ? WHERE store_user_id = ?', hashPwd(password), u.store_user_id);
+  }
   run('UPDATE store_user SET last_login_time = ? WHERE store_user_id = ?', now(), u.store_user_id);
   res.json(ok({ token: signAdmin(u.store_user_id), user: { id: u.store_user_id, name: u.user_name, nick: u.nick_name, role_id: u.role_id } }, '登录成功'));
 });
@@ -873,6 +878,12 @@ r.post('/:module/save', authAdmin, (req, res) => {
     .filter((k) => k in body && !['create_time'].includes(k));
   if (!keys.length) return res.json(fail('没有可保存的字段'));
 
+  // 防提权（新建与编辑都要拦）：有「管理员」菜单权限的人，原本可以把自己的角色改成超管，
+  // 或者新建一个超管账号。非超管一律不允许把 role_id 指向超管角色。
+  if (mod.table === 'store_user' && body.role_id && !isSuperRole(req.admin.role_id) && isSuperRole(body.role_id)) {
+    return res.json(fail('只有超级管理员才能分配超管角色'));
+  }
+
   const id = body[mod.pk];
   if (id) {
     const updateKeys = keys.filter((k) => k !== mod.pk && !(k === 'password' && !body[k])
@@ -902,6 +913,19 @@ r.post('/:module/save', authAdmin, (req, res) => {
       }
       if (body.role_id && !get('SELECT 1 FROM store_role WHERE role_id = ?', Number(body.role_id))) return res.json(fail('所选角色不存在'));
       if (body.password && String(body.password).length < 6) return res.json(fail('密码至少 6 位'));
+
+      // 防提权：有「管理员」菜单权限的人，原本可以把自己的角色改成超管。
+      // 规则：非超管既不能分配超管角色，也不能改动超管账号（降级 / 停用 / 改密）。
+      const actorIsSuper = isSuperRole(req.admin.role_id);
+      if (!actorIsSuper) {
+        const targetUser = id ? get('SELECT * FROM store_user WHERE store_user_id = ?', Number(id)) : null;
+        if (targetUser && isSuperRole(targetUser.role_id)) {
+          return res.json(fail('只有超级管理员才能修改超级管理员账号'));
+        }
+        if (body.role_id && isSuperRole(body.role_id)) {
+          return res.json(fail('只有超级管理员才能分配超管角色'));
+        }
+      }
     }
     const sets = updateKeys.map((k) => `${k} = ?`);
     const vals = updateKeys.map((k) => k === 'password' ? hashPwd(body[k]) : body[k]);
@@ -1020,12 +1044,12 @@ r.post('/:module/remove', authAdmin, (req, res) => {
   for (const id of ids) {
     if (moduleName === 'storeuser') {
       const user = get('SELECT store_user_id, role_id FROM store_user WHERE store_user_id = ?', Number(id));
-      if (user && (Number(user.store_user_id) === Number(req.admin.store_user_id) || Number(user.role_id) === 6)) {
+      if (user && (Number(user.store_user_id) === Number(req.admin.store_user_id) || isSuperRole(user.role_id))) {
         return res.json(fail('不能删除当前管理员或超级管理员'));
       }
     }
     if (moduleName === 'role') {
-      if (Number(id) === 6) return res.json(fail('不能删除超级管理员角色'));
+      if (isSuperRole(id)) return res.json(fail('不能删除超级管理员角色'));
       if (get('SELECT 1 FROM store_user WHERE role_id = ?', Number(id))) return res.json(fail('该角色仍被管理员使用，不能删除'));
     }
     if (moduleName === 'goods' && get('SELECT 1 FROM orders WHERE goods_id = ?', Number(id))) {

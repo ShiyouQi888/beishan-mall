@@ -93,8 +93,9 @@ export function roleNodeIds(roleId) {
 export function rolePaths(roleId) {
   const role = get('SELECT * FROM store_role WHERE role_id = ?', Number(roleId));
   if (!role) return [];
-  // role_id = 6 为超级管理员（seed 中最后一个角色）
-  if (Number(roleId) === 6) return null;
+  // 超管判定看表里的 is_super 标记，不再写死 role_id === 6
+  // （后者换个库、改一次 seed 的自增起始值就会失效，把超管降成普通角色）
+  if (Number(role.is_super) === 1) return null;
 
   const ids = roleNodeIds(roleId);
   if (!ids.length) return [];
@@ -102,6 +103,16 @@ export function rolePaths(roleId) {
   return all(`SELECT action_name FROM store_node WHERE id IN (${ph}) AND action_name <> ''`, ...ids).map(
     (x) => x.action_name,
   );
+}
+
+/** 全部超级管理员角色 ID */
+export function superRoleIds() {
+  return all('SELECT role_id FROM store_role WHERE is_super = 1').map((x) => Number(x.role_id));
+}
+
+/** 该角色是不是超级管理员 */
+export function isSuperRole(roleId) {
+  return superRoleIds().includes(Number(roleId));
 }
 
 /** 保存角色权限（覆盖式） */
@@ -112,5 +123,5 @@ export function saveRoleNodes(roleId, nodeIds) {
   }
 }
 
-/** 超级管理员角色ID（seed 约定为 6） */
-export const SUPER_ROLE_ID = 6;
+// 注意：不再导出 SUPER_ROLE_ID 常量 —— 超管由 store_role.is_super 标记，
+// 需要判断时用 isSuperRole(roleId) / superRoleIds()

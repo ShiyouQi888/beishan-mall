@@ -128,7 +128,8 @@ try {
       ok(cards > 0, '首页渲染商品卡', `${cards} 张`);
       const imgs = await count('img');
       ok(imgs >= Math.min(cards, 1), '首页商品图正常渲染', `${imgs} 张图 / ${cards} 张卡`);
-      ok(await has('全部'), '首页有「全部」分类入口');
+      // 「全部」分类标签已按需求下线（再点一次已选分类即取消筛选），这里反向断言
+      ok(!(await has('全部')), '首页不再出现「全部」分类标签');
       ok(await has('首页'), '底部导航存在');
       await go('#/loot', 1800);
       ok(await has('场') || await has('抢购'), '抢购页可切换');

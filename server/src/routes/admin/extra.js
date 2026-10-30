@@ -4,7 +4,7 @@ import { all, get, run, tx, now, today, db } from '../../db.js';
 import { ok, fail, authAdmin, money, ORDER_STATUS } from '../../lib/helper.js';
 import { distributeAward, driveAwardRate } from '../../lib/settle.js';
 import { orderNo } from '../../lib/auth.js';
-import { nodeTree, roleNodeIds, saveRoleNodes, rolePaths, SUPER_ROLE_ID } from '../../lib/nodes.js';
+import { nodeTree, roleNodeIds, saveRoleNodes, rolePaths, isSuperRole, superRoleIds } from '../../lib/nodes.js';
 import { MENU } from '../../lib/menu.config.js';
 
 const r = Router();
@@ -441,7 +441,8 @@ r.post('/orders/set-goods-order', authAdmin, (req, res) => {
 
 // ---------------- 权限节点 ----------------
 r.get('/node/tree', authAdmin, (req, res) => {
-  res.json(ok({ tree: nodeTree(), super_role_id: SUPER_ROLE_ID }));
+  // 兼容旧字段名，值取第一个超管角色；实际判定一律走 is_super 标记
+  res.json(ok({ tree: nodeTree(), super_role_id: superRoleIds()[0] || 0 }));
 });
 
 r.get('/role/nodes', authAdmin, (req, res) => {
@@ -454,7 +455,7 @@ r.post('/role/nodes', authAdmin, (req, res) => {
   const { role_id, node_ids } = req.body || {};
   const role = get('SELECT * FROM store_role WHERE role_id = ?', Number(role_id));
   if (!role) return res.json(fail('角色不存在'));
-  if (Number(role_id) === SUPER_ROLE_ID) return res.json(fail('超级管理员默认拥有全部权限，无需配置'));
+  if (isSuperRole(role_id)) return res.json(fail('超级管理员默认拥有全部权限，无需配置'));
   saveRoleNodes(Number(role_id), node_ids || []);
   res.json(ok([], '权限已保存'));
 });

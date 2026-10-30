@@ -48,7 +48,7 @@
 
     <div class="detail__desc card">
       <div class="sec-title"><span>商品详情</span></div>
-      <div class="detail__rich" v-html="g.detail || '<p style=\'color:#9aa0aa\'>暂无详情</p>'" />
+      <div class="detail__rich" v-html="safeDetail" />
     </div>
 
     <div class="detail__bar">
@@ -72,12 +72,15 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
+import { sanitizeHtml } from '../../../shared/sanitize.js';
 
 const route = useRoute();
 const router = useRouter();
 const g = ref({});
 const idx = ref(0);
 
+// 商品详情是后台可编辑的富文本，渲染前必须净化
+const safeDetail = computed(() => sanitizeHtml(g.value.detail) || '<p style="color:#9aa0aa">暂无详情</p>');
 const gallery = computed(() => {
   const imgs = g.value.images?.length ? g.value.images : [g.value.good_thumb].filter(Boolean);
   return imgs.length ? imgs : [''];

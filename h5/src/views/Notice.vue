@@ -21,20 +21,23 @@
     <van-popup v-model:show="show" position="bottom" round :style="{ maxHeight: '80vh', padding: '22px 18px 28px' }">
       <div class="p-title">{{ cur.title }}</div>
       <div class="p-time muted">{{ cur.create_time }}</div>
-      <div class="p-content" v-html="cur.content" />
+      <div class="p-content" v-html="safeContent" />
     </van-popup>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { api } from '../api.js';
+import { sanitizeHtml } from '../../../shared/sanitize.js';
 
 const list = ref([]);
 const show = ref(false);
 const cur = ref({});
 
 const strip = (h) => (h || '').replace(/<[^>]+>/g, '').slice(0, 80);
+// 公告正文来自后台，渲染前净化
+const safeContent = computed(() => sanitizeHtml(cur.value?.content));
 
 function open(n) {
   cur.value = n;

@@ -68,6 +68,7 @@ import { computed, inject, reactive, ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
+import { sanitizeHtml } from '../../../shared/sanitize.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -83,7 +84,8 @@ const agreementVisible = ref(false);
 // 邀请码是否必填，由后台「交易设置 → 注册必须填邀请码」控制
 const requireCode = ref(true);
 const activeAgreement = ref('user');
-const agreementContent = computed(() => agreements.value[activeAgreement.value] || '<p>暂无协议内容</p>');
+// 协议内容来自后台配置，渲染前净化
+const agreementContent = computed(() => sanitizeHtml(agreements.value[activeAgreement.value]) || '<p>暂无协议内容</p>');
 
 function openAgreement(type) {
   activeAgreement.value = type;
