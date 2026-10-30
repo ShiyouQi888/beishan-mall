@@ -7,7 +7,8 @@
       <div class="navbar__title">确认订单</div>
     </div>
 
-    <div class="empty" v-if="!g.goods_id">商品不存在或已下架，正在返回抢购页…</div>
+    <div class="empty" v-if="closedReason">{{ closedReason }}，正在返回抢购页…</div>
+    <div class="empty" v-else-if="!g.goods_id">商品不存在或已下架，正在返回抢购页…</div>
 
     <div class="section-pad" style="padding-top: 12px" v-else>
       <!-- 地址 -->
@@ -86,11 +87,11 @@
       </div>
     </div>
 
-    <div class="submit__bar" v-if="g.goods_id">
+    <div class="submit__bar" v-if="g.goods_id && !closedReason">
       <div class="submit__bar-price">
         合计 <span class="price"><span class="sym">¥</span>{{ payTotal.toFixed(2) }}</span>
       </div>
-      <button class="btn-main submit__bar-btn" :disabled="loading || !g.goods_id || !payTypes.length" @click="doSubmit">
+      <button class="btn-main submit__bar-btn" :disabled="loading || !g.goods_id || !payTypes.length || !!closedReason" @click="doSubmit">
         {{ loading ? '提交中…' : '提交订单' }}
       </button>
     </div>
@@ -112,6 +113,8 @@ const payType = ref(1);
 const remark = ref('');
 const loading = ref(false);
 const feeRate = ref(0);
+// 商品已抢完 / 不在抢购时间时，这个页面不该让人继续往下走
+const closedReason = ref('');
 
 const paymentSettings = ref({});
 // 后台「支付凭证必传」：默认必传；关闭后线下支付无需上传凭证
@@ -161,6 +164,23 @@ onMounted(async () => {
     }
     g.value = r.data;
     feeRate.value = Number(g.value.service_charge_rate || 0);
+
+    // 详情页已经拦过一次，但这里是独立路由，链接可以被直接打开 / 从历史记录回来，
+    // 所以必须再拦一次。否则「已抢完」的商品照样能渲染出完整下单页，
+    // 用户填完地址点提交才被后端驳回 —— 体验上就是「明明显示抢完还能抢」。
+    const gone = g.value.sold_out !== undefined
+      ? Number(g.value.sold_out) === 1
+      : Number(g.value.goods_status ?? 10) !== 10;
+    const notOpen = Number(g.value.type) === 1
+      && !!g.value.specialarea
+      && Number(g.value.is_ordinary_order) !== 1;
+    if (gone || notOpen) {
+      closedReason.value = gone ? '该商品已抢完' : '当前不在该场次抢购时间';
+      showToast(closedReason.value);
+      g.value = {};
+      setTimeout(() => router.replace('/loot'), 1500);
+      return;
+    }
   } catch {
     showToast('商品不存在');
     g.value = {};

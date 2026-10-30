@@ -38,6 +38,11 @@ export const fmtGoods = (g) => ({
   sales_actual: g.sales_actual,
   stock_num: g.stock_num,
   goods_status: g.goods_status,
+  // 1 抢购 / 2 商城。**必须返回**：H5 详情页靠它区分「要不要等抢购场次」，
+  // 之前漏了这个字段，前端 Number(undefined) === 1 恒为 false，
+  // 结果抢购商品在非抢购时段也显示「立即抢购」、按钮能点 —— 外面显示已结束/已抢完，
+  // 点进去却像还能买。这种「字段没返回 → 前端静默放行」的坑只能靠接口契约兜住
+  type: Number(g.type) || 1,
   // 已抢完：下架态（成交/售罄都会落到 20）。前端据此置灰卡片、把按钮改成「已抢完」。
   // 不看 stock_num —— 商城商品(type=2)根本不维护库存，用它判断会把商城货全标成售罄
   sold_out: Number(g.goods_status) === 10 ? 0 : 1,

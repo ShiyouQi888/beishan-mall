@@ -29,6 +29,8 @@
         <span class="chip chip--ghost">已转拍 {{ g.turn_beat_num || 0 }} 次</span>
         <span v-if="g.is_split" class="chip chip--stock">拆分为 {{ g.split_total }} 份 · 余 {{ g.stock_num }} 份</span>
       </div>
+      <!-- 不能买时把原因写在明面上：只把底部按钮弄灰，用户会以为按钮坏了、反复去点 -->
+      <div class="detail__state" :class="{ 'is-out': soldOut }" v-if="closedTip">{{ closedTip }}</div>
     </div>
 
     <div class="detail__promise card">
@@ -68,7 +70,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
@@ -92,32 +94,56 @@ const promises = computed(() => {
   const arr = t.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
   return arr.length ? arr : ['正品保障', '顺丰包邮', '支持复检'];
 });
-// 抢购商品要等「抢购总时间」开放；商城商品（type=2）不受时间限制
-const buyClosed = computed(() => Number(g.value.type) === 1 && !!g.value.specialarea && Number(g.value.is_ordinary_order) !== 1);
+// 抢购商品必须等所属场次开放；商城商品（type=2）没有场次，不受时间限制。
+// 判断「是不是抢购商品」优先看 type，但 type 缺失时退化为「有没有场次」——
+// 之前就是接口漏返 type，Number(undefined) === 1 恒为 false，抢购商品在非抢购时段
+// 也显示「立即抢购」、按钮还能点。不再赌单个字段一定在。
+const isLootGoods = computed(() => (Number(g.value.type) === 2 ? false : !!g.value.specialarea));
+const buyClosed = computed(() => isLootGoods.value && Number(g.value.is_ordinary_order) !== 1);
 // 已抢完：商品被买走或拆份卖光后下架。列表里留一张灰卡片，点进来就是这里 —— 不能下单。
-// 判断依据只看 sold_out（后端 goods_status ≠ 10），与前台下单校验同一口径
-const soldOut = computed(() => Number(g.value.sold_out) === 1);
+// 优先用后端的 sold_out，字段缺失时退回 goods_status，两者都不会让售罄商品漏过
+const soldOut = computed(() => (g.value.sold_out === undefined
+  ? Number(g.value.goods_status ?? 10) !== 10
+  : Number(g.value.sold_out) === 1));
 const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value && !soldOut.value);
+// 不能买时给一句人话，别只把按钮弄灰 —— 按钮变灰很容易被当成「点一下试试」
+const closedTip = computed(() => {
+  if (!g.value.goods_id || canBuy.value) return '';
+  if (soldOut.value) return '这件货已经被抢走了，等下一场再来';
+  const a = g.value.specialarea;
+  if (buyClosed.value && a) return `当前不在抢购时间（本场 ${a.start_end_time}-${a.start_end_time1}）`;
+  return '该商品暂不可购买';
+});
 
 function buy() {
   if (!localStorage.getItem('TOKEN')) return router.push('/login');
   router.push(`/submit/${g.value.goods_id}`);
 }
 
-onMounted(async () => {
+async function load(id) {
+  if (!id) return;
   try {
-    const r = await api.lootDetail(route.params.id);
-    g.value = r.data || {};
+    const r = await api.lootDetail(id);
+    // 业务失败也是 HTTP 200，不判断 code 的话会拿空数据渲染出「¥0.00 可购买」的假页面
+    if (r?.code !== 1 || !r.data?.goods_id) throw new Error(r?.msg || 'not found');
+    g.value = r.data;
   } catch {
     try {
-      const r2 = await api.shopDetail(route.params.id);
-      g.value = r2.data || {};
+      const r2 = await api.shopDetail(id);
+      if (r2?.code !== 1 || !r2.data?.goods_id) throw new Error('not found');
+      g.value = r2.data;
     } catch {
       showToast('商品不存在');
-      router.back();
+      g.value = {};
+      setTimeout(() => router.replace('/loot'), 1000);
     }
   }
-});
+}
+
+// 组件会被复用（在详情页之间跳转时不会重新挂载），只写在 onMounted 里会导致
+// 「看一眼新商品，页面还是上一件」——点抢购买的可能仍是上一件
+onMounted(() => load(route.params.id));
+watch(() => route.params.id, (id) => load(id));
 </script>
 
 <style scoped>
@@ -175,6 +201,18 @@ onMounted(async () => {
 .chip--time { color: #3d7dff; background: #eef4ff; font-variant-numeric: tabular-nums; }
 .chip--ghost { color: var(--text-3); background: #f5f6f8; }
 .chip--stock { color: #c88a1e; background: #fff7e8; }
+/* 不能买的原因条：比灰按钮显眼，一眼就知道是「来晚了」还是「没到点」 */
+.detail__state {
+  margin-top: 10px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #9a6212;
+  background: #fff8e9;
+  border: 1px solid #f6e3c2;
+}
+.detail__state.is-out { color: #6a7078; background: #f4f5f7; border-color: #e6e8ec; }
 
 .detail__promise {
   margin: 10px 14px 0;

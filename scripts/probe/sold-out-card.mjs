@@ -178,6 +178,40 @@ async function main() {
     const shop = await api('/api/goods/searchShop?page=1&limit=50');
     const shopSoldOut = (shop.data?.data || []).filter((x) => Number(x.sold_out) === 1);
     ok(shopSoldOut.length === 0, '商城商品（type=2）没有一件被标成已抢完', `${shopSoldOut.length} 件被误标`);
+    // ---------------- 详情接口字段契约 ----------------
+    // 前端「能不能抢」全靠这几个字段判定。少返回一个，前端就会静默放行 ——
+    // 曾经 fmtGoods 漏返回 type，导致详情页 Number(undefined) === 1 恒为 false，
+    // 抢购商品在非抢购时段也显示「立即抢购」且按钮能点。
+    section('[7] 详情接口必须带齐判定字段');
+    const d1 = await api(`/api/goods/getLootDetails?goods_id=${g1.goods_id}`);
+    ok(d1.code === 1, '详情接口可用', d1.msg);
+    ok(d1.data?.type !== undefined, '返回 type（前端据此区分抢购/商城商品）', `type=${d1.data?.type}`);
+    ok(d1.data?.sold_out !== undefined, '返回 sold_out（前端据此判断已抢完）', `sold_out=${d1.data?.sold_out}`);
+    ok(d1.data?.is_ordinary_order !== undefined, '返回 is_ordinary_order（前端据此判断能否抢）',
+      `is_ordinary_order=${d1.data?.is_ordinary_order}`);
+
+    // 让某场次变成「已结束」，再确认 is_ordinary_order 归零
+    const area2 = db.prepare('SELECT * FROM specialarea ORDER BY specialarea_id LIMIT 1').get();
+    db.prepare('UPDATE specialarea SET start_time = 0, end_time = 1 WHERE specialarea_id = ?').run(area2.specialarea_id);
+    const g4 = db.prepare(
+      "SELECT goods_id, member_id FROM goods WHERE type = 1 AND goods_status = 10 AND specialarea_id = ? LIMIT 1",
+    ).get(area2.specialarea_id);
+    if (g4) {
+      // 不能买自己持有的货，按持有人挑另一个账号来下这一单
+      const buyer = Number(g4.member_id) === 1 ? B : A;
+      const d4 = await api(`/api/goods/getLootDetails?goods_id=${g4.goods_id}`);
+      ok(Number(d4.data?.is_ordinary_order) === 0, '场次已结束时 is_ordinary_order=0（详情页按钮必须禁用）',
+        `is_ordinary_order=${d4.data?.is_ordinary_order}`);
+      ok(Number(d4.data?.sold_out) === 0, '场次结束不算「已抢完」，两个状态不能混',
+        `sold_out=${d4.data?.sold_out}`);
+      const blocked = await api('/api/order/toAddOrder', { method: 'POST', token: buyer, body: { goods_id: g4.goods_id, num: 1, pay_type: 1 } });
+      ok(blocked.code !== 1 && /抢购时间|未开放/.test(blocked.msg || ''), '场次结束后下单被拒', blocked.msg);
+    } else {
+      ok(true, '跳过（该场次无在售商品）');
+      ok(true, '跳过（该场次无在售商品）');
+      ok(true, '跳过（该场次无在售商品）');
+    }
+    db.prepare('UPDATE specialarea SET start_time = 0, end_time = 86399 WHERE specialarea_id = ?').run(area2.specialarea_id);
   } catch (e) {
     fails.push('异常：' + e.message);
     console.error('\n异常：', e.message);
