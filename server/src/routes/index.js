@@ -189,6 +189,8 @@ r.get('/index/getPaySeeting', (req, res) => {
       wx_open: switchOn('pay_wx', '10'),
       zfb_open: switchOn('pay_zfb', '10'),
       bank_open: switchOn('pay_bank', '20'),
+      // 线下支付是否必须上传付款凭证（后台「支付凭证必传」开关）
+      voucher_required: switchOn('pay_voucher_required', '10'),
       wx_qr_ready: cfg('wx_qr', '') ? '1' : '0',
       zfb_qr_ready: cfg('zfb_qr', '') ? '1' : '0',
     }),

@@ -504,6 +504,7 @@ const SETTING_GROUPS = {
     { k: 'pay_wx', t: '微信收款码转账', type: 'switch' },
     { k: 'pay_zfb', t: '支付宝收款码转账', type: 'switch' },
     { k: 'pay_bank', t: '线下转账凭证', type: 'switch', tip: '开启后前台可选择线下转账并上传凭证；微信、支付宝扫码方式需先配置对应收款码。' },
+    { k: 'pay_voucher_required', t: '支付凭证必传', type: 'switch', tip: '开启（默认）：线下扫码/转账支付必须上传付款凭证，后台「确认收款」也会校验凭证是否已提交。关闭：会员选线下支付时无需上传凭证，点一下即标记为「已提交」；后台确认收款不再校验凭证，可直接确认。⚠️ 关闭后会员未实际付款也能自行标记已付款，请确保另有核实手段（如收款账户流水）。' },
     { k: 'pay_gateway_open', t: '在线支付通道', type: 'switch' },
     { k: 'zfb_qr', t: '支付宝收款码', type: 'image' },
     { k: 'wx_qr', t: '微信收款码', type: 'image' },
@@ -1016,7 +1017,13 @@ function confirmPayOne(orderId) {
   const o = get('SELECT * FROM orders WHERE order_id = ?', Number(orderId));
   if (!o) { const e = new Error('订单不存在'); e.biz = true; throw e; }
   if (o.pay_status === 10) { const e = new Error('订单已确认'); e.biz = true; throw e; }
-  if (Number(o.pay_type) !== 1 && !o.pay_voucher) { const e = new Error('会员尚未提交支付凭证'); e.biz = true; throw e; }
+  // 后台开了「支付凭证必传」才拦；关了就是运营自己承担无凭证确认的风险
+  if (Number(cfg('pay_voucher_required', '10')) === 10
+    && Number(o.pay_type) !== 1 && !o.pay_voucher) {
+    const e = new Error('会员尚未提交支付凭证');
+    e.biz = true;
+    throw e;
+  }
   tx(() => {
     // 原子更新，避免与用户端并发支付冲突
     const r = run(

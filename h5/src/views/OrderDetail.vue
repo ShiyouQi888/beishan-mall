@@ -70,7 +70,7 @@
           <img v-if="paymentQr" :src="paymentQr" alt="收款二维码" @click="showImagePreview([paymentQr])" />
           <div v-else class="payment__empty">暂未配置收款二维码，请联系平台处理。</div>
         </div>
-        <div v-if="selectedPayType && selectedPayType !== 1" class="payment__voucher">
+        <div v-if="selectedPayType && selectedPayType !== 1 && needVoucher" class="payment__voucher">
           <div class="payment__hint">完成转账后，请上传付款凭证供平台核实。</div>
           <ImageUploader :model-value="voucher" :upload="uploadVoucher" @update:model-value="voucher = $event" />
         </div>
@@ -92,7 +92,7 @@
 
     <div class="odetail__bar" v-if="o.status === 0 || o.status === 20">
       <button v-if="o.status === 0" class="btn-main" :disabled="!availablePayTypes.length || paying" @click="pay">
-        {{ paying ? '提交中…' : selectedPayType === 1 ? '立即支付' : '提交支付凭证' }}
+        {{ paying ? '提交中…' : selectedPayType === 1 ? '立即支付' : (needVoucher ? '提交支付凭证' : '我已付款，提交') }}
       </button>
       <button v-if="o.status === 20" class="btn-main" @click="receipt">确认收货</button>
     </div>
@@ -115,14 +115,28 @@ const sys = ref({});
 const paymentSettings = ref({});
 const selectedPayType = ref(0);
 const voucher = ref('');
+// 后台「支付凭证必传」：默认必传。关闭后线下支付不显示上传框、不校验凭证。
+const needVoucher = computed(() => String(paymentSettings.value.voucher_required ?? '1') === '1');
 const paying = ref(false);
-const payOptions = [
-  { v: 1, key: 'balance_open', t: '余额支付', d: '使用账户可用余额直接支付' },
-  { v: 2, key: 'wx_open', ready: 'wx_qr_ready', t: '微信扫码', d: '扫码转账后上传凭证，等待平台确认' },
-  { v: 3, key: 'zfb_open', ready: 'zfb_qr_ready', t: '支付宝扫码', d: '扫码转账后上传凭证，等待平台确认' },
-  { v: 4, key: 'bank_open', t: '线下转账凭证', d: '转账后上传凭证，等待平台确认' },
-];
-const availablePayTypes = computed(() => payOptions.filter((item) =>
+const payOptions = computed(() => {
+  // 后台「支付凭证必传」关掉后，线下支付不再要求上传凭证，文案也要跟着改，
+  // 否则会出现「请上传凭证」的页面却找不到上传框。
+  const tail = needVoucher.value
+    ? '扫码转账后上传凭证，等待平台确认'
+    : '扫码转账后提交即可，等待平台确认';
+  return [
+    { v: 1, key: 'balance_open', t: '余额支付', d: '使用账户可用余额直接支付' },
+    { v: 2, key: 'wx_open', ready: 'wx_qr_ready', t: '微信扫码', d: tail },
+    { v: 3, key: 'zfb_open', ready: 'zfb_qr_ready', t: '支付宝扫码', d: tail },
+    {
+      v: 4,
+      key: 'bank_open',
+      t: needVoucher.value ? '线下转账凭证' : '线下转账',
+      d: needVoucher.value ? '转账后上传凭证，等待平台确认' : '转账后提交即可，等待平台确认',
+    },
+  ];
+});
+const availablePayTypes = computed(() => payOptions.value.filter((item) =>
   String(paymentSettings.value[item.key]) === '1'
   && (!item.ready || String(paymentSettings.value[item.ready]) === '1'),
 ));
@@ -163,15 +177,15 @@ async function load() {
 
 async function pay() {
   if (!selectedPayType.value) return showToast('当前暂无开放的支付方式');
-  if (selectedPayType.value !== 1 && !voucher.value) return showToast('请先上传支付凭证');
+  if (needVoucher.value && selectedPayType.value !== 1 && !voucher.value) return showToast('请先上传支付凭证');
   paying.value = true;
   try {
     const result = await api.payOrder({
       order_id: o.value.order_id,
       pay_type: selectedPayType.value,
-      ...(selectedPayType.value === 1 ? {} : { voucher: voucher.value }),
+      ...(selectedPayType.value === 1 || !voucher.value ? {} : { voucher: voucher.value }),
     });
-    showToast(selectedPayType.value === 1 ? '支付成功' : (result.msg || '凭证已提交，等待平台确认'));
+    showToast(selectedPayType.value === 1 ? '支付成功' : (result.msg || '已提交，等待平台确认'));
     load();
   } catch {} finally { paying.value = false; }
 }

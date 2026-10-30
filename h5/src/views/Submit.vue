@@ -114,13 +114,25 @@ const loading = ref(false);
 const feeRate = ref(0);
 
 const paymentSettings = ref({});
-const allPayTypes = [
-  { v: 1, key: 'balance_open', t: '余额支付', d: '使用账户可用余额直接支付' },
-  { v: 2, key: 'wx_open', ready: 'wx_qr_ready', t: '微信扫码', d: '扫码转账后上传凭证，等待平台确认' },
-  { v: 3, key: 'zfb_open', ready: 'zfb_qr_ready', t: '支付宝扫码', d: '扫码转账后上传凭证，等待平台确认' },
-  { v: 4, key: 'bank_open', t: '线下转账凭证', d: '转账后上传凭证，等待平台确认' },
-];
-const payTypes = computed(() => allPayTypes.filter((item) =>
+// 后台「支付凭证必传」：默认必传；关闭后线下支付无需上传凭证
+const needVoucher = computed(() => String(paymentSettings.value.voucher_required ?? '1') === '1');
+const allPayTypes = computed(() => {
+  const tail = needVoucher.value
+    ? '扫码转账后上传凭证，等待平台确认'
+    : '扫码转账后提交即可，等待平台确认';
+  return [
+    { v: 1, key: 'balance_open', t: '余额支付', d: '使用账户可用余额直接支付' },
+    { v: 2, key: 'wx_open', ready: 'wx_qr_ready', t: '微信扫码', d: tail },
+    { v: 3, key: 'zfb_open', ready: 'zfb_qr_ready', t: '支付宝扫码', d: tail },
+    {
+      v: 4,
+      key: 'bank_open',
+      t: needVoucher.value ? '线下转账凭证' : '线下转账',
+      d: needVoucher.value ? '转账后上传凭证，等待平台确认' : '转账后提交即可，等待平台确认',
+    },
+  ];
+});
+const payTypes = computed(() => allPayTypes.value.filter((item) =>
   String(paymentSettings.value[item.key]) === '1'
   && (!item.ready || String(paymentSettings.value[item.ready]) === '1'),
 ));
@@ -182,7 +194,7 @@ async function doSubmit() {
         return;
       }
     } else {
-      showToast('订单已创建，请完成转账并上传凭证');
+      showToast(needVoucher.value ? '订单已创建，请完成转账并上传凭证' : '订单已创建，请完成转账后提交');
     }
     setTimeout(() => router.replace(`/order/detail/${orderId}`), 500);
   } catch {

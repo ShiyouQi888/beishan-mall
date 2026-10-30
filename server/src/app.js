@@ -73,6 +73,7 @@ for (const [key, val, group] of [
   ['theme_key', 'coral', 'store'],          // 外观主题
   ['home_category_show', '10', 'nav'],      // 首页商品分类栏开关
   ['pay_balance_open', '10', 'pay'],        // 余额支付开关
+  ['pay_voucher_required', '10', 'pay'],    // 线下支付是否必须上传凭证
   ['withdraw_wx_open', '10', 'trade'],      // 提现到微信
   ['withdraw_zfb_open', '10', 'trade'],     // 提现到支付宝
   ['withdraw_bank_open', '10', 'trade'],    // 提现到银行卡

@@ -102,6 +102,7 @@ tx(() => {
     ['withdraw_bank_open', '10', 'trade'],
     ['withdraw_offline_open', '10', 'trade'],
     ['pay_balance_open', '10', 'pay'],
+    ['pay_voucher_required', '10', 'pay'],
     ['pay_wx', '10', 'pay'],
     ['pay_zfb', '10', 'pay'],
     ['pay_bank', '20', 'pay'],

@@ -234,10 +234,21 @@ r.post('/toPay', authMember, (req, res) => {
     return res.json(ok([], '支付成功'));
   }
   if (pt !== 1) {
-    if (!voucher) return res.json(fail('请上传支付凭证'));
-    run('UPDATE orders SET pay_type = ?, pay_voucher = ? WHERE order_id = ?', pt, voucher, o.order_id);
-    log(o.order_id, '上传支付凭证', 'member', `${PAY_TYPE[pt] || '支付'}凭证已提交`);
-    return res.json(ok([], '凭证已提交，等待平台确认'));
+    // 后台「支付凭证必传」开关：关闭后会员无需上传凭证即可提交支付，后台确认收款也不再校验。
+    // 注意：开关关闭时不能顺手把 pay_voucher 写空 —— 会员可能在此之前已经传过凭证。
+    const needVoucher = Number(cfg('pay_voucher_required', '10')) === 10;
+    if (needVoucher && !voucher) return res.json(fail('请上传支付凭证'));
+    if (voucher) {
+      run('UPDATE orders SET pay_type = ?, pay_voucher = ? WHERE order_id = ?', pt, voucher, o.order_id);
+    } else {
+      run('UPDATE orders SET pay_type = ? WHERE order_id = ?', pt, o.order_id);
+    }
+    if (needVoucher) {
+      log(o.order_id, '上传支付凭证', 'member', `${PAY_TYPE[pt] || '支付'}凭证已提交`);
+      return res.json(ok([], '凭证已提交，等待平台确认'));
+    }
+    log(o.order_id, '提交支付', 'member', `${PAY_TYPE[pt] || '支付'}（未要求上传凭证）`);
+    return res.json(ok([], '已提交，等待平台确认'));
   }
 });
 

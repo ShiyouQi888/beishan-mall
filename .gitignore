@@ -22,6 +22,8 @@ server/data/backup/
 _npmcache/
 _probe/
 .workbuddy/
+# 本地验收截图，不入库
+_shots/
 
 # Local environment secrets
 .env
