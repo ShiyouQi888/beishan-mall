@@ -45,6 +45,10 @@ export const adminApi = {
   login: (d) => http.post('/login', d),
   me: () => http.get('/me'),
   changePassword: (d) => http.post('/me/password', d),
+
+  // ---- 数据清除 ----
+  resetPlan: (scopes) => http.get('/system/reset/plan', { params: { scopes: (scopes || []).join(',') } }),
+  resetData: (d) => http.post('/system/reset', d),
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
   financeOverview: () => http.get('/finance/overview'),

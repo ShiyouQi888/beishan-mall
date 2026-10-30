@@ -7,6 +7,7 @@ import { runSettlement } from '../../lib/settlement.js';
 import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat } from '../../lib/split.js';
 import extraRouter from './extra.js';
 import mediaRouter from './media.js';
+import systemRouter from './system.js';
 import financeBoardRouter from './finance.js';
 
 const r = Router();
@@ -14,6 +15,8 @@ const r = Router();
 r.use(extraRouter);
 // 文件管理：/media/* 不能被通用 /:module/* 吞掉
 r.use(mediaRouter);
+// 数据清除：/system/* 同理
+r.use(systemRouter);
 // 财务大盘要在通用 /:module/* 之前挂载
 r.use(financeBoardRouter);
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;

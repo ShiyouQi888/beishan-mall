@@ -39,6 +39,7 @@ export default [
       list('/storeuser', 'storeuser', 'storeuser', '管理员'),
       list('/role', 'role', 'role', '角色管理'),
       { path: '/node', name: 'node', component: () => import('./views/NodeManage.vue'), meta: { title: '节点管理' } },
+      { path: '/setting/danger', name: 'dangerZone', component: () => import('./views/DangerZone.vue'), meta: { title: '数据清除', permissionPath: '/setting/danger' } },
       { path: '/setting/:group', name: 'setting', component: () => import('./views/SettingPage.vue'), meta: { title: '系统设置' } },
     ],
   },

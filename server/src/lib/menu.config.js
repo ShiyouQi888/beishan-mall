@@ -180,6 +180,11 @@ export const MENU = [
         title: '导航配置',
         icon: `<path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
       },
+      {
+        path: '/setting/danger',
+        title: '数据清除',
+        icon: `<path d="M12 3.8 21 19.5H3L12 3.8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 9.6v4.2M12 16.7v.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>`,
+      },
     ],
   },
   {
