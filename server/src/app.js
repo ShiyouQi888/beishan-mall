@@ -67,7 +67,14 @@ if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_unmark_fake_
   }
 }
 
-// 老数据补名额：拆分商品的份数就是名额，其余按当前库存算。
+// 商品增加「每场放量」：库存是仓库里一共有多少，放量是这一场只拿出多少来卖。
+// 例如库存 100 件、每场只放 10 件 —— 抢满 10 件这一场就结束变灰，剩下的留在下次。
+// 0（默认）= 不限，整批库存都能卖，现有商品行为不变。
+// 注意这是「名额数」不是「人数」：放 10 个名额 + 每人限购 2 件 = 5 个人就能抢完。
+if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'session_quota')) {
+  db.exec('ALTER TABLE goods ADD COLUMN session_quota INTEGER DEFAULT 0');
+  console.log('[migrate] goods.session_quota 已添加，老商品默认不限量');
+}
 // 「名额」一旦定下就不随成交变化，用来区分「唯一一件货」（成交即归买家）和「一批货」（抢一个减一个）。
 const initStockTotal = run(
   `UPDATE goods SET stock_total = CASE

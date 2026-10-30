@@ -3,6 +3,7 @@ import { all, get, run, now } from '../db.js';
 import { ok, fail, authMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
 import { splitGoods } from '../lib/split.js';
 import { sessionWindow, todayStr } from '../lib/sessionWindow.js';
+import { soldTodayByGoods, soldTodayOf, quotaFull, quotaLeft } from '../lib/quota.js';
 
 // 只露出「今天该出现」的商品：轮转到明天的商品今天不该被看到/被抢
 const AREA_DATE_OK = "(area_date IS NULL OR area_date = '' OR area_date = ?)";
@@ -28,7 +29,9 @@ const r = Router();
 const img = (u) => assetUrl(u);
 
 // 商品统一出参格式（积分商城路由 score.js 也复用）
-export const fmtGoods = (g) => ({
+// soldToday：本场已卖出的件数。列表走 fmtList 批量传入，单条查询用它自己的值，
+// 不传就按 0 处理（不限量的商品本来也用不到这个数）
+export const fmtGoods = (g, soldToday = 0) => ({
   goods_id: g.goods_id,
   goods_name: g.goods_name,
   goods_no: g.goods_no,
@@ -41,6 +44,12 @@ export const fmtGoods = (g) => ({
   stock_num: g.stock_num,
   // 名额：这件商品一共几个。>1 表示「一批货，抢一个减一个」，=1 表示「唯一一件货，成交即归买家」
   stock_total: Number(g.stock_total) || Number(g.stock_num) || 1,
+  // 每场放量：这一场只拿出多少件来卖（0 = 不限，整批库存都能卖）
+  session_quota: Number(g.session_quota) || 0,
+  session_sold: Number(soldToday) || 0,
+  // 本场放量已经卖满 —— 注意这和「库存卖光」是两回事：库存可能还有 90 件，只是这场不放了
+  session_full: quotaFull(g, soldToday) ? 1 : 0,
+  session_left: quotaLeft(g, soldToday) === null ? null : quotaLeft(g, soldToday),
   goods_status: g.goods_status,
   // 1 抢购 / 2 商城。**必须返回**：H5 详情页靠它区分「要不要等抢购场次」，
   // 之前漏了这个字段，前端 Number(undefined) === 1 恒为 false，
@@ -49,7 +58,10 @@ export const fmtGoods = (g) => ({
   type: Number(g.type) || 1,
   // 已抢完：下架态（成交/售罄都会落到 20）。前端据此置灰卡片、把按钮改成「已抢完」。
   // 不看 stock_num —— 商城商品(type=2)根本不维护库存，用它判断会把商城货全标成售罄
-  sold_out: Number(g.goods_status) === 10 ? 0 : 1,
+  // 已抢完：下架态（成交/售罄都会落到 20），或「本场放量已经卖满」。
+  // 后者不把商品置为下架 —— 明天那一场还要重新放量，靠动态判定比改状态再改回来安全。
+  // 不看 stock_num —— 商城商品(type=2)根本不维护库存，用它判断会把商城货全标成售罄
+  sold_out: Number(g.goods_status) === 10 && !quotaFull(g, soldToday) ? 0 : 1,
   is_split: g.is_split,
   split_total: g.split_total,
   turn_beat_num: g.turn_beat_num,
@@ -78,8 +90,11 @@ export function areaStates() {
  * 只给抢购页加灰卡、别的入口还是彩色卡片，用户点进去才发现买不了，等于没做。
  * 商城商品（specialarea_id=0）拿不到场次，状态是 none，前端不会置灰。
  */
-export const fmtList = (rows, states = areaStates()) =>
-  rows.map((g) => ({ ...fmtGoods(g), session_state: states.get(Number(g.specialarea_id)) || 'none' }));
+export const fmtList = (rows, states = areaStates(), soldMap = soldTodayByGoods()) =>
+  rows.map((g) => ({
+    ...fmtGoods(g, soldMap.get(Number(g.goods_id)) || 0),
+    session_state: states.get(Number(g.specialarea_id)) || 'none',
+  }));
 
 r.get('/getCategory', (req, res) => {
   const homeOnly = String(req.query.home || '') === '1';
@@ -203,7 +218,7 @@ r.get('/getLootDetails', (req, res) => {
   const w = area ? sessionWindow(area) : { open: false, startText: '', endText: '' };
   res.json(
     ok({
-      ...fmtGoods(g),
+      ...fmtGoods(g, soldTodayOf(g.goods_id)),
       // 抢购商品是否处于开放时间（统一按后台的抢购总时间）
       is_ordinary_order: g.type === 1 && area && w.open ? 1 : 0,
       // 与列表同一口径：open / upcoming / ended / closed / none
@@ -255,7 +270,7 @@ r.get('/shopgoods/getDetails', (req, res) => {
   if (!goods_id) return res.json(fail('method param miss:goods_id'));
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
-  res.json(ok({ ...fmtGoods(g), comments: [] }));
+  res.json(ok({ ...fmtGoods(g, soldTodayOf(g.goods_id)), comments: [] }));
 });
 
 r.get('/getGoodsEvaluation', (req, res) => {
@@ -285,7 +300,7 @@ r.get('/getShopPosterDetails', (req, res) => {
   if (!goods_id) return res.json(fail('method param miss:goods_id'));
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
-  res.json(ok({ ...fmtGoods(g), poster_bg: get("SELECT `value` FROM setting_config WHERE `key`='poster_bg'")?.value || '' }));
+  res.json(ok({ ...fmtGoods(g, soldTodayOf(g.goods_id)), poster_bg: get("SELECT `value` FROM setting_config WHERE `key`='poster_bg'")?.value || '' }));
 });
 
 // 积分商城已拆到独立控制器 score.js（对齐原站 /api/score/ 路径）

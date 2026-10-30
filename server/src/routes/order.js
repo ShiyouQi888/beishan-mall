@@ -4,6 +4,7 @@ import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceCharg
 import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate, goodsStillOwnedBySeller } from '../lib/settle.js';
 import { deductStock, restoreStock, isPieceSale } from '../lib/split.js';
+import { soldTodayOf } from '../lib/quota.js';
 import { sessionWindow } from '../lib/sessionWindow.js';
 import { nextSlot } from '../lib/sessions.js';
 import { todayStr } from '../lib/sessionWindow.js';
@@ -123,6 +124,18 @@ r.post('/toAddOrder', authMember, (req, res) => {
   if (numInt > 999) return res.json(fail('单笔最多购买 999 件'));
   if (isPieceSale(g) && numInt > Number(g.stock_num || 0)) {
     return res.json(fail(`只剩 ${Number(g.stock_num) || 0} 个名额了`));
+  }
+
+  // 每场放量：库存有 100 件，这场只放 10 件出来卖。抢满 10 件这一场就结束，
+  // 剩下的留到下一场（按自然日重新计数，见 lib/quota.js）。
+  // 这里比库存校验更严：库存还有货也可能被放量拦住。
+  const quota = Number(g.session_quota) || 0;
+  if (quota > 0) {
+    const soldToday = soldTodayOf(g.goods_id);
+    if (soldToday + numInt > quota) {
+      const left = Math.max(0, quota - soldToday);
+      return res.json(fail(left > 0 ? `本场限量 ${quota} 件，只剩 ${left} 件` : `本场 ${quota} 件已抢完，等下一场`));
+    }
   }
 
   // 场次时间校验：按该商品所属场次自己的「周几 + 时段」判断

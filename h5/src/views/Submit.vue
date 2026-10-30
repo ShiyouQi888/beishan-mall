@@ -175,7 +175,9 @@ onMounted(async () => {
       && !!g.value.specialarea
       && Number(g.value.is_ordinary_order) !== 1;
     if (gone || notOpen) {
-      closedReason.value = gone ? '该商品已抢完' : '当前不在该场次抢购时间';
+      // 本场放量抢满不是「货没了」，别让用户以为商品被下架了
+      const quotaHit = Number(g.value.session_full) === 1 && Number(g.value.goods_status) === 10;
+      closedReason.value = quotaHit ? '本场名额已满' : gone ? '该商品已抢完' : '当前不在该场次抢购时间';
       showToast(closedReason.value);
       g.value = {};
       setTimeout(() => router.replace('/loot'), 1500);
