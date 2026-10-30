@@ -22,6 +22,9 @@ function ok(cond, name, detail = '') {
 const eq = (a, b, name) => ok(Math.abs(Number(a) - Number(b)) < 0.011, name, `期望 ${b}，实际 ${a}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const money = (n) => Math.round(Number(n) * 100) / 100;
+// KEEP_AREA_DATE=1：关闭所有「清空 area_date」的测试夹具，让日程像生产一样生效，
+// 用于自查核心测试是否因为夹具而掩盖了真实的日程约束。
+const KEEP_SCHEDULE = process.env.KEEP_AREA_DATE === '1';
 
 const dbFile = join(ROOT, 'data', TEST_DB);
 for (const f of [dbFile, dbFile + '-wal', dbFile + '-shm']) if (existsSync(f)) unlinkSync(f);
@@ -77,8 +80,16 @@ async function main() {
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const json = { ...(await res.json()), httpStatus: res.status };
-    // 转拍会把商品顺延到下一场（甚至明天）。核心测试只关心资金口径，
-    // 这里统一把该商品拉回「不限日期」，日程规则交给 session-rotation.mjs 覆盖。
+    // 日程夹具（时间倒回）：生产中一件商品被抢下 → 转拍 → 排到下一场甚至明天，
+    // 同一件货要隔天才能再买一轮。本文件是单进程几分钟跑完的资金口径测试，
+    // 需要让同一件货连续成交 4~5 轮，只能把它的 area_date 清掉，等于是把日历往回拨。
+    //
+    // 它「不」验证什么：转拍到底该落在哪一场、落在哪一天，这里一律不校验、也不断言。
+    // 那部分由 scripts/probe/session-rotation.mjs（34 项，含跨天与一天一场）负责。
+    // 它「不」掩盖什么：下单接口对 area_date > today 的拦截本身仍然生效 ——
+    // KEEP_AREA_DATE=1 关掉夹具后会立刻看到 24 项因「该商品将在明天的场次开抢」而失败，
+    // 说明拦截逻辑是真的在工作，不是被夹具绕过去的。
+    if (KEEP_SCHEDULE) return json;
     if (path === '/api/order/consignment' && json.code === 1 && body?.order_id) {
       const row = db.prepare('SELECT goods_id FROM orders WHERE order_id = ?').get(Number(body.order_id));
       if (row) db.prepare('UPDATE goods SET area_date = ? WHERE goods_id = ?').run('', row.goods_id);
@@ -90,9 +101,17 @@ async function main() {
   const detail = async (token) => (await api('/api/member/getMemberDetails', { token })).data;
 
   try {
+    console.log(
+      KEEP_SCHEDULE
+        ? '\n[日程夹具] 已关闭（KEEP_AREA_DATE=1）：转拍后商品会真的排到下一场/明天，\n'
+          + '           本进程内无法再买同一件商品，转拍相关段落预期会失败。'
+        : '\n[日程夹具] 已启用：转拍成功后把商品 area_date 清空（相当于「时间倒回」）。\n'
+          + '           本文件只验证资金口径；「转拍到明天、今天买不到」由 session-rotation.mjs 验证。',
+    );
+
     // 核心测试覆盖的是资金与流转口径，日程规则由 session-rotation.mjs 单独覆盖；
     // 这里把所有商品置为「不限日期」，避免前一段的转拍把商品推到明天、影响后一段。
-    db.prepare("UPDATE goods SET area_date = ''").run();
+    if (!KEEP_SCHEDULE) db.prepare("UPDATE goods SET area_date = ''").run();
 
     console.log('\n[1] 抢购分账（服务费按配置收，卖家全额，上级拿 0.5% 直推奖）');
     const svcRate = Number(db.prepare("SELECT `value` v FROM setting_config WHERE `key`='service_charge'").get().v);
@@ -782,7 +801,7 @@ async function main() {
       eq(b3.data?.service_charge, 0, '恢复 0 后下单不再收服务费');
     }
 
-    db.prepare("UPDATE goods SET area_date = ''").run(); // 本段只测口径，清掉日程
+    if (!KEEP_SCHEDULE) db.prepare("UPDATE goods SET area_date = ''").run(); // 本段只测口径，清掉日程
     console.log('\n[14] 转拍自动涨价（逐轮复利，卖家收回全额）');
     const incOf = () => Number(
       db.prepare("SELECT `value` v FROM setting_config WHERE `key`='price_increase_rate'").get()?.v ?? 0,
@@ -877,7 +896,7 @@ async function main() {
     await setInc(3);
     eq(incOf(), 3, '涨价率恢复 3%');
 
-    db.prepare("UPDATE goods SET area_date = ''").run(); // 本段只测口径，清掉日程
+    if (!KEEP_SCHEDULE) db.prepare("UPDATE goods SET area_date = ''").run(); // 本段只测口径，清掉日程
     console.log('\n[15] 我的店铺 + 平台回收');
 
     // ---------- 我的店铺：预计收益口径 ----------
