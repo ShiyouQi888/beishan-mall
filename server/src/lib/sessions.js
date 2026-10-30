@@ -11,6 +11,7 @@
 //   4. 后台手填的 sort 值
 //   5. id
 import { all } from '../db.js';
+import { todayStr, addDays } from './sessionWindow.js';
 
 const NAME_RANK = { forenoon: 1, afternoon: 2, evening: 3 };
 
@@ -50,13 +51,25 @@ export function activeSessions(stateOf) {
 }
 
 /**
- * 下一场：按规范顺序往后挪一格，到末尾回到第一场
- * 商品被抢走后转拍上架，就用它决定落到哪个场次
+ * 下一场（含日期）：一天内的场次按顺序往后走，走到当天最后一场就顺延到第二天第一场。
+ *
+ * 之前只按 (idx+1) % length 环形轮转，不带日期，于是「晚上场转拍 → 落到今天上午场」
+ * 当天就能再被抢一次，商品总在同一天里打转。
+ *
+ * @param {number} currentId 当前所在场次
+ * @param {string} baseDate  基准日期（商品原 area_date，空=今天）；不允许落在过去
+ * @returns {{area_id:number, date:string}|null}
  */
-export function nextSessionId(currentId) {
+export function nextSlot(currentId, baseDate = '') {
   const list = activeSessions();
-  if (!list.length) return 0;
+  if (!list.length) return null;
+  const today = todayStr();
+  // 基准日不能早于今天：昨天被抢的商品今天才转拍，要从今天开始排
+  const base = baseDate && baseDate >= today ? baseDate : today;
   const idx = list.findIndex((s) => Number(s.specialarea_id) === Number(currentId));
-  if (idx < 0) return Number(list[0].specialarea_id);
-  return Number(list[(idx + 1) % list.length].specialarea_id);
+  if (idx >= 0 && idx < list.length - 1) {
+    return { area_id: Number(list[idx + 1].specialarea_id), date: base };
+  }
+  // 当前已经是当天最后一场（或找不到当前场次）→ 明天第一场
+  return { area_id: Number(list[0].specialarea_id), date: addDays(base, 1) };
 }

@@ -5,7 +5,8 @@ import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate } from '../lib/settle.js';
 import { deductStock } from '../lib/split.js';
 import { sessionWindow } from '../lib/sessionWindow.js';
-import { nextSessionId } from '../lib/sessions.js';
+import { nextSlot } from '../lib/sessions.js';
+import { todayStr } from '../lib/sessionWindow.js';
 
 const r = Router();
 
@@ -82,6 +83,11 @@ r.post('/toAddOrder', authMember, (req, res) => {
   if (!g) return res.json(fail('商品不存在'));
   if (g.goods_status !== 10) return res.json(fail('商品已下架'));
   if (g.member_id === m.member_id) return res.json(fail('不能购买自己持有的商品'));
+  // 场次日期：轮转到明天的商品，今天不能提前抢
+  const today = todayStr();
+  if (g.area_date && g.area_date > today) {
+    return res.json(fail(`该商品将在 ${g.area_date} 的场次开抢`));
+  }
 
   // 数量必须在服务端收死：负数会让总额为负，支付时变成「余额加钱」；小数/NaN 会污染金额与库存
   const numInt = Number(num);
@@ -396,18 +402,22 @@ r.post('/consignment', authMember, (req, res) => {
       const curLine = Number(g.line_price || 0);
       const newLine = curLine > 0 && curLine <= sellPrice ? money2(sellPrice * 1.1) : curLine;
       // 转拍上架要落到「下一场」，而不是原地留在上一场（否则同一件商品永远只在前一场流转）
-      const nextArea = nextSessionId(g.specialarea_id);
+      // 一天内按场次顺序往后走，当天最后一场之后顺延到第二天第一场。
+      // 商城商品(type=2)不属于场次体系，保持原样。
+      const slot = Number(g.type) === 1 ? nextSlot(g.specialarea_id, g.area_date) : null;
+      const nextArea = slot ? slot.area_id : g.specialarea_id;
+      const nextDate = slot ? slot.date : g.area_date || '';
       run(
         `UPDATE goods SET goods_min_price = ?, line_price = ?, goods_status = 10, is_sell = 10,
-           specialarea_id = ?, update_time = ?
+           specialarea_id = ?, area_date = ?, update_time = ?
          WHERE goods_id = ?`,
-        sellPrice, newLine, nextArea || g.specialarea_id, now(), g.goods_id,
+        sellPrice, newLine, nextArea, nextDate, now(), g.goods_id,
       );
 
       // 不再生成寄卖挂单：挂单信息已完整存在于「本订单的 consignment_status/listing_fee/transposition_time」
       // 与「goods 的持有人/标价/上下架」两处，另开一张 type=2 订单属于纯冗余（曾留下永不结清的僵尸单）
       log(o.order_id, '转拍上架', 'member',
-        `标价 ${sellPrice}（上一手 ${q.prev_price}，涨价 ${q.increase_rate}% = ${q.increase_amount}），上架费 ${fee.toFixed(2)}，进入场次 #${nextArea || g.specialarea_id}`);
+        `标价 ${sellPrice}（上一手 ${q.prev_price}，涨价 ${q.increase_rate}% = ${q.increase_amount}），上架费 ${fee.toFixed(2)}，进入场次 #${nextArea}${nextDate ? `（${nextDate}）` : ''}`);
     });
   } catch (e) {
     if (e.biz) return res.json(fail(e.message));

@@ -164,7 +164,8 @@ export function recycleStreambeat(orderId) {
     );
     // 商品转平台持仓：持有人置 0、下架。后台把状态改回上架即可重新进入场次
     run(
-      'UPDATE goods SET member_id = 0, goods_status = 20, is_sell = 0, update_time = ? WHERE goods_id = ?',
+      // 平台持仓后不再受场次日期约束（area_date 清空＝不限），后台改回上架即可重新被抢
+      "UPDATE goods SET member_id = 0, goods_status = 20, is_sell = 0, area_date = '', update_time = ? WHERE goods_id = ?",
       now(), g.goods_id,
     );
     run('UPDATE orders SET status = 70 WHERE order_id = ?', o.order_id);

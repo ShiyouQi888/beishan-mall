@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS goods (
   detail         TEXT DEFAULT '',         -- 富文本详情
   category_id    INTEGER DEFAULT 0,
   specialarea_id INTEGER DEFAULT 0,
+  area_date      TEXT DEFAULT '',         -- 本轮上架落在哪一天的场次（YYYY-MM-DD；空=不限，老数据兼容）
   member_id      INTEGER DEFAULT 0,       -- 现持有人
   goods_min_price REAL DEFAULT 0,         -- 售卖价
   line_price     REAL DEFAULT 0,          -- 市场价/划线价

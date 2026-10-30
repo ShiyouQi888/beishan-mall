@@ -73,6 +73,12 @@ async function main() {
     // 上架费设 0，避免余额不足挡住转拍
     await api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'trade', values: { listing_fee_rate: '0', service_charge: '0' } } });
 
+    const pad = (n) => String(n).padStart(2, '0');
+    const d0 = new Date();
+    const today = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate());
+    const d1 = new Date(d0); d1.setDate(d1.getDate() + 1);
+    const tomorrow = d1.getFullYear() + '-' + pad(d1.getMonth() + 1) + '-' + pad(d1.getDate());
+
     const areas = db.prepare('SELECT * FROM specialarea ORDER BY specialarea_id').all();
     const fore = areas.find((a) => a.name === 'forenoon');
     const after = areas.find((a) => a.name === 'afternoon');
@@ -149,7 +155,7 @@ async function main() {
     eq(g3.specialarea_id, even.specialarea_id, '进入晚上场');
 
     // ---------- 环形：晚上场再转拍回到上午场 ----------
-    section('[5] 环回：晚上场再转拍回到上午场');
+    section('[5] 跨天：晚上场再转拍 → 明天上午场（不是今天）');
     const buyer3 = db.prepare("SELECT * FROM member WHERE member_id NOT IN (?, ?) AND is_valid = 10 AND disabled = 10 LIMIT 1").get(buyer.member_id, buyer2.member_id);
     const t3 = buyer3 ? await tokenOf(buyer3) : '';
     if (t3) {
@@ -159,11 +165,58 @@ async function main() {
       await api('/api/order/toPay', { method: 'POST', token: t3, body: { order_id: order3.data.order_id, pay_type: 1 } });
       const cons3 = await api('/api/order/consignment', { method: 'POST', token: t3, body: { order_id: order3.data.order_id } });
       ok(cons3.code === 1, '买家3 转拍成功', cons3.msg);
-      const g4 = db.prepare('SELECT specialarea_id FROM goods WHERE goods_id = ?').get(target.goods_id);
-      eq(g4.specialarea_id, fore.specialarea_id, '晚上场之后回到上午场（环形）');
+      const g4 = db.prepare('SELECT specialarea_id, area_date FROM goods WHERE goods_id = ?').get(target.goods_id);
+      eq(g4.specialarea_id, fore.specialarea_id, '落到第一场（上午场）');
+      eq(g4.area_date, tomorrow, '日期顺延到明天，而不是今天');
+
+      // 今天不该再看到、也不该能抢
+      const lootToday = await api('/api/goods/getLootList');
+      const idsToday = (lootToday.data?.list || []).flatMap((a) => (a.goods_list || []).map((x) => x.goods_id));
+      ok(!idsToday.includes(target.goods_id), '今天的场次列表里不再出现它');
+
+      const listToday = await api('/api/goods/getLootGoodsList?page=1&limit=50');
+      ok(!(listToday.data?.data || []).some((x) => x.goods_id === target.goods_id), '首页瀑布流也不再出现它');
+
+      const buyer4 = db.prepare('SELECT * FROM member WHERE member_id NOT IN (?, ?, ?) AND is_valid = 10 AND disabled = 10 LIMIT 1').get(buyer.member_id, buyer2.member_id, buyer3.member_id);
+      if (buyer4) {
+        await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: buyer4.member_id, field: 'amount', value: 900000, remark: '冒烟充值' } });
+        const t4 = await tokenOf(buyer4);
+        const early = await api('/api/order/toAddOrder', { method: 'POST', token: t4, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
+        ok(early.code === 0 && /将在/.test(early.msg), '今天提前抢被拒', early.msg);
+      }
+
+      // 把日期改成今天，模拟「到了第二天」→ 又能抢
+      db.prepare('UPDATE goods SET area_date = ? WHERE goods_id = ?').run(today, target.goods_id);
+      const lootNext = await api('/api/goods/getLootList');
+      const foreList = (lootNext.data?.list || []).find((a) => a.name === 'forenoon')?.goods_list || [];
+      ok(foreList.some((x) => x.goods_id === target.goods_id), '到了那天，第一场就出现它');
     } else {
       ok(false, '买家3 在晚上场抢到它', '没有可用的第三个会员');
     }
+    section('[6] 一天只有一场：抢完只能明天再抢');
+    // 只留上午场，模拟「一天一场」的配置
+    db.prepare('UPDATE specialarea SET is_open = 20 WHERE name <> ?').run('forenoon');
+    db.prepare('UPDATE goods SET specialarea_id = ?, area_date = ? WHERE goods_id = ?').run(fore.specialarea_id, today, target.goods_id);
+    const solo = db.prepare("SELECT * FROM member WHERE member_id NOT IN (?, ?, ?) AND is_valid = 10 AND disabled = 10 LIMIT 1").get(buyer.member_id, buyer2.member_id, buyer3.member_id);
+    if (solo) {
+      await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: solo.member_id, field: 'amount', value: 900000, remark: '冒烟充值' } });
+      const ts = await tokenOf(solo);
+      const o6 = await api('/api/order/toAddOrder', { method: 'POST', token: ts, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
+      ok(o6.code === 1, '唯一场次里抢到它', o6.msg);
+      await api('/api/order/toPay', { method: 'POST', token: ts, body: { order_id: o6.data.order_id, pay_type: 1 } });
+      const c6 = await api('/api/order/consignment', { method: 'POST', token: ts, body: { order_id: o6.data.order_id } });
+      ok(c6.code === 1, '转拍成功', c6.msg);
+      const g6 = db.prepare('SELECT specialarea_id, area_date FROM goods WHERE goods_id = ?').get(target.goods_id);
+      eq(g6.specialarea_id, fore.specialarea_id, '还是同一场次');
+      eq(g6.area_date, tomorrow, '但日期是明天');
+      const loot6 = await api('/api/goods/getLootList');
+      const ids6 = (loot6.data?.list || []).flatMap((a) => (a.goods_list || []).map((x) => x.goods_id));
+      ok(!ids6.includes(target.goods_id), '今天已经看不到它');
+    } else {
+      ok(false, '唯一场次里抢到它', '没有可用会员');
+    }
+    db.prepare('UPDATE specialarea SET is_open = 10').run();
+
   } finally {
     srv.kill('SIGTERM');
     await sleep(300);

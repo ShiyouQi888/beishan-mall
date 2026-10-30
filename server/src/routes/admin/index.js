@@ -35,6 +35,7 @@ const M = {
       { k: 'goods_name', t: '商品名称', type: 'text', w: 140 },
       { k: 'goods_no', t: '商品编码', type: 'text', w: 116, hide: true },
       { k: 'specialarea_id', t: '场次', type: 'select', opts: 'specialarea', w: 104 },
+      { k: 'area_date', t: '场次日期', type: 'text', readonly: true, w: 104, tip: '轮转上架时自动写入。空白表示不限日期（后台手动上架的商品）' },
       { k: 'category_id', t: '分类', type: 'select', opts: 'category', w: 96 },
       { k: 'member_id', t: '现持有人', type: 'holder', w: 104 },
       { k: 'goods_min_price', t: '售卖价', type: 'money', w: 100 },

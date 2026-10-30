@@ -76,13 +76,24 @@ async function main() {
       headers: { 'Content-Type': 'application/json', ...(token ? { token } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
-    return { ...(await res.json()), httpStatus: res.status };
+    const json = { ...(await res.json()), httpStatus: res.status };
+    // 转拍会把商品顺延到下一场（甚至明天）。核心测试只关心资金口径，
+    // 这里统一把该商品拉回「不限日期」，日程规则交给 session-rotation.mjs 覆盖。
+    if (path === '/api/order/consignment' && json.code === 1 && body?.order_id) {
+      const row = db.prepare('SELECT goods_id FROM orders WHERE order_id = ?').get(Number(body.order_id));
+      if (row) db.prepare('UPDATE goods SET area_date = ? WHERE goods_id = ?').run('', row.goods_id);
+    }
+    return json;
   };
   const login = async (phone) =>
     (await api('/api/member/accountLogin', { method: 'POST', body: { phone, password: phone } })).data?.token;
   const detail = async (token) => (await api('/api/member/getMemberDetails', { token })).data;
 
   try {
+    // 核心测试覆盖的是资金与流转口径，日程规则由 session-rotation.mjs 单独覆盖；
+    // 这里把所有商品置为「不限日期」，避免前一段的转拍把商品推到明天、影响后一段。
+    db.prepare("UPDATE goods SET area_date = ''").run();
+
     console.log('\n[1] 抢购分账（服务费按配置收，卖家全额，上级拿 0.5% 直推奖）');
     const svcRate = Number(db.prepare("SELECT `value` v FROM setting_config WHERE `key`='service_charge'").get().v);
     console.log(`    当前抢单服务费率：${svcRate}%`);
@@ -771,6 +782,7 @@ async function main() {
       eq(b3.data?.service_charge, 0, '恢复 0 后下单不再收服务费');
     }
 
+    db.prepare("UPDATE goods SET area_date = ''").run(); // 本段只测口径，清掉日程
     console.log('\n[14] 转拍自动涨价（逐轮复利，卖家收回全额）');
     const incOf = () => Number(
       db.prepare("SELECT `value` v FROM setting_config WHERE `key`='price_increase_rate'").get()?.v ?? 0,
@@ -865,6 +877,7 @@ async function main() {
     await setInc(3);
     eq(incOf(), 3, '涨价率恢复 3%');
 
+    db.prepare("UPDATE goods SET area_date = ''").run(); // 本段只测口径，清掉日程
     console.log('\n[15] 我的店铺 + 平台回收');
 
     // ---------- 我的店铺：预计收益口径 ----------

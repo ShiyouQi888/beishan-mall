@@ -27,6 +27,11 @@ if (!db.prepare('PRAGMA table_info(goods_category)').all().some((column) => colu
   db.exec('ALTER TABLE goods_category ADD COLUMN home_show INTEGER NOT NULL DEFAULT 10');
   console.log('[migrate] goods_category.home_show 已添加，现有分类默认显示');
 }
+// 商品增加「场次日期」：轮转上架要能落到明天，光有 specialarea_id 表达不了跨天
+if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'area_date')) {
+  db.exec("ALTER TABLE goods ADD COLUMN area_date TEXT DEFAULT ''");
+  console.log('[migrate] goods.area_date 已添加，老商品视为不限日期');
+}
 // 初始化权限节点（幂等）
 const addedNodes = ensureNodes();
 if (addedNodes) console.log(`[nodes] 初始化 ${addedNodes} 个权限节点`);

@@ -4,6 +4,20 @@
 // 所以必须只有一份实现——之前这套逻辑散在两处各写一遍，改一处就会走偏。
 const DAY_NAMES = ['一', '二', '三', '四', '五', '六', '日'];
 
+/** 本地日期 YYYY-MM-DD（不能用 toISOString，那是 UTC，早八点前会差一天） */
+export function todayStr(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** 日期字符串 + n 天 */
+export function addDays(dateStr, n = 1) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  dt.setDate(dt.getDate() + n);
+  return todayStr(dt);
+}
+
 /** 秒 → HH:MM */
 function hhmm(sec) {
   const n = Math.max(0, Number(sec) || 0);

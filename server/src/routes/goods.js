@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { all, get, run, now } from '../db.js';
 import { ok, fail, authMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
 import { splitGoods } from '../lib/split.js';
-import { sessionWindow } from '../lib/sessionWindow.js';
+import { sessionWindow, todayStr } from '../lib/sessionWindow.js';
+
+// 只露出「今天该出现」的商品：轮转到明天的商品今天不该被看到/被抢
+const AREA_DATE_OK = "(area_date IS NULL OR area_date = '' OR area_date = ?)";
 import { activeSessions } from '../lib/sessions.js';
 
 const r = Router();
@@ -67,13 +70,13 @@ r.get('/category/getCategoryGoodsList', (req, res) => {
   const pp = Number(limit);
   const cur = Number(p);
   const total = get(
-    'SELECT COUNT(*) c FROM goods WHERE category_id = ? AND goods_status = 10 AND type = 1',
-    Number(category_id),
+    'SELECT COUNT(*) c FROM goods WHERE category_id = ? AND goods_status = 10 AND type = 1 AND ' + AREA_DATE_OK,
+    Number(category_id), todayStr(),
   ).c;
   const list = all(
-    `SELECT * FROM goods WHERE category_id = ? AND goods_status = 10 AND type = 1
+    `SELECT * FROM goods WHERE category_id = ? AND goods_status = 10 AND type = 1 AND ${AREA_DATE_OK}
      ORDER BY goods_sort ASC, goods_id DESC LIMIT ? OFFSET ?`,
-    Number(category_id), pp, (cur - 1) * pp,
+    Number(category_id), todayStr(), pp, (cur - 1) * pp,
   );
   res.json(ok(page(list.map(fmtGoods), total, cur, pp)));
 });
@@ -121,9 +124,9 @@ r.get('/getLootList', (req, res) => {
   const areas = areaPayload();
   const list = areas.map((a) => {
     const goods = all(
-      `SELECT * FROM goods WHERE specialarea_id = ? AND goods_status = 10 AND type = 1
+      `SELECT * FROM goods WHERE specialarea_id = ? AND goods_status = 10 AND type = 1 AND ${AREA_DATE_OK}
        ORDER BY goods_sort ASC, goods_id DESC LIMIT 20`,
-      a.specialarea_id,
+      a.specialarea_id, todayStr(),
     ).map(fmtGoods);
     return { ...a, goods_list: goods };
   });
@@ -135,8 +138,8 @@ r.get('/getLootGoodsList', (req, res) => {
   const { specialarea_id, page: p = 1, limit = 10 } = req.query;
   const pp = Number(limit);
   const cur = Number(p);
-  const where = ['goods_status = 10', 'type = 1'];
-  const args = [];
+  const where = ['goods_status = 10', 'type = 1', AREA_DATE_OK];
+  const args = [todayStr()];
   if (specialarea_id) {
     where.push('specialarea_id = ?');
     args.push(Number(specialarea_id));
