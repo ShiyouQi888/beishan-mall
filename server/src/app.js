@@ -39,6 +39,19 @@ if (!db.prepare('PRAGMA table_info(store_role)').all().some((c) => c.name === 'i
   console.log(`[migrate] store_role.is_super 已添加，标记 ${Number(marked.changes) || 0} 个超管角色`);
 }
 
+// 库存填了多件的抢购商品，历史上被当成「整件」处理过：卖一件就整件归买家并下架，
+// 剩下 99 件谁也买不到（运营填的库存数字形同虚设）。
+// 统一归一化成「按份卖」——总量记进 split_total，之后走 deductStock / settleOrder 的份数分支。
+// 幂等：只动 is_split 仍为 0、split_total 还是 0、库存 >1 的商品，跑几次结果一样。
+const pieceFixed = run(
+  `UPDATE goods SET is_split = 1, split_total = stock_num
+   WHERE type = 1 AND IFNULL(is_split, 0) = 0 AND IFNULL(split_total, 0) = 0
+     AND IFNULL(stock_num, 0) > 1`,
+);
+if (Number(pieceFixed.changes) > 0) {
+  console.log(`[migrate] ${Number(pieceFixed.changes)} 件多库存商品转为「按份卖」，库存数字开始生效`);
+}
+
 // 清理早期 seed 预置的默认轮播图。
 // 它和运营自己上传的图一起轮播，看起来像「换了轮播图但默认图还在」。
 // 只删 file_path 仍然指向那张预制 SVG 的记录：运营一旦换成自己的图，路径就变了，不会被误删。

@@ -41,7 +41,7 @@ const M = {
       { k: 'member_id', t: '现持有人', type: 'holder', w: 104 },
       { k: 'goods_min_price', t: '售卖价', type: 'money', w: 100 },
       { k: 'line_price', t: '划线价', type: 'money', w: 100, hide: true },
-      { k: 'stock_num', t: '库存', type: 'number', w: 72, tip: '按份出售的份数。只有点了「拆分」的商品才按这个数字一份一份卖；未拆分的整件商品是唯一的一件，成交即下架，改这个数字不会让它多卖几件。' },
+      { k: 'stock_num', t: '库存', type: 'number', w: 72, tip: '可卖件数。填 >1 就按件一份一份卖：卖一件减一件、卖光才下架，整件始终归原持有人。填 1 则是唯一的一件货，成交后整件归买家并下架，等买家转拍。' },
       { k: 'turn_beat_num', t: '转拍次数', type: 'number', w: 88, hide: true },
       { k: 'sales_actual', t: '销量', type: 'number', w: 72, hide: true },
       { k: 'goods_sort', t: '排序', type: 'number', w: 72, hide: true },

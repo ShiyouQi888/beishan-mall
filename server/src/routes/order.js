@@ -77,14 +77,42 @@ function paymentEnabled(type) {
 }
 
 // ---------------- 下单（抢购） ----------------
+/**
+ * 后台把「库存」填成 >1 的抢购商品，运营的预期就是「这个价有 N 件货，卖一件减一件」。
+ * 但整件转拍模式的商品（库存恒为 1）走的是「成交即整件归买家 + 下架」，
+ * 两套语义混在一起，结果就是：库存填 100、卖 1 件整件下架，后面 99 个人全买不到。
+ *
+ * 这里把多库存商品就地归一化成「按份卖」（is_split = 1，总量记在 split_total）：
+ *   - 下单扣份数库存，卖光才下架（deductStock）
+ *   - 整件始终归原持有人，不会因为卖出一件就换主人（settleOrder 的拆分分支）
+ *   - 与「手工点拆分」的区别：拆分会把总价按份折算，这里是「单价 × 件数」，价格不动
+ * 存量数据由 app.js 的启动迁移统一处理，这里兜住迁移之后运营新填的库存。
+ * @returns {object} 归一化之后的最新商品行
+ */
+function ensurePieceSale(g) {
+  if (Number(g.type) !== 1) return g;          // 商城商品不参与场次/份数
+  if (Number(g.is_split) === 1) return g;      // 已经是按份卖
+  const stock = Number(g.stock_num) || 0;
+  if (stock <= 1) return g;                    // 库存 1 就是唯一的一件货，维持转拍语义
+
+  // 带 IFNULL(is_split,0) = 0 的条件，两个并发请求同时进来也只会转一次
+  run(
+    `UPDATE goods SET is_split = 1, split_total = ?, update_time = ?
+     WHERE goods_id = ? AND IFNULL(is_split, 0) = 0`,
+    stock, now(), g.goods_id,
+  );
+  return get('SELECT * FROM goods WHERE goods_id = ?', g.goods_id);
+}
+
 r.post('/toAddOrder', authMember, (req, res) => {
   const { goods_id, num = 1, address_id, remark, pay_type } = req.body;
   const m = req.member;
   const requestedPayType = Number(pay_type) || 1;
   if (!paymentEnabled(requestedPayType)) return res.json(fail('该支付方式暂未开放，请刷新后重新选择'));
   if (!goods_id) return res.json(fail('请选择商品'));
-  const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
+  let g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
+  g = ensurePieceSale(g);
   if (g.goods_status !== 10) return res.json(fail('商品已下架'));
   if (g.member_id === m.member_id) return res.json(fail('不能购买自己持有的商品'));
   // 场次日期：轮转到明天的商品，今天不能提前抢
@@ -268,11 +296,17 @@ r.post('/toPay', authMember, (req, res) => {
 
 // ---------------- 订单列表 ----------------
 r.get('/getOrder', authMember, (req, res) => {
-  const { status, dataType, page: p = 1, limit = 10 } = req.query;
+  const { status, dataType, order_id, page: p = 1, limit = 10 } = req.query;
   const pp = Number(limit);
   const cur = Number(p);
   const where = ['member_id = ?'];
   const args = [req.member.member_id];
+  if (order_id !== undefined && order_id !== '') {
+    const id = Number(order_id);
+    if (!Number.isInteger(id) || id <= 0) return res.json(fail('订单编号无效'));
+    where.push('order_id = ?');
+    args.push(id);
+  }
   if (status !== undefined && status !== '' && status !== 'all') {
     where.push('status = ?');
     args.push(Number(status));
