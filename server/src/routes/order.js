@@ -3,7 +3,7 @@ import { all, get, run, tx, now } from '../db.js';
 import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, priceIncreaseRate, calcNextPrice, assetUrl, ORDER_STATUS, ORDER_TYPE, PAY_TYPE } from '../lib/helper.js';
 import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate, goodsStillOwnedBySeller } from '../lib/settle.js';
-import { deductStock, restoreStock } from '../lib/split.js';
+import { deductStock, restoreStock, isPieceSale } from '../lib/split.js';
 import { sessionWindow } from '../lib/sessionWindow.js';
 import { nextSlot } from '../lib/sessions.js';
 import { todayStr } from '../lib/sessionWindow.js';
@@ -78,28 +78,24 @@ function paymentEnabled(type) {
 
 // ---------------- 下单（抢购） ----------------
 /**
- * 后台把「库存」填成 >1 的抢购商品，运营的预期就是「这个价有 N 件货，卖一件减一件」。
- * 但整件转拍模式的商品（库存恒为 1）走的是「成交即整件归买家 + 下架」，
- * 两套语义混在一起，结果就是：库存填 100、卖 1 件整件下架，后面 99 个人全买不到。
+ * 后台「库存」填成 >1 的抢购商品，运营的预期就是「这个价有一批货，抢一个减一个」。
+ * 这类商品在数据上要有「初始名额」——只靠 stock_num 判断不出来，它卖着卖着也会变成 0/1。
  *
- * 这里把多库存商品就地归一化成「按份卖」（is_split = 1，总量记在 split_total）：
- *   - 下单扣份数库存，卖光才下架（deductStock）
- *   - 整件始终归原持有人，不会因为卖出一件就换主人（settleOrder 的拆分分支）
- *   - 与「手工点拆分」的区别：拆分会把总价按份折算，这里是「单价 × 件数」，价格不动
- * 存量数据由 app.js 的启动迁移统一处理，这里兜住迁移之后运营新填的库存。
- * @returns {object} 归一化之后的最新商品行
+ * 这里只补 stock_total（名额），**不碰 is_split**：
+ * 拆分是「一件货按份定价」的另一种玩法，跟「这批货能卖几次」是两件事，混用字段
+ * 会让后台显示成「已拆分」、H5 显示「拆分为 100 份」，运营看到一脸懵。
+ * @returns {object} 补齐名额之后的最新商品行
  */
-function ensurePieceSale(g) {
-  if (Number(g.type) !== 1) return g;          // 商城商品不参与场次/份数
-  if (Number(g.is_split) === 1) return g;      // 已经是按份卖
+function ensureStockTotal(g) {
+  if (Number(g.type) !== 1) return g;                             // 商城商品不参与名额
+  const total = Number(g.stock_total) || 0;
   const stock = Number(g.stock_num) || 0;
-  if (stock <= 1) return g;                    // 库存 1 就是唯一的一件货，维持转拍语义
+  if (total >= stock) return g;                                    // 名额已经覆盖库存，不用动
 
-  // 带 IFNULL(is_split,0) = 0 的条件，两个并发请求同时进来也只会转一次
+  // 带 stock_total < ? 的条件，两个并发请求同时进来也只会改一次
   run(
-    `UPDATE goods SET is_split = 1, split_total = ?, update_time = ?
-     WHERE goods_id = ? AND IFNULL(is_split, 0) = 0`,
-    stock, now(), g.goods_id,
+    'UPDATE goods SET stock_total = ?, update_time = ? WHERE goods_id = ? AND IFNULL(stock_total, 0) < ?',
+    stock, now(), g.goods_id, stock,
   );
   return get('SELECT * FROM goods WHERE goods_id = ?', g.goods_id);
 }
@@ -112,7 +108,7 @@ r.post('/toAddOrder', authMember, (req, res) => {
   if (!goods_id) return res.json(fail('请选择商品'));
   let g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
-  g = ensurePieceSale(g);
+  g = ensureStockTotal(g);
   if (g.goods_status !== 10) return res.json(fail('商品已下架'));
   if (g.member_id === m.member_id) return res.json(fail('不能购买自己持有的商品'));
   // 场次日期：轮转到明天的商品，今天不能提前抢
@@ -125,8 +121,8 @@ r.post('/toAddOrder', authMember, (req, res) => {
   const numInt = Number(num);
   if (!Number.isInteger(numInt) || numInt < 1) return res.json(fail('购买数量必须是不小于 1 的整数'));
   if (numInt > 999) return res.json(fail('单笔最多购买 999 件'));
-  if (g.is_split === 1 && numInt > Number(g.stock_num || 0)) {
-    return res.json(fail(`库存不足，仅剩 ${Number(g.stock_num) || 0} 份`));
+  if (isPieceSale(g) && numInt > Number(g.stock_num || 0)) {
+    return res.json(fail(`只剩 ${Number(g.stock_num) || 0} 个名额了`));
   }
 
   // 场次时间校验：按该商品所属场次自己的「周几 + 时段」判断
@@ -136,13 +132,15 @@ r.post('/toAddOrder', authMember, (req, res) => {
       const w = sessionWindow(a);
       if (!w.dayOk) return res.json(fail(`今日未开放该场次（开放：${w.daysText}）`));
       if (!w.timeOk) return res.json(fail(`当前不在该场次抢购时间内（${w.text}）`));
-      // 限购
+      // 限购：只算「这个会员买过这个商品多少件」，不牵扯同场的其它商品、也不牵扯别的场次。
+      // 之前按「今天所有抢购商品合计」算，会员在别的场买过东西再来买这个会被莫名拦住。
       const bought = get(
-        'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND type = 1 AND status <> 40 AND create_time >= ?',
-        m.member_id, new Date().toISOString().slice(0, 10),
+        'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
+        m.member_id, g.goods_id,
       ).n;
-      if (bought + numInt > (a.buy_num || 1)) {
-        return res.json(fail(`每人限购 ${a.buy_num || 1} 件`));
+      const limit = a.buy_num || 1;
+      if (Number(bought) + numInt > limit) {
+        return res.json(fail(`每人限抢 ${limit} 件，你已经抢过 ${Number(bought)} 件了`));
       }
     }
   }
@@ -166,9 +164,9 @@ r.post('/toAddOrder', authMember, (req, res) => {
   let orderId;
   try {
     tx(() => {
-      // 拆分商品需扣减份数库存（原子扣减，不足则拒单）
-      if (g.is_split === 1) {
-        if (!deductStock(g.goods_id, numInt)) throw biz(`库存不足，仅剩 ${g.stock_num} 份`);
+      // 一批货需要扣名额（原子扣减，不足则拒单）；唯一一件货不动库存
+      if (isPieceSale(g)) {
+        if (!deductStock(g.goods_id, numInt)) throw biz(`名额不足，只剩 ${g.stock_num} 个`);
       }
       const info = run(
         `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
@@ -406,8 +404,8 @@ r.get('/getConsignmentQuote', authMember, (req, res) => {
   if (o.consignment_status === 10) return res.json(fail('该订单已转拍上架'));
   const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
   if (!g) return res.json(fail('商品不存在'));
-  // 拆分商品按份额成交，买家只买到其中一份，没有整件的处置权
-  if (Number(g.is_split) === 1) return res.json(fail('拆分商品不支持转拍'));
+  // 一批货是「一个名额一个名额卖出去的」，买家只买到其中一份，没有整件的处置权
+  if (isPieceSale(g)) return res.json(fail('按件出售的商品不支持转拍'));
   res.json(ok(quoteConsignment(o, g, req.query.price)));
 });
 
@@ -422,7 +420,7 @@ r.post('/consignment', authMember, (req, res) => {
 
   const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
   if (!g) return res.json(fail('商品不存在'));
-  if (Number(g.is_split) === 1) return res.json(fail('拆分商品不支持转拍'));
+  if (isPieceSale(g)) return res.json(fail('按件出售的商品不支持转拍'));
   if (g.member_id !== m.member_id) return res.json(fail('您不是该商品持有人'));
 
   // 转拍时限：支付后 N 小时内可转拍（0 表示不限）

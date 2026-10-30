@@ -109,8 +109,9 @@ async function main() {
     ok(Number(after1.stock_num) === 99, '库存 100 → 99', `stock=${after1.stock_num}`);
     ok(Number(after1.member_id) === holder, '整件仍归原持有人', `holder=${after1.member_id}`);
     ok(Number(after1.sales_actual) === 1, '销量 +1', `sales=${after1.sales_actual}`);
-    ok(Number(after1.is_split) === 1 && Number(after1.split_total) === 100,
-      '已自动归一化为「按份卖」，总量记 100', `is_split=${after1.is_split} split_total=${after1.split_total}`);
+    ok(Number(after1.is_split) === 0, '没有借用「拆分」标记来记库存（拆分是另一件事）',
+      `is_split=${after1.is_split}`);
+    ok(Number(after1.stock_total) === 100, '名额记为 100，不随成交变化', `stock_total=${after1.stock_total}`);
 
     // 前台还能看到、还能点
     const list = await api('/api/goods/getLootGoodsList?page=1&limit=100');
@@ -181,9 +182,37 @@ async function main() {
     // ---------------- 启动迁移：存量多库存商品 ----------------
     section('[8] 启动迁移会把存量「库存 >1 未拆分」的商品归一化');
     const legacy = db.prepare(
-      'SELECT * FROM goods WHERE type = 1 AND IFNULL(is_split,0) = 1 AND IFNULL(split_total,0) > 1 LIMIT 1',
+      'SELECT * FROM goods WHERE type = 1 AND IFNULL(stock_total,0) > 1 LIMIT 1',
     ).get();
-    ok(Number(legacy?.split_total) === 100, '被迁移的商品 split_total 记成原库存 100', `split_total=${legacy?.split_total}`);
+    ok(Number(legacy?.stock_total) === 100, '被迁移的商品名额记成原库存 100', `stock_total=${legacy?.stock_total}`);
+    // ---------------- 限购只锁这个商品 ----------------
+    section('[9] 限购只锁这个商品，不锁整个场次');
+    const pair = db.prepare('SELECT goods_id FROM goods WHERE type = 1 ORDER BY goods_id DESC LIMIT 2').all();
+    for (const row of pair) {
+      // 名额留 2 个：抢走 1 个后商品仍在架，第二次下单才会真的撞上限购而不是「已下架」
+      db.prepare("UPDATE goods SET goods_status = 10, stock_num = 2, stock_total = 2, is_split = 0, area_date = '', member_id = 0 WHERE goods_id = ?")
+        .run(row.goods_id);
+    }
+    db.prepare('UPDATE specialarea SET buy_num = 1').run();
+    ok(pair.length === 2, '准备两件各 2 个名额的商品');
+
+    const buyOne = async (token, gid) => {
+      const o = await api('/api/order/toAddOrder', { method: 'POST', token, body: { goods_id: gid, num: 1, pay_type: 1 } });
+      if (o.code !== 1) return { ok: false, msg: o.msg };
+      const p = await api('/api/order/toPay', { method: 'POST', token, body: { order_id: o.data.order_id, pay_type: 1 } });
+      return { ok: p.code === 1, msg: p.msg };
+    };
+
+    const first = await buyOne(A, pair[0].goods_id);
+    ok(first.ok, 'A 抢到第一件', first.msg);
+    const againSame = await api('/api/order/toAddOrder', { method: 'POST', token: A, body: { goods_id: pair[0].goods_id, num: 1, pay_type: 1 } });
+    ok(againSame.code !== 1 && /每人限抢|已经抢过/.test(againSame.msg || ''), 'A 不能再抢这一件了', againSame.msg);
+    const other = await buyOne(A, pair[1].goods_id);
+    ok(other.ok, 'A 仍然可以抢另一个商品（限购不锁整场）', other.msg);
+
+    const numInfo = await api(`/api/goods/getPurchaseNum?goods_id=${pair[0].goods_id}`, { token: A });
+    ok(numInfo.code !== 1, '详情页「还能抢几件」也按单商品算', numInfo.msg);
+    db.prepare('UPDATE specialarea SET buy_num = 999').run();
   } catch (e) {
     fails.push('异常：' + e.message);
     console.error('\n异常：', e.message);

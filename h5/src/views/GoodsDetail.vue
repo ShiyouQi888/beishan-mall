@@ -27,7 +27,10 @@
         <span v-if="g.specialarea?.title_main" class="chip">{{ g.specialarea.title_main }}</span>
         <span v-if="g.specialarea" class="chip chip--time">{{ g.specialarea.start_end_time }} - {{ g.specialarea.start_end_time1 }}</span>
         <span class="chip chip--ghost">已转拍 {{ g.turn_beat_num || 0 }} 次</span>
-        <span v-if="g.is_split" class="chip chip--stock">拆分为 {{ g.split_total }} 份 · 余 {{ g.stock_num }} 份</span>
+        <!-- 名额：一件货有几个购买名额。抢完就不再显示剩余，只留「已抢完」 -->
+        <span v-if="Number(g.stock_total) > 1" class="chip chip--stock">
+          共 {{ g.stock_total }} 件 · 剩 {{ Math.max(0, Number(g.stock_num) || 0) }} 件
+        </span>
       </div>
       <!-- 不能买时把原因写在明面上：只把底部按钮弄灰，用户会以为按钮坏了、反复去点 -->
       <div class="detail__state" :class="{ 'is-out': soldOut }" v-if="closedTip">{{ closedTip }}</div>

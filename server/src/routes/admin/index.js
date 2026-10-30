@@ -41,7 +41,7 @@ const M = {
       { k: 'member_id', t: '现持有人', type: 'holder', w: 104 },
       { k: 'goods_min_price', t: '售卖价', type: 'money', w: 100 },
       { k: 'line_price', t: '划线价', type: 'money', w: 100, hide: true },
-      { k: 'stock_num', t: '库存', type: 'number', w: 72, tip: '可卖件数。填 >1 就按件一份一份卖：卖一件减一件、卖光才下架，整件始终归原持有人。填 1 则是唯一的一件货，成交后整件归买家并下架，等买家转拍。' },
+      { k: 'stock_num', t: '库存', type: 'number', w: 72, tip: '还能被抢几个名额。填 1 = 唯一的一件货，成交后整件归买家并下架，等买家转拍；填 >1 = 一批货，抢一个减一个名额，抢光才下架，整件始终归原持有人。' },
       { k: 'turn_beat_num', t: '转拍次数', type: 'number', w: 88, hide: true },
       { k: 'sales_actual', t: '销量', type: 'number', w: 72, hide: true },
       { k: 'goods_sort', t: '排序', type: 'number', w: 72, hide: true },
@@ -754,13 +754,13 @@ r.post('/goods/duplicate', authAdmin, (req, res) => {
 
   const info = run(
     `INSERT INTO goods (goods_name, goods_no, good_thumb, images, detail, category_id, specialarea_id, area_date,
-       member_id, goods_min_price, line_price, stock_num, sales_actual, goods_status, is_sell,
+       member_id, goods_min_price, line_price, stock_num, stock_total, sales_actual, goods_status, is_sell,
        is_split, split_total, turn_beat_num, goods_sort, type, score_price, create_time, update_time)
-     VALUES (?,?,?,?,?,?,?,'',0,?,?,?,0,?,?,?,?,0,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,'',0,?,?,?,?,0,?,?,?,?,0,?,?,?,?,?)`,
     `${g.goods_name}（副本）`, goodsNo, g.good_thumb || '', g.images || '', g.detail || '',
     Number(g.category_id) || 0, Number(g.specialarea_id) || 0,
     Number(g.goods_min_price) || 0, Number(g.line_price) || 0,
-    Number(g.stock_num) || 0, status, isSell,
+    Number(g.stock_num) || 0, Math.max(1, Number(g.stock_num) || 0), status, isSell,
     Number(g.is_split) || 0, Number(g.split_total) || 0,
     Number(g.goods_sort) || 100, Number(g.type) || 1, Number(g.score_price) || 0,
     t, t,
@@ -941,6 +941,15 @@ r.post('/:module/save', authAdmin, (req, res) => {
   }
 
   const id = body[mod.pk];
+  // 商品：「库存」是还能抢几个，「名额」是一共几个，两个字段各管各的。
+  // 运营把库存调大时名额跟着涨；调小时名额不动 —— 已经卖出去的名额不能凭空消失，
+  // 否则剩余名额会被算错，取消订单归还时还会被错误地截断。
+  if (mod.table === 'goods') {
+    const cur = id ? get('SELECT stock_total, stock_num FROM goods WHERE goods_id = ?', Number(id)) : null;
+    const nextStock = 'stock_num' in body ? Number(body.stock_num) || 0 : Number(cur?.stock_num) || 0;
+    body.stock_total = Math.max(Number(cur?.stock_total) || 0, nextStock, 1);
+    keys.push('stock_total');
+  }
   if (id) {
     const updateKeys = keys.filter((k) => k !== mod.pk && !(k === 'password' && !body[k])
       && !(mod.table === 'member' && k === 'p_id'));

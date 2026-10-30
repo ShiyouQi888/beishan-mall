@@ -89,6 +89,7 @@ async function main() {
     ok(sp.code === 1, '拆分成功', sp.msg);
     const afterSplit = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(src.goods_id);
     ok(Number(afterSplit.stock_num) === 3 && Number(afterSplit.is_split) === 1, '库存置为 3 份');
+    ok(Number(afterSplit.stock_total) === 3, '名额同步置为 3');
     // 商品可能有历史销量，断言一律用「增量」而不是绝对值
     const salesBase = Number(afterSplit.sales_actual) || 0;
 
@@ -138,9 +139,9 @@ async function main() {
     // ---------------- 拆分商品不能转拍 ----------------
     section('[5] 拆分商品不支持转拍');
     const quote = await api(`/api/order/getConsignmentQuote?order_id=${b1.order_id}`, { token: A });
-    ok(quote.code !== 1 && /拆分/.test(quote.msg || ''), '转拍报价被拒', quote.msg);
+    ok(quote.code !== 1 && /按件|拆分/.test(quote.msg || ''), '转拍报价被拒', quote.msg);
     const cons = await api('/api/order/consignment', { method: 'POST', token: A, body: { order_id: b1.order_id } });
-    ok(cons.code !== 1 && /拆分/.test(cons.msg || ''), '转拍提交被拒', cons.msg);
+    ok(cons.code !== 1 && /按件|拆分/.test(cons.msg || ''), '转拍提交被拒', cons.msg);
 
     // ---------------- 整件商品行为不变 ----------------
     section('[6] 非拆分商品仍然是「成交即下架」');

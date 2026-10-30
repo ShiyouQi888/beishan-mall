@@ -352,7 +352,7 @@ async function main() {
       const over = await api('/api/order/toAddOrder', {
         method: 'POST', token: seller, body: { goods_id: splitable.goods_id, num: 5, pay_type: 1 },
       });
-      ok(over.code === 0 && /库存不足/.test(over.msg), '超过库存被拒单', over.msg);
+      ok(over.code === 0 && /名额|库存/.test(over.msg), '超过名额被拒单', over.msg);
     }
 
     console.log('\n[9] 流拍（按原订单推导，不再依赖寄卖挂单）');

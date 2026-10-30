@@ -39,17 +39,44 @@ if (!db.prepare('PRAGMA table_info(store_role)').all().some((c) => c.name === 'i
   console.log(`[migrate] store_role.is_super 已添加，标记 ${Number(marked.changes) || 0} 个超管角色`);
 }
 
-// 库存填了多件的抢购商品，历史上被当成「整件」处理过：卖一件就整件归买家并下架，
-// 剩下 99 件谁也买不到（运营填的库存数字形同虚设）。
-// 统一归一化成「按份卖」——总量记进 split_total，之后走 deductStock / settleOrder 的份数分支。
-// 幂等：只动 is_split 仍为 0、split_total 还是 0、库存 >1 的商品，跑几次结果一样。
-const pieceFixed = run(
-  `UPDATE goods SET is_split = 1, split_total = stock_num
-   WHERE type = 1 AND IFNULL(is_split, 0) = 0 AND IFNULL(split_total, 0) = 0
-     AND IFNULL(stock_num, 0) > 1`,
+// 商品增加「初始名额」：库存是「还能被抢几个」，名额是「一共几个」。
+// 光看 stock_num 判断不出一件货是「唯一一件」还是「一批货」，因为卖着卖着它也变成 1。
+// 这个字段一旦定下就不再随成交变化，用来区分两种完全不同的商品：
+//   名额 = 1          → 唯一的一件货，成交即整件归买家 + 下架，买家可转拍
+//   名额 > 1          → 一批货，抢一个减一个名额，抢光才下架，整件始终归原持有人
+// 与「拆分」是两件事：拆分是一货多份的定价方式，名额是一批货能卖几次。
+if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'stock_total')) {
+  db.exec('ALTER TABLE goods ADD COLUMN stock_total INTEGER DEFAULT 0');
+  console.log('[migrate] goods.stock_total 已添加');
+}
+
+// 上一版曾把「库存 >1 的整件商品」硬标成拆分商品（is_split=1、split_total=库存份数），
+// 用来记账名额。概念不对（拆分是定价玩法，名额是能卖几次），现在名额有独立字段了，把标记还回去。
+// 只跑一次：真拆分商品的份数里必然已经有卖出的，或者历史销量不可能是这次拆分产生的，
+// 用「一份没卖 + 销量远大于份数」识别被误标的那些。
+if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_unmark_fake_split'")) {
+  const unmarked = run(
+    `UPDATE goods SET is_split = 0, split_total = 0
+     WHERE IFNULL(is_split, 0) = 1 AND IFNULL(split_total, 0) > 1
+       AND IFNULL(stock_num, 0) = split_total
+       AND IFNULL(sales_actual, 0) > split_total`,
+  );
+  run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_unmark_fake_split', '1')");
+  if (Number(unmarked.changes) > 0) {
+    console.log(`[migrate] ${Number(unmarked.changes)} 件商品撤销了误标的「拆分」状态`);
+  }
+}
+
+// 老数据补名额：拆分商品的份数就是名额，其余按当前库存算。
+// 「名额」一旦定下就不随成交变化，用来区分「唯一一件货」（成交即归买家）和「一批货」（抢一个减一个）。
+const initStockTotal = run(
+  `UPDATE goods SET stock_total = CASE
+     WHEN IFNULL(is_split, 0) = 1 AND IFNULL(split_total, 0) > 1 THEN split_total
+     ELSE MAX(IFNULL(stock_num, 1), 1) END
+   WHERE IFNULL(stock_total, 0) = 0`,
 );
-if (Number(pieceFixed.changes) > 0) {
-  console.log(`[migrate] ${Number(pieceFixed.changes)} 件多库存商品转为「按份卖」，库存数字开始生效`);
+if (Number(initStockTotal.changes) > 0) {
+  console.log(`[migrate] ${Number(initStockTotal.changes)} 件商品补齐名额`);
 }
 
 // 清理早期 seed 预置的默认轮播图。

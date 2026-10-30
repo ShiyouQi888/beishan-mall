@@ -9,13 +9,15 @@ const AREA_DATE_OK = "(area_date IS NULL OR area_date = '' OR area_date = ?)";
 
 // 列表里该露出哪些商品（抢购列表 / 分类列表 / 首页共用同一口径）
 //   在售的 —— 照常露出
-//   已抢完的（下架态）—— 只在「它自己那场的日期 = 今天」时继续露一次，让用户看到「已抢完」
-//                        的灰卡片，而不是卡片凭空消失。轮到下一场 / 到了明天，area_date 不再等于
-//                        今天，这些卡片自然被替换掉，不需要额外的定时清理。
-// 注意这里比 AREA_DATE_OK 更严：不限日期（area_date 为空）的商品一旦售罄就直接消失 ——
-// 否则平台持仓的老货会永远挂成一张灰卡片，越积越多。
-// 占位顺序：第一个 ? = AREA_DATE_OK 的今天，第二个 ? = 已抢完判定用的今天
-const LIST_VISIBLE = `((goods_status = 10 AND ${AREA_DATE_OK}) OR (goods_status = 20 AND area_date = ?))`;
+//   已抢完的（下架态）—— 继续露出，只是变灰。**不能因为卖完就让卡片凭空消失**：
+//                        用户刚看见它、回头想再看一眼却找不到，比灰着更难受。
+//      · 属于某个场次的，留到它那场结束（area_date 不等于今天了才退出）
+//      · 不属于任何日期的（平台持仓/不限日期），留到当天，第二天自然退场，不会越积越多
+// 注意第二个条件必须限定「area_date 为空」：否则昨天那场卖剩的货今天被改一下状态，
+// 就会被当成本场商品重新捞出来。
+// 占位顺序：AREA_DATE_OK 的今天、area_date 的今天、售罄日期的今天
+const LIST_VISIBLE = `((goods_status = 10 AND ${AREA_DATE_OK})
+  OR (goods_status = 20 AND (area_date = ? OR (IFNULL(area_date, '') = '' AND date(update_time) = ?))))`;
 // 在售的排在前面，已抢完的沉到后面，不影响「先看到能买的」
 const ON_SALE_FIRST = 'ORDER BY (goods_status = 10) DESC, goods_sort ASC, goods_id DESC';
 import { activeSessions } from '../lib/sessions.js';
@@ -37,6 +39,8 @@ export const fmtGoods = (g) => ({
   line_price: Number(g.line_price || 0).toFixed(2),
   sales_actual: g.sales_actual,
   stock_num: g.stock_num,
+  // 名额：这件商品一共几个。>1 表示「一批货，抢一个减一个」，=1 表示「唯一一件货，成交即归买家」
+  stock_total: Number(g.stock_total) || Number(g.stock_num) || 1,
   goods_status: g.goods_status,
   // 1 抢购 / 2 商城。**必须返回**：H5 详情页靠它区分「要不要等抢购场次」，
   // 之前漏了这个字段，前端 Number(undefined) === 1 恒为 false，
@@ -107,12 +111,12 @@ r.get('/category/getCategoryGoodsList', (req, res) => {
   const cur = Number(p);
   const total = get(
     `SELECT COUNT(*) c FROM goods WHERE category_id = ? AND type = 1 AND ${LIST_VISIBLE}`,
-    Number(category_id), todayStr(), todayStr(),
+    Number(category_id), todayStr(), todayStr(), todayStr(),
   ).c;
   const list = all(
     `SELECT * FROM goods WHERE category_id = ? AND type = 1 AND ${LIST_VISIBLE}
      ${ON_SALE_FIRST} LIMIT ? OFFSET ?`,
-    Number(category_id), todayStr(), todayStr(), pp, (cur - 1) * pp,
+    Number(category_id), todayStr(), todayStr(), todayStr(), pp, (cur - 1) * pp,
   );
   res.json(ok(page(fmtList(list), total, cur, pp)));
 });
@@ -163,7 +167,7 @@ r.get('/getLootList', (req, res) => {
     const goods = fmtList(all(
       `SELECT * FROM goods WHERE specialarea_id = ? AND type = 1 AND ${LIST_VISIBLE}
        ${ON_SALE_FIRST} LIMIT 20`,
-      a.specialarea_id, todayStr(), todayStr(),
+      a.specialarea_id, todayStr(), todayStr(), todayStr(),
     ), states);
     return { ...a, goods_list: goods };
   });
@@ -176,7 +180,7 @@ r.get('/getLootGoodsList', (req, res) => {
   const pp = Number(limit);
   const cur = Number(p);
   const where = ['type = 1', LIST_VISIBLE];
-  const args = [todayStr(), todayStr()];
+  const args = [todayStr(), todayStr(), todayStr()];
   if (specialarea_id) {
     where.push('specialarea_id = ?');
     args.push(Number(specialarea_id));
@@ -265,13 +269,15 @@ r.get('/getPurchaseNum', authMember, (req, res) => {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
   const area = get('SELECT * FROM specialarea WHERE specialarea_id = ?', g.specialarea_id);
-  const bought = get(
-    `SELECT COUNT(*) c FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status NOT IN (40)`,
+  // 与下单校验同一口径：只算「这个会员买过这个商品多少件」，不牵扯同场其它商品
+  const bought = Number(get(
+    'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
     req.member.member_id, g.goods_id,
-  ).c;
+  ).n);
   const limit = area?.buy_num || 1;
-  if (bought >= limit) return res.json(fail('该场次购买数量已达上限'));
-  res.json(ok({ buy_num: bought, limit, can_buy: 1 }));
+  const left = Math.max(0, limit - bought);
+  if (left <= 0) return res.json(fail(`每人限抢 ${limit} 件，你已经抢过了`));
+  res.json(ok({ buy_num: bought, limit, left, can_buy: 1 }));
 });
 
 r.get('/getShopPosterDetails', (req, res) => {

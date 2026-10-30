@@ -9,6 +9,7 @@
 //
 // 平台每轮净收入 = 上架费 − 直推奖 − 团队奖（2.8% − 0.5% = 2.3%）
 import { all, get, run, now } from '../db.js';
+import { isPieceSale } from './split.js';
 
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;
 export const money2 = (n) => Number(Number(n).toFixed(2));
@@ -41,16 +42,15 @@ export function settleOrder(o) {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
   if (!g) return { ok: false, reason: '商品不存在' };
 
-  if (Number(g.is_split) === 1) {
-    // 拆分商品是「一件货拆成 N 份挂牌、每份独立成交」，整件始终归原持有人。
-    // 所以成交一份时只能累加销量，绝不能像整件商品那样「下架 + 转移持有人」——
-    // 否则卖出去 1 份就把剩下的 N-1 份一起锁死，谁也别想买。
+  if (isPieceSale(g)) {
+    // 一批货：名额抢一个减一个，整件始终归原持有人。
+    // 所以成交时只能累加销量，绝不能像唯一一件货那样「下架 + 转移持有人」——
+    // 否则卖掉 1 个就把剩下的名额一起锁死，谁也别想抢。
+    // 名额已经在「下单」时扣过（deductStock），这里读到的是扣完之后的余量，<=0 表示抢光。
     run(
       'UPDATE goods SET sales_actual = sales_actual + ?, update_time = ? WHERE goods_id = ?',
       o.num, now(), g.goods_id,
     );
-    // 最后一份卖完才下架。库存已经在「下单」时扣过（deductStock），
-    // 这里读到的是扣完之后的余量，<=0 表示售罄。
     if (Number(g.stock_num) <= 0) {
       run('UPDATE goods SET goods_status = 20, is_sell = 0, update_time = ? WHERE goods_id = ?', now(), g.goods_id);
     }

@@ -122,9 +122,14 @@ async function main() {
 
     const loot1 = await api('/api/goods/getLootList');
     const foreGoods = (loot1.data?.list || []).find((a) => a.name === 'forenoon')?.goods_list || [];
-    ok(!foreGoods.some((g) => g.goods_id === target.goods_id), '上午场列表里不再有这件商品');
-    const allListed = (loot1.data?.list || []).flatMap((a) => (a.goods_list || []).map((g) => g.goods_id));
-    ok(!allListed.includes(target.goods_id), '所有场次都不再出现它（别人不能按原价再抢）');
+    // 成交后卡片不消失，改成灰卡「已抢完」——但绝对不能再被按原价抢一次
+    const soldCard = foreGoods.find((g) => g.goods_id === target.goods_id);
+    ok(!!soldCard && Number(soldCard.sold_out) === 1, '上午场里仍能看到它，但已标为「已抢完」');
+    const allSold = (loot1.data?.list || []).flatMap((a) => (a.goods_list || []))
+      .find((g) => g.goods_id === target.goods_id);
+    ok(!allSold || Number(allSold.sold_out) === 1, '任何场次里只要出现它，就一定是「已抢完」');
+    const retry = await api('/api/order/toAddOrder', { method: 'POST', token: t2, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
+    ok(retry.code !== 1, '别人按原价再抢会被拒', retry.msg);
 
     const shop = await api('/api/member/myShop', { token: t1 });
     const mine = (shop.data?.list || []).find((x) => x.goods_id === target.goods_id);

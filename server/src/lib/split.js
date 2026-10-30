@@ -32,9 +32,10 @@ export function splitGoods(goodsId, parts, operatorId = 0) {
   const perLine = oldLine > 0 ? Math.floor((oldLine * 100) / n) / 100 : 0;
 
   run(
-    `UPDATE goods SET is_split = 1, split_total = ?, stock_num = ?, goods_min_price = ?, line_price = ?, update_time = ?
+    `UPDATE goods SET is_split = 1, split_total = ?, stock_total = ?, stock_num = ?,
+       goods_min_price = ?, line_price = ?, update_time = ?
      WHERE goods_id = ?`,
-    n, n, perPart, perLine, now(), g.goods_id,
+    n, n, n, perPart, perLine, now(), g.goods_id,
   );
 
   return {
@@ -50,35 +51,42 @@ export function splitGoods(goodsId, parts, operatorId = 0) {
   };
 }
 
-/** 下单时扣减拆分库存（事务内调用，原子操作） */
+/**
+ * 是不是「一批货」：名额 > 1 就是，抢一个减一个名额。
+ * 名额 = 1 表示唯一的一件货，走转拍语义（成交即整件归买家 + 下架）。
+ * 注意只看 stock_total，不看 stock_num —— 后者卖着卖着就变成 0/1，判断不出来。
+ */
+export const isPieceSale = (g) => Number(g?.stock_total) > 1;
+
+/** 下单时扣减名额（事务内调用，原子操作）。只有一批货才需要扣，唯一一件货不扣 */
 export function deductStock(goodsId, num) {
   const r = run(
     'UPDATE goods SET stock_num = stock_num - ? WHERE goods_id = ? AND stock_num >= ?',
     Number(num), Number(goodsId), Number(num),
   );
   if (Number(r.changes) !== 1) return false;
-  // 售罄自动下架
-  const g = get('SELECT stock_num FROM goods WHERE goods_id = ?', Number(goodsId));
-  if (g && Number(g.stock_num) <= 0) {
-    run("UPDATE goods SET goods_status = 20 WHERE goods_id = ? AND is_split = 1", Number(goodsId));
+  // 名额抢光自动下架（只对一批货生效，唯一一件货由结算时下架）
+  const g = get('SELECT stock_num, stock_total FROM goods WHERE goods_id = ?', Number(goodsId));
+  if (g && Number(g.stock_num) <= 0 && isPieceSale(g)) {
+    run('UPDATE goods SET goods_status = 20 WHERE goods_id = ? AND stock_total > 1', Number(goodsId));
   }
   return true;
 }
 
 /**
- * 取消未付款订单时归还拆分库存（与 deductStock 严格对称）
- * - 只处理拆分商品：整件商品的 stock_num 是挂牌数量，下单不动它
- * - 只在订单还没成交时调用。已结算的订单份额已经真卖掉了，再还就是凭空多出一份
- * - 因售罄被自动下架的商品，库存回来后自动恢复在售；手动下架的商品库存本来就不是 0，不受影响
- * @returns {boolean} 是否真的归还了库存
+ * 取消未付款订单时归还名额（与 deductStock 严格对称）
+ * - 只处理「一批货」：唯一一件货的 stock_num 不参与售卖，下单也不扣它
+ * - 只在订单还没成交时调用。已结算的订单名额已经真卖掉了，再还就是凭空多出一个
+ * - 因抢光被自动下架的商品，名额回来后自动恢复在售；手动下架的商品名额本来就不是 0，不受影响
+ * @returns {boolean} 是否真的归还了名额
  */
 export function restoreStock(goodsId, num) {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goodsId));
-  if (!g || Number(g.is_split) !== 1) return false;
+  if (!g || !isPieceSale(g)) return false;
   const add = Number(num) || 0;
   if (add <= 0) return false;
 
-  const cap = Number(g.split_total) || 0;
+  const cap = Number(g.stock_total) || 0;
   const wasSoldOut = Number(g.stock_num) <= 0;
   let next = Number(g.stock_num) + add;
   if (cap > 0 && next > cap) next = cap;
@@ -86,7 +94,7 @@ export function restoreStock(goodsId, num) {
   run('UPDATE goods SET stock_num = ?, update_time = ? WHERE goods_id = ?', next, now(), g.goods_id);
   if (wasSoldOut && next > 0) {
     run(
-      'UPDATE goods SET goods_status = 10, update_time = ? WHERE goods_id = ? AND is_split = 1 AND goods_status = 20',
+      'UPDATE goods SET goods_status = 10, update_time = ? WHERE goods_id = ? AND stock_total > 1 AND goods_status = 20',
       now(), g.goods_id,
     );
   }

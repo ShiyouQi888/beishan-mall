@@ -137,8 +137,8 @@ async function main() {
     ok(again.code !== 1, '再次下单被拒', again.msg);
     ok(/下架|抢完|不存在/.test(again.msg || ''), '拒绝原因说得清', again.msg);
 
-    // ---------------- 不限日期的货卖完就消失，不挂永久灰卡 ----------------
-    section('[3] 不限日期的商品售罄后直接消失（不留永久灰卡）');
+    // ---------------- 不限日期的货：售罄当天留着，第二天退场 ----------------
+    section('[3] 不限日期的商品售罄后当天仍显示，不挂永久灰卡');
     const g2 = pick([g1.goods_id]);
     ok(!!g2, '找到第二件商品');
     db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(g2.goods_id);
@@ -148,7 +148,12 @@ async function main() {
       const after2 = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(g2.goods_id);
       ok(Number(after2.goods_status) === 20, '第二件成交下架');
       const l2 = await listIds(B);
-      ok(!l2.some((x) => x.goods_id === g2.goods_id), '列表里没有它（不限日期的货不参与灰卡保留）');
+      const card2 = l2.find((x) => x.goods_id === g2.goods_id);
+      ok(!!card2 && Number(card2.sold_out) === 1, '售罄当天仍能看到它（灰卡不消失）');
+      // 把售罄时间挪到昨天，模拟「第二天」：卡片应该退场，不会永久占位
+      db.prepare("UPDATE goods SET update_time = datetime('now', 'localtime', '-1 day') WHERE goods_id = ?").run(g2.goods_id);
+      const l2b = await listIds(B);
+      ok(!l2b.some((x) => x.goods_id === g2.goods_id), '到了第二天才退场（不会永久挂在列表里）');
     } else {
       ok(true, '跳过（第二件不可买）');
       ok(true, '跳过（第二件不可买）');
