@@ -10,6 +10,7 @@ server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
 server/data/uploads/
+server/data/backup/
 
 # Local tooling and browser profiles
 _npmcache/
