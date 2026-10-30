@@ -1008,6 +1008,59 @@ async function main() {
     });
     ok(relist.code === 1, '平台持仓商品可重新上架并被购买', relist.msg);
 
+    console.log('\n[16] 注册邀请码开关');
+    const inviteCfg = async () =>
+      (await api('/admin/api/setting/trade', { token: at })).data?.values?.require_invite_code;
+    const setInvite = async (v) =>
+      api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'trade', values: { require_invite_code: String(v) } } });
+
+    const tradeItems2 = (await api('/admin/api/setting/trade', { token: at })).data?.items || [];
+    ok(tradeItems2.some((i) => i.k === 'require_invite_code'), '后台交易设置含邀请码开关');
+    eq(await inviteCfg(), 10, '邀请码开关默认开启');
+
+    const inviter = db.prepare("SELECT invitation_code c FROM member WHERE mobile='13800000001'").get().c;
+
+    // 开启时：不填邀请码被拒
+    const noCodeOn = await api('/api/member/registerAnAccount', {
+      method: 'POST', body: { phone: '13977770001', password: '123456' },
+    });
+    ok(noCodeOn.code === 0 && /邀请码/.test(noCodeOn.msg), '开启时无邀请码被拒', noCodeOn.msg);
+
+    // 关闭时：可无邀请码注册，且不绑定上级
+    await setInvite(20);
+    eq(await inviteCfg(), 20, '邀请码开关可关闭');
+    const noCodeOff = await api('/api/member/registerAnAccount', {
+      method: 'POST', body: { phone: '13977770001', password: '123456', nickName: '无邀请码用户' },
+    });
+    ok(noCodeOff.code === 1, '关闭时无邀请码可注册', noCodeOff.msg);
+    const freeId = noCodeOff.data?.member_id;
+    const freeRow = db.prepare('SELECT p_id, path, level, invitation_code FROM member WHERE member_id = ?').get(freeId);
+    eq(freeRow.p_id, 0, '无邀请码注册无上级');
+    ok(freeRow.path === '/', '无邀请码注册为根节点 path=/', String(freeRow.path));
+    eq(freeRow.level, 1, '无邀请码注册 level=1');
+    ok((freeRow.invitation_code || '').length > 0, '无邀请码注册也会生成自己的邀请码', freeRow.invitation_code);
+
+    // 关闭时：填了无效邀请码仍要拦，避免用户以为绑上了
+    const badCodeOff = await api('/api/member/registerAnAccount', {
+      method: 'POST', body: { phone: '13977770002', password: '123456', code: 'ZZZZZZ' },
+    });
+    ok(badCodeOff.code === 0 && /邀请码不存在/.test(badCodeOff.msg), '关闭时填错邀请码仍报错', badCodeOff.msg);
+
+    // 关闭时：填了有效邀请码照常绑定
+    const withCodeOff = await api('/api/member/registerAnAccount', {
+      method: 'POST', body: { phone: '13977770003', password: '123456', code: inviter },
+    });
+    ok(withCodeOff.code === 1, '关闭时填有效邀请码可注册', withCodeOff.msg);
+    const boundRow = db.prepare('SELECT p_id FROM member WHERE member_id = ?').get(withCodeOff.data?.member_id);
+    ok(Number(boundRow.p_id) > 0, '关闭时填邀请码仍会绑定上级', String(boundRow.p_id));
+
+    // 前端下发字段与开关一致
+    const regCfgOn = await api('/api/index/getRegisterAgreements');
+    eq(regCfgOn.data?.require_invite_code, '0', 'H5 下发开关状态（关闭=0）');
+    await setInvite(10);
+    eq(await inviteCfg(), 10, '邀请码开关恢复开启');
+    eq((await api('/api/index/getRegisterAgreements')).data?.require_invite_code, '1', 'H5 下发开关状态（开启=1）');
+
   } finally {
     srv.kill();
     await sleep(300);

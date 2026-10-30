@@ -54,6 +54,16 @@ for (const [to, from] of [
   }
 }
 
+// 新增配置项：老库没有这些键时补默认值（否则后台开关会按「关闭」显示）
+for (const [key, val, group] of [
+  ['require_invite_code', '10', 'trade'],   // 注册必须填邀请码
+]) {
+  if (!get('SELECT 1 FROM setting_config WHERE `key` = ?', key)) {
+    run('INSERT INTO setting_config (`key`, `value`, `group`) VALUES (?,?,?)', key, val, group);
+    console.log(`[migrate] 补充默认配置 ${key}=${val}`);
+  }
+}
+
 // 支付开关统一为 10 开 / 20 关（旧数据是 1 / 0，后台开关组件认不出）
 for (const [key, on] of [['pay_wx', true], ['pay_zfb', true], ['pay_bank', false]]) {
   const cur = get('SELECT `value` v FROM setting_config WHERE `key` = ?', key);

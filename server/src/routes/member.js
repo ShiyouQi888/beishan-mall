@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { all, get, run, tx, now, today } from '../db.js';
-import { ok, fail, authMember, page, money, calcNextPrice, priceIncreaseRate, assetUrl } from '../lib/helper.js';
+import { ok, fail, authMember, page, money, cfg, calcNextPrice, priceIncreaseRate, assetUrl } from '../lib/helper.js';
 import { calcListingFee } from '../lib/settle.js';
 import { hashPwd, verifyPwd, signMember, randomCode } from '../lib/auth.js';
 
@@ -32,11 +32,15 @@ r.post('/registerAnAccount', (req, res) => {
   if (!phone) return res.json(fail('请先输入手机号'));
   if (!/^1\d{10}$/.test(String(phone))) return res.json(fail('手机号格式不正确'));
   if (!pwdv) return res.json(fail('请先输入密码'));
-  if (!code) return res.json(fail('请先输入邀请码'));
   if (get('SELECT 1 FROM member WHERE mobile = ?', String(phone))) return res.json(fail('该手机号已注册'));
 
-  const parent = get('SELECT * FROM member WHERE invitation_code = ?', String(code).trim());
-  if (!parent) return res.json(fail('邀请码不存在'));
+  // 邀请码是否必填由后台「交易设置 → 注册必须填邀请码」控制，默认必须
+  const requireCode = Number(cfg('require_invite_code', '10')) === 10;
+  const codeStr = String(code || '').trim();
+  if (requireCode && !codeStr) return res.json(fail('请先输入邀请码'));
+  // 关闭时留空可注册（无上级）；但只要填了就必须有效，避免用户以为绑上了其实没有
+  const parent = codeStr ? get('SELECT * FROM member WHERE invitation_code = ?', codeStr) : null;
+  if (codeStr && !parent) return res.json(fail('邀请码不存在'));
 
   const id = tx(() => {
     const myCode = uniqueCode();
@@ -47,17 +51,19 @@ r.post('/registerAnAccount', (req, res) => {
       nickName || `用户${String(phone).slice(-4)}`,
       String(phone).trim(),
       hashPwd(pwdv),
-      parent.member_id,
-      `${parent.path || '/'}${parent.member_id}/`,
-      (parent.level || 1) + 1,
+      parent ? parent.member_id : 0,
+      parent ? `${parent.path || '/'}${parent.member_id}/` : '/',
+      parent ? Number(parent.level || 1) + 1 : 1,
       myCode,
       0, 10, 10, 3, now(), now(),
     );
     const newId = Number(info.lastInsertRowid);
-    // 维护上级 child_id
-    const childs = parent.child_id ? parent.child_id.split(',').filter(Boolean) : [];
-    childs.push(String(newId));
-    run('UPDATE member SET child_id = ? WHERE member_id = ?', childs.join(','), parent.member_id);
+    // 维护上级 child_id（无上级时跳过）
+    if (parent) {
+      const childs = parent.child_id ? parent.child_id.split(',').filter(Boolean) : [];
+      childs.push(String(newId));
+      run('UPDATE member SET child_id = ? WHERE member_id = ?', childs.join(','), parent.member_id);
+    }
     return newId;
   });
 

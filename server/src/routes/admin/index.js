@@ -407,6 +407,7 @@ const SETTING_GROUPS = {
   trade: [
     { k: 'service_charge', t: '抢单服务费(%)', type: 'number', tip: '买家在商品金额之外额外支付；填 0 则不收（平台收入来自转拍上架费）' },
     { k: 'require_receiving_account', t: '抢购前必须绑定收款账户', type: 'switch', tip: '关闭时允许未绑定收款账户的会员直接下单；开启后，会员需先设置收款方式。默认关闭。' },
+    { k: 'require_invite_code', t: '注册必须填邀请码', type: 'switch', tip: '开启：必须有有效邀请码才能入驻，注册后自动绑定上级。关闭：邀请码可留空直接注册（无上级、不产生直推奖），填了仍会校验有效性。默认开启。' },
     { k: 'price_increase_rate', t: '转拍涨价率(%)', type: 'number', tip: '每转拍一次，在上一手成交价基础上自动加价该比例，逐轮复利：10000 → 10300 → 10609。下一轮买家付 10300 时，上一手持有人收回 10300 全额（原价 + 涨价），此后与该持有人无关。注意：涨价率需高于上架费率才有净收益。' },
     { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number' },
     { k: 'drive_award_rate', t: '直推奖(%)', type: 'number' },

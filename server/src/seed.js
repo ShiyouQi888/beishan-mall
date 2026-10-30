@@ -91,6 +91,7 @@ tx(() => {
     ['service_charge', '2', 'trade'],
     ['consignment_open', '10', 'trade'],
     ['require_receiving_account', '20', 'trade'],
+    ['require_invite_code', '10', 'trade'],  // 注册是否强制邀请码：10 必须 / 20 可选
     ['price_increase_rate', '3', 'trade'],
     ['consignment_rule', '转拍免上架费；商品按后台涨价率自动加价进入下一轮，成交后货款全额结算给上一手持有人。', 'trade'],
     ['withdraw_min', '10', 'trade'],

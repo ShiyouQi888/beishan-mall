@@ -36,8 +36,12 @@
           <input v-model="form.password" type="password" autocomplete="new-password" placeholder="至少 6 位" />
         </label>
         <label class="reg__field reg__field--last">
-          <span>邀请码 <i>*</i></span>
-          <input v-model="form.code" autocomplete="off" placeholder="请输入邀请码" />
+          <span>邀请码 <i v-if="requireCode">*</i><small v-else>选填</small></span>
+          <input
+            v-model="form.code"
+            autocomplete="off"
+            :placeholder="requireCode ? '请输入邀请码' : '选填，填了可与邀请人绑定上下级'"
+          />
         </label>
         <div class="reg__agreement">
           <input id="register-agreement" v-model="agreed" type="checkbox" />
@@ -76,6 +80,8 @@ const agreements = ref({
   privacy: '<h3>隐私政策</h3><p>我们仅在提供账号、订单、支付及售后服务所需范围内处理您的个人信息，并采取合理措施保护信息安全。</p>',
 });
 const agreementVisible = ref(false);
+// 邀请码是否必填，由后台「交易设置 → 注册必须填邀请码」控制
+const requireCode = ref(true);
 const activeAgreement = ref('user');
 const agreementContent = computed(() => agreements.value[activeAgreement.value] || '<p>暂无协议内容</p>');
 
@@ -91,7 +97,7 @@ function acceptAgreement() {
 async function submit() {
   if (!/^1\d{10}$/.test(form.phone)) return showToast('请输入正确的手机号');
   if (form.password.length < 6) return showToast('密码至少 6 位');
-  if (!form.code) return showToast('请输入邀请码');
+  if (requireCode.value && !form.code) return showToast('请输入邀请码');
   if (!agreed.value) return showToast('请先阅读并同意用户协议与隐私政策');
   loading.value = true;
   try {
@@ -110,6 +116,7 @@ onMounted(async () => {
     const r = await api.registerAgreements();
     if (r.data?.user) agreements.value.user = r.data.user;
     if (r.data?.privacy) agreements.value.privacy = r.data.privacy;
+    if (r.data?.require_invite_code !== undefined) requireCode.value = String(r.data.require_invite_code) === '1';
   } catch {}
 });
 </script>

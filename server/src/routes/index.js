@@ -140,6 +140,8 @@ r.get('/index/getRegisterAgreements', (req, res) => {
   res.json(ok({
     user: cfg('prompt_register', cfg('register_agreement', '')),
     privacy: cfg('prompt_privacy', ''),
+    // 注册页要据此决定邀请码是否必填
+    require_invite_code: Number(cfg('require_invite_code', '10')) === 10 ? '1' : '0',
   }));
 });
 
