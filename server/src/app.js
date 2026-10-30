@@ -39,6 +39,16 @@ if (!db.prepare('PRAGMA table_info(store_role)').all().some((c) => c.name === 'i
   console.log(`[migrate] store_role.is_super 已添加，标记 ${Number(marked.changes) || 0} 个超管角色`);
 }
 
+// 清理早期 seed 预置的默认轮播图。
+// 它和运营自己上传的图一起轮播，看起来像「换了轮播图但默认图还在」。
+// 只删 file_path 仍然指向那张预制 SVG 的记录：运营一旦换成自己的图，路径就变了，不会被误删。
+{
+  const removed = run("DELETE FROM shop_banner WHERE file_path = '/uploads/banner-1.svg'");
+  if (Number(removed.changes) > 0) {
+    console.log(`[migrate] 移除 ${removed.changes} 条预置默认轮播图（banner-1.svg）`);
+  }
+}
+
 // 初始化权限节点（幂等）
 const addedNodes = ensureNodes();
 if (addedNodes) console.log(`[nodes] 初始化 ${addedNodes} 个权限节点`);

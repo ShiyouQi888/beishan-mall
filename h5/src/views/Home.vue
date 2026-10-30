@@ -12,19 +12,14 @@
     </div>
 
     <!-- 轮播 -->
+    <!-- 轮播图：后台配了才显示。没配就空着，不再拿一张假横幅顶替 ——
+         那张占位图会和运营自己传的图混在一起，看起来像「换了也换不掉」 -->
     <div class="home__banner" v-if="banners.length">
       <van-swipe :autoplay="4000" indicator-color="#fff" lazy-render>
         <van-swipe-item v-for="b in banners" :key="b.banner_id">
           <img :src="b.file_path" class="home__banner-img" />
         </van-swipe-item>
       </van-swipe>
-    </div>
-    <div class="home__banner home__banner--ph" v-else>
-      <div class="home__banner-text">
-        <img v-if="store.logo" :src="store.logo" class="home__brand-logo" alt="商城 Logo" />
-        <div class="t1">{{ store.name || '北山商城' }}</div>
-        <div class="t2">精品 · 正品 · 臻选</div>
-      </div>
     </div>
 
     <!-- 服务承诺 -->
@@ -88,7 +83,6 @@ import CategoryIconDisplay from '../../../shared/CategoryIconDisplay.vue';
 
 const banners = ref([]);
 const navs = ref([]);
-const store = ref({});
 const areas = ref([]);
 const categories = ref([]);
 const openNav = ref({});
@@ -147,16 +141,15 @@ async function loadGoods() {
 }
 
 onMounted(async () => {
-  const [b, n, s, l, c, o] = await Promise.allSettled([
-    api.banner(1), api.navs(), api.storeInfo(), api.lootList(), api.categories({ home: 1 }), api.openNav(),
+  // 商城信息由 App.vue 统一拉取并 provide，这里不再重复请求
+  const [b, n, l, c, o] = await Promise.allSettled([
+    api.banner(1), api.navs(), api.lootList(), api.categories({ home: 1 }), api.openNav(),
   ]);
   if (b.status === 'fulfilled') banners.value = b.value.data || [];
   if (n.status === 'fulfilled') navs.value = n.value.data || [];
-  if (s.status === 'fulfilled') store.value = s.value.data || {};
   if (l.status === 'fulfilled') areas.value = l.value.data?.list || [];
   if (c.status === 'fulfilled') categories.value = c.value.data?.categoryList || [];
   if (o.status === 'fulfilled') openNav.value = o.value.data || {};
-  // 默认展示「全部」，避免首页被第一个分类锁死只剩一两件商品
   await loadGoods();
 });
 

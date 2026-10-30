@@ -142,7 +142,8 @@ tx(() => {
   const imgJade = makeImg('翡翠吊坠', '#4f8a6b', '#1f4536', 'demo-3.svg');
   const imgWatch = makeImg('腕表', '#6b7b8c', '#2f3a45', 'demo-4.svg');
   const imgRing = makeImg('钻戒', '#c8ccd4', '#7b8494', 'demo-5.svg');
-  const imgBanner = makeBanner('banner-1.svg');
+  // 这张图只作为场次卡片的默认背景，不再作为首页轮播图预置
+  const areaImage = makeBanner('banner-1.svg');
 
   // ---------- 分类 ----------
   const cats = [
@@ -166,7 +167,7 @@ tx(() => {
       `INSERT INTO specialarea (name, title_main, title_ordinary, image_ordinary, start_time, end_time,
         open_days, buy_num, transposition_hours, is_subscribe, is_open, sort, create_time)
        VALUES (?,?,?,?,?,?,?,?,?,0,10,?,?)`,
-      n, t, sub, imgBanner, st, et, '1,2,3,4,5,6,7', buy, 10, srt, now(),
+      n, t, sub, areaImage, st, et, '1,2,3,4,5,6,7', buy, 10, srt, now(),
     ),
   );
 
@@ -237,7 +238,7 @@ tx(() => {
   });
 
   // ---------- 轮播 / 导航 ----------
-  run('INSERT INTO shop_banner (type_id, file_path, link_url, sort, create_time) VALUES (1,?,?,100,?)', imgBanner, '', now());
+  // 不再预置首页轮播图：它会和运营自己传的图一起轮播，看起来像「换了也换不掉」
   const navs = [
     ['限时抢购', 'loot', 1, 1],
     ['积分商城', 'score', 2, 2],
