@@ -5,7 +5,6 @@ export default [
   { path: '/search', name: 'search', component: () => import('./views/Search.vue'), meta: { auth: false } },
   { path: '/goods/:id', name: 'goods', component: () => import('./views/GoodsDetail.vue'), meta: { auth: false, hideTab: true } },
   { path: '/submit/:id', name: 'submit', component: () => import('./views/Submit.vue'), meta: { hideTab: true } },
-  { path: '/settle', name: 'settle', component: () => import('./views/Settle.vue'), meta: { hideTab: true } },
   { path: '/order', name: 'order', component: () => import('./views/OrderList.vue'), meta: { hideTab: true } },
   { path: '/order/detail/:id', name: 'orderDetail', component: () => import('./views/OrderDetail.vue'), meta: { hideTab: true } },
   { path: '/mine', name: 'mine', component: () => import('./views/Mine.vue'), meta: { auth: false, tab: true } },

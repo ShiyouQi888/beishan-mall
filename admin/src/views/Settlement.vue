@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>差价结算</h2>
-        <div class="desc">统计场次内每人买入/卖出金额，做差价匹配并生成付款单（平台不经手资金）</div>
+        <div class="desc">统计场次内每人的买入/卖出差额，用于对账</div>
       </div>
       <div style="display: flex; gap: 10px; align-items: center">
         <el-select v-model="areaId" placeholder="全部场次" style="width: 170px" clearable>
@@ -13,6 +13,15 @@
         <el-date-picker v-model="settleDate" type="date" placeholder="结算日期" style="width: 150px" value-format="YYYY-MM-DD" />
         <el-button type="primary" :loading="running" @click="doRun">执行结算</el-button>
       </div>
+    </div>
+
+    <div class="settle-warn">
+      <b>先看清楚再点「执行结算」</b>
+      <span>
+        现在成交时就已经入账了：买家扣余额、卖家当场收到货款。
+        再执行结算，会另外生成「会员之间互相打款」的付款单，等于让收款方再收一次钱。
+        除非你确实要把余额当虚拟账、货款全部走线下，否则<em>不要执行</em>，只用这一页对账。
+      </span>
     </div>
 
     <div class="panel" style="margin-bottom: 14px">
@@ -210,6 +219,15 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.settle-warn {
+  display: flex; flex-direction: column; gap: 5px;
+  margin-bottom: 14px; padding: 14px 16px;
+  border: 1px solid #ffd8a8; border-radius: 10px;
+  background: #fff9ef; color: #8a5a1a; font-size: 12.5px; line-height: 1.7;
+}
+.settle-warn b { font-size: 13px; color: #a2550c; }
+.settle-warn em { font-style: normal; font-weight: 700; color: #d4380d; }
+
 .panel-head {
   display: flex;
   align-items: center;
