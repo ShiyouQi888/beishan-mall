@@ -26,13 +26,13 @@
               <div class="acard__l2">{{ a.province }}{{ a.city }}{{ a.district }} {{ a.detail }}</div>
             </div>
             <div class="acard__ops" @click.stop>
-              <span @click="$router.push(`/address/edit?id=${a.address_id}`)">编辑</span>
+              <span @click="editAddress(a)">编辑</span>
               <span class="del" @click="remove(a)">删除</span>
             </div>
           </div>
         </div>
         <div v-else class="empty">还没有收货地址</div>
-        <button class="btn-main" style="margin-top: 16px" @click="$router.push('/address/edit')">新增收货地址</button>
+        <button class="btn-main" style="margin-top: 16px" @click="addAddress">新增收货地址</button>
       </template>
 
       <!-- 收款账户 -->
@@ -107,6 +107,21 @@ function pick(a) {
     localStorage.setItem('PICK_ADDRESS', JSON.stringify(a));
     router.back();
   }
+}
+
+function addressEditQuery(id) {
+  return {
+    ...(id ? { id: String(id) } : {}),
+    ...(route.query.select === '1' ? { select: '1' } : {}),
+  };
+}
+
+function editAddress(a) {
+  router.push({ path: '/address/edit', query: addressEditQuery(a.address_id) });
+}
+
+function addAddress() {
+  router.push({ path: '/address/edit', query: addressEditQuery() });
 }
 
 async function remove(a) {

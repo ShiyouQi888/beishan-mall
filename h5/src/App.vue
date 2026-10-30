@@ -1,5 +1,5 @@
 <template>
-  <div class="app-root">
+  <div class="app-root" :class="{ 'app-root--tab': showTab }">
     <router-view v-slot="{ Component }">
       <transition name="fade" mode="out-in">
         <component :is="Component" />
@@ -10,7 +10,7 @@
       <span v-if="store.icp_number">{{ store.icp_number }}</span>
     </footer>
     <TabBar v-if="showTab" />
-    <InstallApp v-if="showTab" />
+    <InstallApp v-if="route.meta.tab" />
   </div>
 </template>
 
@@ -22,7 +22,10 @@ import InstallApp from './components/InstallApp.vue';
 import { api } from './api.js';
 
 const route = useRoute();
-const showTab = computed(() => !route.meta.hideTab);
+const showTab = computed(() => {
+  const hide = route.meta.hideTab;
+  return !(typeof hide === 'function' ? hide(route) : hide);
+});
 const store = ref({});
 provide('storeInfo', store);
 
@@ -74,6 +77,7 @@ watch(() => route.fullPath, () => applyBrand(store.value));
   background: var(--bg);
   overflow-x: clip;
 }
+.app-root--tab .page { padding-bottom: calc(var(--tabbar-h, 54px) + 16px); }
 .site-footer { display:flex;flex-direction:column;align-items:center;gap:3px;padding:14px 16px calc(var(--tabbar-h, 54px) + 14px);color:#a5a8ae;font-size:10px;text-align:center;line-height:1.45; }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.18s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }

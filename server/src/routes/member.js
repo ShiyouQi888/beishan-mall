@@ -475,6 +475,7 @@ r.get('/myShop', authMember, (req, res) => {
       listing_fee: money(listingFee),
       est_net: estNet,
       listed,
+      order_id: o?.order_id || 0,
       turn_beat_num: Number(g.turn_beat_num || 0),
       order_no: o?.order_no || '',
       update_time: g.update_time,

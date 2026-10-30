@@ -64,7 +64,7 @@
         </div>
 
         <div class="item__actions">
-          <button v-if="!g.listed" class="mini mini--main" @click="$router.push('/order')">去转拍</button>
+          <button v-if="!g.listed" class="mini mini--main" @click="goToConsign(g)">去转拍</button>
           <span v-else class="item__wait">等着被抢走即可，无需操作</span>
         </div>
       </div>
@@ -79,8 +79,10 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '../api.js';
 
+const router = useRouter();
 const list = ref([]);
 const loading = ref(true);
 const summary = reactive({
@@ -88,6 +90,14 @@ const summary = reactive({
 });
 
 const money = (n) => `¥${Number(n || 0).toFixed(2)}`;
+
+function goToConsign(g) {
+  if (!g.order_id) {
+    router.push('/order');
+    return;
+  }
+  router.push({ path: '/order', query: { consign_order_id: g.order_id, from: 'my-shop' } });
+}
 
 async function load() {
   loading.value = true;

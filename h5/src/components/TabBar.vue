@@ -69,7 +69,15 @@ const definitions = [
 const enabled = (value) => value === undefined || value === null || value === '' || Number(value) === 10;
 const tabs = computed(() => definitions.filter((tab) => enabled(config.value[tab.setting])));
 
-const isOn = (t) => (t.path === '/' ? route.path === '/' : route.path.startsWith(t.path));
+const minePaths = [
+  '/mine', '/my-shop', '/order', '/team', '/commission', '/wallet', '/withdraw',
+  '/address', '/identify', '/score', '/setting', '/notice',
+];
+const isOn = (t) => {
+  if (t.path === '/mine') return minePaths.some((path) => route.path === path || route.path.startsWith(`${path}/`));
+  if (t.path === '/category' && route.path === '/search') return true;
+  return t.path === '/' ? route.path === '/' : route.path.startsWith(t.path);
+};
 
 function go(t) {
   if (route.path !== t.path) router.push(t.path);

@@ -43,7 +43,7 @@
               <button v-if="o.status === 0" class="mini mini--main" @click="pay(o)">去支付</button>
               <button v-if="o.status === 0" class="mini" @click="cancel(o)">取消</button>
               <button v-if="o.status === 20" class="mini mini--main" @click="receipt(o)">确认收货</button>
-              <button v-if="(o.status === 10 || o.status === 30) && !o.consignment_status && !o.transferred" class="mini mini--main" @click="openTransfer(o)">转拍</button>
+              <button v-if="(o.status === 10 || o.status === 30) && !o.consignment_status && !o.transferred" class="mini mini--main" :disabled="loadingQuoteId === o.order_id" @click="openTransfer(o)">{{ loadingQuoteId === o.order_id ? '计算中…' : '转拍' }}</button>
               <button v-if="o.consignment_status" class="mini" disabled>已上架</button>
             </div>
           </div>
@@ -118,6 +118,7 @@ async function load() {
   loading.value = true;
   try {
     const params = { page: 1, limit: 30 };
+    if (route.query.consign_order_id) params.order_id = route.query.consign_order_id;
     if (status.value !== 'all') params.status = status.value;
     const r = await api.orders(params);
     list.value = r.data.data || [];
@@ -173,16 +174,27 @@ const curOrder = ref({});
 const quote = ref({});
 const listingRate = ref(2.8);
 const submitting = ref(false);
+const loadingQuoteId = ref(0);
 
 // 标价与上架费全部由服务端按「上一手成交价 × (1+涨价率)」算出，前端只展示，不可改
 async function openTransfer(o) {
+  if (loadingQuoteId.value) return;
+  loadingQuoteId.value = o.order_id;
   curOrder.value = o;
-  showTransfer.value = true;
+  quote.value = {};
   try {
     const r = await api.consignmentQuote(o.order_id);
     quote.value = r.data || {};
-  } catch {
-    quote.value = { prev_price: Number(o.total_price || 0), next_price: Number(o.total_price || 0) };
+    if (!Number(quote.value.next_price || 0)) throw new Error('转拍报价获取失败');
+    showTransfer.value = true;
+  } catch (error) {
+    showTransfer.value = false;
+    await load();
+    if (route.query.from === 'my-shop' && /已转拍|已上架/.test(error?.msg || '')) {
+      router.replace('/my-shop');
+    }
+  } finally {
+    loadingQuoteId.value = 0;
   }
 }
 
@@ -193,8 +205,16 @@ async function submitTransfer() {
     const r = await api.consignment({ order_id: curOrder.value.order_id });
     showToast(r.msg || '转拍成功');
     showTransfer.value = false;
-    load();
-  } catch {
+    if (route.query.from === 'my-shop') {
+      router.replace('/my-shop');
+    } else {
+      await load();
+    }
+  } catch (error) {
+    await load();
+    if (route.query.from === 'my-shop' && /已转拍|已上架/.test(error?.msg || '')) {
+      router.replace('/my-shop');
+    }
   } finally {
     submitting.value = false;
   }
@@ -205,7 +225,16 @@ onMounted(async () => {
     const r = await api.tradeConfig();
     if (r.data?.listing_fee_rate) listingRate.value = Number(r.data.listing_fee_rate);
   } catch {}
-  load();
+  await load();
+  const consignOrderId = Number(route.query.consign_order_id || 0);
+  if (consignOrderId) {
+    const order = list.value.find((item) => Number(item.order_id) === consignOrderId);
+    if (order) {
+      await openTransfer(order);
+    } else if (route.query.from === 'my-shop') {
+      router.replace('/my-shop');
+    }
+  }
 });
 </script>
 
