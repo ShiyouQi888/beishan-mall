@@ -83,6 +83,14 @@ r.post('/toAddOrder', authMember, (req, res) => {
   if (g.goods_status !== 10) return res.json(fail('商品已下架'));
   if (g.member_id === m.member_id) return res.json(fail('不能购买自己持有的商品'));
 
+  // 数量必须在服务端收死：负数会让总额为负，支付时变成「余额加钱」；小数/NaN 会污染金额与库存
+  const numInt = Number(num);
+  if (!Number.isInteger(numInt) || numInt < 1) return res.json(fail('购买数量必须是不小于 1 的整数'));
+  if (numInt > 999) return res.json(fail('单笔最多购买 999 件'));
+  if (g.is_split === 1 && numInt > Number(g.stock_num || 0)) {
+    return res.json(fail(`库存不足，仅剩 ${Number(g.stock_num) || 0} 份`));
+  }
+
   // 场次时间校验：按该商品所属场次自己的「周几 + 时段」判断
   if (g.specialarea_id) {
     const a = get('SELECT * FROM specialarea WHERE specialarea_id = ?', g.specialarea_id);
@@ -95,7 +103,7 @@ r.post('/toAddOrder', authMember, (req, res) => {
         'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND type = 1 AND status <> 40 AND create_time >= ?',
         m.member_id, new Date().toISOString().slice(0, 10),
       ).n;
-      if (bought + Number(num) > (a.buy_num || 1)) {
+      if (bought + numInt > (a.buy_num || 1)) {
         return res.json(fail(`每人限购 ${a.buy_num || 1} 件`));
       }
     }
@@ -110,7 +118,7 @@ r.post('/toAddOrder', authMember, (req, res) => {
   }
 
   const price = Number(g.goods_min_price);
-  const total = money2(price * Number(num));
+  const total = money2(price * numInt);
   // 抢单服务费：按「商品总额 × 后台配置费率」计算，由买家额外承担，卖家仍收全额货款。
   // 后台「交易设置 → 抢单服务费(%)」默认 0 —— 与原站实证一致（抢购环节平台不收费，
   // 平台收入来自转拍上架费）；配了费率才收。
@@ -122,14 +130,14 @@ r.post('/toAddOrder', authMember, (req, res) => {
     tx(() => {
       // 拆分商品需扣减份数库存（原子扣减，不足则拒单）
       if (g.is_split === 1) {
-        if (!deductStock(g.goods_id, num)) throw biz(`库存不足，仅剩 ${g.stock_num} 份`);
+        if (!deductStock(g.goods_id, numInt)) throw biz(`库存不足，仅剩 ${g.stock_num} 份`);
       }
       const info = run(
         `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
           type, price, num, total_price, service_charge, status, pay_status, pay_type, address_id, remark, create_time)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         no, m.member_id, g.member_id, g.goods_id, g.goods_name, g.good_thumb, g.specialarea_id,
-        1, price, Number(num), total, fee, 0, 0, requestedPayType, Number(address_id) || 0, remark || '', now(),
+        1, price, numInt, total, fee, 0, 0, requestedPayType, Number(address_id) || 0, remark || '', now(),
       );
       orderId = Number(info.lastInsertRowid);
     });
@@ -191,6 +199,9 @@ r.post('/toPay', authMember, (req, res) => {
   if (pt === 1) {
     // 余额支付：事务内原子扣款 + 原子标记已支付，防止并发超扣/重复扣
     const cost = money2(o.total_price + o.service_charge);
+    // 兜底：不管订单是怎么来的（历史脏数据 / 导入 / 后台改单），金额非正一律不扣款。
+    // 负数会被 SQL 当成「加钱」—— amount - (-x) 就是给买家送钱。
+    if (!(cost > 0)) return res.json(fail('订单金额异常，请联系客服'));
     try {
       tx(() => {
         const r1 = run(
@@ -283,7 +294,8 @@ r.post('/receipt', authMember, (req, res) => {
 r.get('/express', authMember, (req, res) => {
   const { order_id } = req.query;
   if (!order_id) return res.json(fail('method param miss:order_id'));
-  const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
+  // 只能查自己的订单：原来只按 id 查，任何人遍历 id 就能看到别人的物流与地址
+  const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), req.member.member_id);
   if (!o) return res.json(fail('订单不存在'));
   res.json(
     ok({
@@ -413,7 +425,9 @@ r.post('/toSplitOrder', authMember, (req, res) => {
   const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), req.member.member_id);
   if (!o) return res.json(fail('订单不存在'));
   if (o.num < 2) return res.json(fail('订单数量不足，无法拆分'));
-  const n = Math.min(Number(num) || 1, o.num - 1);
+  const wanted = Number(num);
+  if (!Number.isInteger(wanted) || wanted < 1) return res.json(fail('拆分数量必须是不小于 1 的整数'));
+  const n = Math.min(wanted, o.num - 1);
   tx(() => {
     run('UPDATE orders SET num = num - ? WHERE order_id = ?', n, o.order_id);
     const no = orderNo('S');
@@ -430,13 +444,9 @@ r.post('/toSplitOrder', authMember, (req, res) => {
   res.json(ok([], '拆分成功'));
 });
 
-r.post('/upOrderStatus', authMember, (req, res) => {
-  const { order_id, status } = req.body;
-  const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), req.member.member_id);
-  if (!o) return res.json(fail('订单不存在'));
-  run('UPDATE orders SET status = ? WHERE order_id = ?', Number(status), o.order_id);
-  res.json(ok([], '操作成功'));
-});
+// 原 /upOrderStatus：直接写 orders.status，任何登录会员都能把订单改成任意状态（含伪装成已成交），
+// 且前台早已改用 /order/receipt 与 /order/cancel（带状态校验），故删除。
+
 
 // 举报（写入举报表，后台可审核）
 r.post('/toOrderReport', authMember, (req, res) => {

@@ -298,6 +298,12 @@ r.post('/orders/import', authAdmin, (req, res) => {
         const num = Number(row.num) || 1;
         if (price <= 0) throw new Error('价格必须大于 0');
         if (num <= 0) throw new Error('数量必须大于 0');
+        if (!Number.isInteger(num) || num > 999) throw new Error('数量必须是 1~999 的整数');
+        // 状态只接受已知值，避免导入出 999 这种没人认识的订单
+        const status = row.status === undefined || row.status === '' ? 0 : Number(row.status);
+        const payStatus = row.pay_status === undefined || row.pay_status === '' ? 0 : Number(row.pay_status);
+        if (![0, 10, 20, 30, 40].includes(status)) throw new Error('订单状态无效（只能 0/10/20/30/40）');
+        if (![0, 10].includes(payStatus)) throw new Error('支付状态无效（只能 0 或 10）');
 
         const type = Number(row.type) || 1;
         if (![1, 2, 3, 4, 5].includes(type)) throw new Error('订单类型无效');
@@ -307,7 +313,7 @@ r.post('/orders/import', authAdmin, (req, res) => {
             type, price, num, total_price, status, pay_status, remark, create_time)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           no, m.member_id, g.member_id, g.goods_id, g.goods_name, g.good_thumb, g.specialarea_id,
-          type, price, num, money(price * num), Number(row.status) || 0, Number(row.pay_status) || 0,
+          type, price, num, money(price * num), status, payStatus,
           row.remark || '后台导入', now(),
         );
         okCount++;
@@ -330,7 +336,8 @@ r.post('/orders/split', authAdmin, (req, res) => {
   const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
   if (!o) return res.json(fail('订单不存在'));
   const n = Number(split_num) || 2;
-  if (n < 2) return res.json(fail('拆分份数至少为 2'));
+  if (!Number.isInteger(n) || n < 2) return res.json(fail('拆分份数必须是不小于 2 的整数'));
+  if (n > 100) return res.json(fail('单次最多拆 100 份'));
   if (Number(o.num) < n) return res.json(fail(`订单数量为 ${o.num}，无法拆成 ${n} 份`));
   if (o.pay_status === 10 && o.consignment_status === 10) {
     return res.json(fail('已转拍上架的订单不可拆分'));

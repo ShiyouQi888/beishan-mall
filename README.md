@@ -291,6 +291,7 @@ npm test
 | `finance-board.mjs` | **财务大盘核对**：跑 3 轮真实订单链，逐项验算今日/本月/累计净利、会员负债、上架费、趋势一致性与 9 类风险判定，76 项断言 |
 | `admin-account.mjs` | **管理员账号/改密**：环境变量预置账号、重启不覆盖已改密码、`ADMIN_PASSWORD_RESET` 强制重置、改密校验规则，19 项断言 |
 | `deploy-config.mjs` | **部署配置静态检查**：compose 环境变量必须可被 .env 覆盖（防止写成字面量）、端口不写死、健康检查与 .gitignore，22 项断言 |
+| `security.mjs` | **安全回归**：上传必须登录、下单/拆分数量只能是正整数、会员不能改订单状态、只能查自己物流、脏订单不许扣款、后台导入状态白名单，25 项断言 |
 | `batch-ops.mjs` | **批量操作**：订单批量确认收款（含部分成功/重复提交）、提现批量通过与驳回退余额，24 项断言 |
 | `session-window.mjs` | **场次时段**：每场各自时段、窗口外/非开放日下单被拒、已结束场次沉底，15 项断言 |
 | `session-rotation.mjs` | **场次流转**：场次顺序、成交即下架、转拍落下一场、三场环回，24 项断言 |
@@ -325,6 +326,9 @@ node scripts/probe/finance-board.mjs
 node scripts/probe/admin-account.mjs
 
 # 数据清除（自带独立库，会真的走一遍清库与回滚保护）
+node scripts/probe/security.mjs
+
+# 批量操作
 node scripts/probe/batch-ops.mjs
 
 # 场次时段
@@ -489,6 +493,18 @@ node scripts/probe/console-sweep.mjs http://127.0.0.1:5273 TOKEN <token> h5/src/
 **SQL 参数校验**：`node:sqlite` 在占位符多于实参时**不报错**，而是静默绑定 NULL —— 这会让 `UPDATE ... WHERE id = ?` 匹配 0 行却「执行成功」，排查成本极高。因此 `db.js` 的 `run/get/all` 都做了占位符数量校验，不匹配直接抛错（生产可用 `SQL_GUARD=0` 关闭）。这个机制在开发中实际拦下过一次商品归属更新失效的 bug。
 
 **状态约定**：全系统统一 `10 = 开启/上架/正常`、`20 = 关闭/下架/禁用`（对齐原系统的取值习惯）。
+
+**入参与权限的兜底**（前端可绕，服务端必须自己拦）：
+
+- **上传必须登录**：`/api/upload/image` 与 `/api/upload/images` 都挂了 `authMember`，单文件 ≤10MB 且只收图片。
+  之前这两个口是完全开放的，等于给公网一个免费图床，还能把磁盘塞满。
+- **数量只能是正整数**：下单与拆分都校验 `Number.isInteger`、范围 1~999。
+  负数会让「总额 = 单价 × 数量」变成负数，支付时反而给买家加余额——这是能直接造钱的洞。
+- **订单状态走白名单**：会员侧只能走 `/order/receipt`（20→30）与 `/order/cancel`（0→40）。
+  原来的 `/order/upOrderStatus` 能把订单改成任意状态（含伪装成已成交），已删除。
+- **数据归属**：订单详情、物流、取消、收货都带 `member_id` 条件，遍历 id 拿不到别人的数据。
+
+这些都有回归兜底：`node scripts/probe/security.mjs`（25 项）。
 
 **图片本地化**：演示图片为运行时生成的 SVG 占位图（`server/data/uploads/`），离线可用，不依赖外链 CDN。
 
