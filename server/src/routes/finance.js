@@ -83,16 +83,28 @@ r.post('/withdraw/apply', authMember, (req, res) => {
   if (!accountInfo) return res.json(fail('请选择收款账户'));
   const fee = money((amt * Number(cfg('withdraw_fee', '0'))) / 100);
 
-  tx(() => {
-    run('UPDATE member SET amount = amount - ? WHERE member_id = ?', amt, m.member_id);
-    run(
-      `INSERT INTO finance_withdraw (member_id, amount, fee, actual_amount, account_type, account_info, status, create_time)
-       VALUES (?,?,?,?,?,?,0,?)`,
-      m.member_id, amt, fee, money(amt - fee), accountType, accountInfo, now(),
-    );
-    run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-      m.member_id, -amt, 2, '提现申请', `手续费 ${fee.toFixed(2)}`, now());
-  });
+  try {
+    tx(() => {
+      // 条件扣款：上面的 `amt > m.amount` 是请求进来时读的，并发下两个请求会同时通过，
+      // 各自执行无条件减去 amt 就会把余额扣成负数。这里用 WHERE amount >= ? 兜住
+      const r1 = run('UPDATE member SET amount = amount - ? WHERE member_id = ? AND amount >= ?', amt, m.member_id, amt);
+      if (Number(r1.changes) !== 1) {
+        const e = new Error('可提现余额不足');
+        e.biz = true;
+        throw e;
+      }
+      run(
+        `INSERT INTO finance_withdraw (member_id, amount, fee, actual_amount, account_type, account_info, status, create_time)
+         VALUES (?,?,?,?,?,?,0,?)`,
+        m.member_id, amt, fee, money(amt - fee), accountType, accountInfo, now(),
+      );
+      run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
+        m.member_id, -amt, 2, '提现申请', `手续费 ${fee.toFixed(2)}`, now());
+    });
+  } catch (e) {
+    if (e.biz) return res.json(fail(e.message));
+    throw e;
+  }
   res.json(ok([], '提现申请已提交，等待审核'));
 });
 

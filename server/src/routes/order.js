@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { all, get, run, tx, now } from '../db.js';
 import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, priceIncreaseRate, calcNextPrice, assetUrl, ORDER_STATUS, ORDER_TYPE, PAY_TYPE } from '../lib/helper.js';
 import { orderNo } from '../lib/auth.js';
-import { settleOrder, biz, calcListingFee, listingFeeRate } from '../lib/settle.js';
+import { settleOrder, biz, calcListingFee, listingFeeRate, goodsStillOwnedBySeller } from '../lib/settle.js';
 import { deductStock } from '../lib/split.js';
 import { sessionWindow } from '../lib/sessionWindow.js';
 import { nextSlot } from '../lib/sessions.js';
@@ -214,6 +214,11 @@ r.post('/toPay', authMember, (req, res) => {
     if (!(cost > 0)) return res.json(fail('订单金额异常，请联系客服'));
     try {
       tx(() => {
+        // 先确认这件货还在卖家手里：同一件货可能被多人同时下单，
+        // 先付的人买走之后，后付的人不能再成交，否则卖家收两次钱、后付者钱货两空
+        const own = goodsStillOwnedBySeller(o);
+        if (!own.ok) throw biz(own.reason);
+
         const r1 = run(
           'UPDATE member SET amount = amount - ? WHERE member_id = ? AND amount >= ?',
           cost, m.member_id, cost,
@@ -238,6 +243,9 @@ r.post('/toPay', authMember, (req, res) => {
     return res.json(ok([], '支付成功'));
   }
   if (pt !== 1) {
+    // 线下支付不立即成交，但同样要拦：货已经被别人买走了，就别再让人去转账
+    const own = goodsStillOwnedBySeller(o);
+    if (!own.ok) return res.json(fail(own.reason));
     // 后台「支付凭证必传」开关：关闭后会员无需上传凭证即可提交支付，后台确认收款也不再校验。
     // 注意：开关关闭时不能顺手把 pay_voucher 写空 —— 会员可能在此之前已经传过凭证。
     const needVoucher = Number(cfg('pay_voucher_required', '10')) === 10;

@@ -3,7 +3,7 @@ import { themeOptions } from '../../lib/themes.js';
 import { all, get, run, tx, now, today } from '../../db.js';
 import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE } from '../../lib/helper.js';
 import { hashPwd, verifyPwd, signAdmin, randomCode } from '../../lib/auth.js';
-import { settleOrder } from '../../lib/settle.js';
+import { settleOrder, goodsStillOwnedBySeller } from '../../lib/settle.js';
 import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat } from '../../lib/split.js';
 import extraRouter from './extra.js';
 import mediaRouter from './media.js';
@@ -1127,6 +1127,14 @@ function confirmPayOne(orderId) {
     throw e;
   }
   tx(() => {
+    // 确认收款即成交，先核对这件货是否还在订单上的卖家手里。
+    // 线下支付的凭证提交在前、这里确认在后，中间商品可能已经被别人买走了
+    const own = goodsStillOwnedBySeller(o);
+    if (!own.ok) {
+      const e = new Error(own.reason);
+      e.biz = true;
+      throw e;
+    }
     // 原子更新，避免与用户端并发支付冲突
     const r = run(
       'UPDATE orders SET status = 10, pay_status = 10, pay_time = ? WHERE order_id = ? AND pay_status = 0',

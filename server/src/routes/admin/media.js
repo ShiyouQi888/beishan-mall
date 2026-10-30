@@ -8,18 +8,14 @@
 // 3. 删除前查引用：商品主图、广告、分类图、场次图、配置项、订单快照……
 //    只要还在被用就拒绝，并说明被谁用着。
 import { Router } from 'express';
-import multer from 'multer';
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
-import { basename, dirname, extname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { basename, extname, join } from 'node:path';
 import { all, get, run, now } from '../../db.js';
 import { ok, fail, authAdmin, assetUrl } from '../../lib/helper.js';
 import { imageSize, MIME_BY_EXT } from '../../lib/imageSize.js';
 import { normPath, usagesOf } from '../../lib/mediaRefs.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const UPLOAD_DIR = process.env.UPLOAD_DIR || join(__dirname, '..', '..', '..', 'data', 'uploads');
-mkdirSync(UPLOAD_DIR, { recursive: true });
+// 上传目录与存储策略统一走 lib/uploadStorage.js（扩展名白名单在那里）
+import { UPLOAD_DIR, imageUpload } from '../../lib/uploadStorage.js';
 
 const r = Router();
 const IMAGE_EXT = Object.keys(MIME_BY_EXT);
@@ -165,21 +161,7 @@ r.get('/media/refs', authAdmin, (req, res) => {
   res.json(ok({ usages: usagesOf(f.path) }));
 });
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = extname(file.originalname || '.png').toLowerCase() || '.png';
-    cb(null, `${Date.now()}${Math.random().toString(16).slice(2, 8)}${ext}`);
-  },
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (/^image\//.test(file.mimetype)) cb(null, true);
-    else cb(new Error('仅支持上传图片'));
-  },
-});
+const upload = imageUpload;
 
 r.post('/media/upload', authAdmin, upload.single('file'), (req, res) => {
   if (!req.file) return res.json(fail('请选择要上传的图片'));

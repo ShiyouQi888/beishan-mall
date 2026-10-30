@@ -95,6 +95,19 @@ async function main() {
     }).then((r) => r.json());
     ok(authed.code === 1 && /^\/uploads\//.test(authed.data?.path || ''), '登录后正常上传', authed.msg);
 
+    // 把 .html 伪装成 image/png 上传：扩展名必须由服务端改写，
+    // 否则 /uploads/xxx.html 会被浏览器当页面执行（存储型 XSS，可读走登录 token）
+    const disguised = (() => {
+      const fd = new FormData();
+      fd.append('file', new Blob(['<script>alert(1)</script>'], { type: 'image/png' }), 'evil.html');
+      return fd;
+    })();
+    const evil = await fetch(`${BASE}/api/upload/image`, {
+      method: 'POST', headers: { Authorization: `Bearer ${mt}` }, body: disguised,
+    }).then((r) => r.json());
+    const evilPath = String(evil.data?.path || '');
+    ok(!/\.(html?|svg|js|mjs|php|exe)$/i.test(evilPath), '伪装成图片的 .html 不会按原扩展名落盘', evilPath);
+
     // 准备下单条件
     await api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'trade', values: { service_charge: '0', listing_fee_rate: '0' } } });
     await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: buyer.member_id, field: 'amount', value: 900000, remark: '测试充值' } });

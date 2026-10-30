@@ -1,31 +1,6 @@
 import { Router } from 'express';
-import multer from 'multer';
-import { mkdirSync } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { ok, fail, assetUrl, authMember } from '../lib/helper.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-// 上传目录可用 UPLOAD_DIR 覆盖（Docker 里指向数据卷 /app/data/uploads）
-const UPLOAD_DIR = process.env.UPLOAD_DIR || join(__dirname, '..', '..', 'data', 'uploads');
-mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = extname(file.originalname || '.png') || '.png';
-    cb(null, `${Date.now()}${Math.random().toString(16).slice(2, 8)}${ext}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (/^image\//.test(file.mimetype)) cb(null, true);
-    else cb(new Error('仅支持上传图片'));
-  },
-});
+import { imageUpload as upload } from '../lib/uploadStorage.js';
 
 const r = Router();
 

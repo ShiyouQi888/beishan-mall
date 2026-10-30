@@ -86,8 +86,12 @@ async function main() {
     ).all(buyer.member_id).map((x) => x.goods_id);
 
     // 造一笔「已上传凭证、等待后台确认收款」的线下单
+    // 必须每单换一件商品：同一件货只能成交一次，重复成交会被服务端拒绝（见 concurrency.mjs）
+    const usedGoods = new Set();
     async function makeVoucherOrder() {
-      const gid = goodsIds()[0];
+      const gid = goodsIds().find((id) => !usedGoods.has(id));
+      if (!gid) return null;
+      usedGoods.add(gid);
       const order = await api('/api/order/toAddOrder', { method: 'POST', token: mt, body: { goods_id: gid, num: 1, pay_type: 4 } });
       if (order.code !== 1) return null;
       await api('/api/order/toPay', { method: 'POST', token: mt, body: { order_id: order.data.order_id, pay_type: 4, voucher: '/uploads/demo-1.svg' } });

@@ -308,23 +308,31 @@ r.post('/toTransfer', authMember, (req, res) => {
   const isEnergy = Number(type) === 4;
   if (isEnergy ? me.fy_price < amount : me.amount < amount) return res.json(fail('可用额度不足'));
 
-  tx(() => {
-    if (isEnergy) {
-      run('UPDATE member SET fy_price = fy_price - ? WHERE member_id = ?', amount, me.member_id);
-      run('UPDATE member SET fy_price = fy_price + ? WHERE member_id = ?', amount, target.member_id);
-      run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-        me.member_id, -amount, 4, '礼券转出', `转给 ${target.nick_name}`, now());
-      run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-        target.member_id, amount, 4, '礼券转入', `来自 ${me.nick_name}`, now());
-    } else {
-      run('UPDATE member SET amount = amount - ? WHERE member_id = ?', amount, me.member_id);
-      run('UPDATE member SET amount = amount + ? WHERE member_id = ?', amount, target.member_id);
-      run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-        me.member_id, -amount, 2, '余额转出', `转给 ${target.nick_name}`, now());
-      run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-        target.member_id, amount, 2, '余额转入', `来自 ${me.nick_name}`, now());
-    }
-  });
+  try {
+    tx(() => {
+      if (isEnergy) {
+        // 条件扣减：并发下两个请求会同时通过上面的余额判断，无条件减会扣成负数（凭空造钱）
+        const r1 = run('UPDATE member SET fy_price = fy_price - ? WHERE member_id = ? AND fy_price >= ?', amount, me.member_id, amount);
+        if (Number(r1.changes) !== 1) { const e = new Error('可用礼券不足'); e.biz = true; throw e; }
+        run('UPDATE member SET fy_price = fy_price + ? WHERE member_id = ?', amount, target.member_id);
+        run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
+          me.member_id, -amount, 4, '礼券转出', `转给 ${target.nick_name}`, now());
+        run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
+          target.member_id, amount, 4, '礼券转入', `来自 ${me.nick_name}`, now());
+      } else {
+        const r1 = run('UPDATE member SET amount = amount - ? WHERE member_id = ? AND amount >= ?', amount, me.member_id, amount);
+        if (Number(r1.changes) !== 1) { const e = new Error('可用余额不足'); e.biz = true; throw e; }
+        run('UPDATE member SET amount = amount + ? WHERE member_id = ?', amount, target.member_id);
+        run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
+          me.member_id, -amount, 2, '余额转出', `转给 ${target.nick_name}`, now());
+        run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
+          target.member_id, amount, 2, '余额转入', `来自 ${me.nick_name}`, now());
+      }
+    });
+  } catch (e) {
+    if (e.biz) return res.json(fail(e.message));
+    throw e;
+  }
   res.json(ok([], '转赠成功'));
 });
 

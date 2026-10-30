@@ -125,6 +125,29 @@ function payCommission(memberId, amount, label, orderNo) {
 }
 
 /**
+ * 成交前的货物归属校验。
+ *
+ * 同一件货在上架期间可能被多人同时下单（下单不改商品状态），
+ * 先付的人把货买走、商品过户之后，后付的人如果照常成交，就会出现
+ * 「卖家收两次钱、后付的人钱货两空」。所以付款/确认收款之前必须再确认一次：
+ * 这件货是否还在订单上记的那个卖家手里。
+ *
+ * 只对需要实物转移的抢购(1)/寄卖(2)单生效；商城库存单与流拍单不适用。
+ */
+export function goodsStillOwnedBySeller(o) {
+  const type = Number(o.type);
+  if (type !== 1 && type !== 2) return { ok: true };
+  const sellerId = Number(o.seller_id || 0);
+  if (!sellerId) return { ok: true }; // 历史单没记卖家，不做判断
+  const g = get('SELECT member_id FROM goods WHERE goods_id = ?', o.goods_id);
+  if (!g) return { ok: false, reason: '商品不存在，无法成交' };
+  if (Number(g.member_id) !== sellerId) {
+    return { ok: false, reason: '该商品已被他人买走，本单无法成交，请联系平台处理' };
+  }
+  return { ok: true };
+}
+
+/**
  * 成交送积分：按后台配置的百分比给买家和直接上级发积分。
  *
  * 配置语义是「积分返利百分比」：积分 = 成交金额 × 百分比 ÷ 100，向下取整

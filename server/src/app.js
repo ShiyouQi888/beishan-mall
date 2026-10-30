@@ -165,7 +165,13 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 // 上传目录与 upload.js 保持一致，可用 UPLOAD_DIR 覆盖
 const UPLOAD_DIR = process.env.UPLOAD_DIR || join(__dirname, '..', 'data', 'uploads');
-app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/uploads', express.static(UPLOAD_DIR, {
+  setHeaders: (res) => {
+    // 上传目录里一律不让浏览器猜类型：即使混进一段可执行内容，
+    // nosniff 也会让它按声明的 Content-Type（图片）处理，而不是当页面跑起来
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
 
 // ---- H5 / 小程序接口 ----
 app.use('/api', indexRouter);
