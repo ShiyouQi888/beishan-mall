@@ -38,6 +38,7 @@ export const adminApi = {
   me: () => http.get('/me'),
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
+  financeOverview: () => http.get('/finance/overview'),
   modules: () => http.get('/modules'),
   options: (name) => http.get(`/options/${name}`),
   list: (mod, params) => http.get(`/${mod}/list`, { params }),

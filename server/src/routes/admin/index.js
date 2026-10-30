@@ -6,10 +6,13 @@ import { settleOrder } from '../../lib/settle.js';
 import { runSettlement } from '../../lib/settlement.js';
 import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat } from '../../lib/split.js';
 import extraRouter from './extra.js';
+import financeBoardRouter from './finance.js';
 
 const r = Router();
 // 补充业务接口优先匹配，避免被通用 /:module/* 路由拦截
 r.use(extraRouter);
+// 财务大盘要在通用 /:module/* 之前挂载
+r.use(financeBoardRouter);
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;
 
 // ============================================================

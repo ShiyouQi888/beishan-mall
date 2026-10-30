@@ -66,6 +66,11 @@ export const MENU = [
     label: '财务中心',
     items: [
       {
+        path: '/finance-board',
+        title: '财务大盘',
+        icon: `<path d="M3.5 20.5h17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6.5 20V13M12 20V6.5M17.5 20v-4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m4.5 9.5 5-4 4 2.5 5.5-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+      },
+      {
         path: '/settlement',
         title: '差价结算',
         icon: `<path d="M4 8h13l-3-3M20 16H7l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,

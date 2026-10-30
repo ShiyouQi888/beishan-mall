@@ -24,6 +24,7 @@ export default [
       list('/streambeat', 'streambeat', 'orders', '流拍订单', { fixed: { type: 5 }, title: '流拍订单' }),
       list('/report', 'report', 'report', '举报处理'),
       list('/delivery', 'delivery', 'delivery', '运费模板'),
+      { path: '/finance-board', name: 'financeBoard', component: () => import('./views/FinanceBoard.vue'), meta: { title: '财务大盘', permissionPath: '/finance-board' } },
       list('/settle', 'settle', 'settle', '结算账目'),
       { path: '/settlement', name: 'settlement', component: () => import('./views/Settlement.vue'), meta: { title: '差价结算', permissionPath: '/settlement' } },
       list('/energy', 'energy', 'energy', '佣金记录'),
