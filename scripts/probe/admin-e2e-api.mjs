@@ -555,8 +555,68 @@ async function main() {
       ok(true, '无匹配单（跳过确认）');
     }
 
-    // ================= 14. 数据一致性 =================
-    section('[14] 数据一致性');
+    // ================= 14. 文件管理 =================
+    section('[14] 文件管理：分组 / 上传 / 改名 / 移动 / 引用保护 / 删除');
+    const mg = await api('/admin/api/media/groups', { token: at });
+    ok(mg.code === 1 && typeof mg.data?.total === 'number', '素材库可读', `共 ${mg.data?.total} 个文件`);
+    const noAuthMedia = await fetch(`${BASE}/admin/api/media/list`).then((r) => r.json());
+    ok(noAuthMedia.code !== 1, '未登录不能读素材库');
+
+    const gCreate = await api('/admin/api/media/group/save', { method: 'POST', token: at, body: { name: '冒烟素材组' } });
+    ok(gCreate.code === 1 && gCreate.data?.group_id, '新建分组', gCreate.msg);
+    const mgid = gCreate.data?.group_id;
+    ok((await api('/admin/api/media/group/save', { method: 'POST', token: at, body: { name: '冒烟素材组' } })).code === 0, '分组重名被拒');
+
+    const PNG_1x1 = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const uploadMedia = async (name, groupId) => {
+      const fd = new FormData();
+      fd.append('file', new Blob([PNG_1x1], { type: 'image/png' }), name);
+      if (groupId !== undefined) fd.append('group_id', String(groupId));
+      return fetch(`${BASE}/admin/api/media/upload`, { method: 'POST', headers: { token: at }, body: fd }).then((r) => r.json());
+    };
+
+    const upA = await uploadMedia('冒烟图.png', mgid);
+    ok(upA.code === 1 && !!upA.data?.file_id, '上传图片入库', upA.msg);
+    ok(upA.data?.name === '冒烟图', '中文文件名不乱码', `实际 ${upA.data?.name}`);
+    ok(Number(upA.data?.width) === 1 && Number(upA.data?.height) === 1, '解析图片宽高', `${upA.data?.width}×${upA.data?.height}`);
+    eq(Number(upA.data?.group_id), mgid, '上传直接落到指定分组');
+    const fidA = upA.data.file_id;
+
+    const inGroup = await api(`/admin/api/media/list?group_id=${mgid}`, { token: at });
+    ok((inGroup.data?.list || []).some((f) => f.file_id === fidA), '按分组筛选能查到');
+    ok((await api('/admin/api/media/rename', { method: 'POST', token: at, body: { file_id: fidA, name: '冒烟改名图' } })).code === 1, '重命名');
+    ok((await api('/admin/api/media/move', { method: 'POST', token: at, body: { ids: [fidA], group_id: 0 } })).code === 1, '移动到未分组');
+    const refsA = await api(`/admin/api/media/refs?file_id=${fidA}`, { token: at });
+    ok(refsA.code === 1 && (refsA.data?.usages || []).length === 0, '新图没有任何引用');
+    const delA = await api('/admin/api/media/remove', { method: 'POST', token: at, body: { ids: [fidA] } });
+    ok(delA.code === 1 && Number(delA.data?.deleted) === 1, '删除无引用文件', delA.msg);
+    ok((await api(`/admin/api/media/refs?file_id=${fidA}`, { token: at })).code === 0, '删除后记录已消失');
+
+    // 引用保护：传一张图挂到广告上，再尝试删除
+    const upB = await uploadMedia('冒烟广告图.png');
+    const fidB = upB.data?.file_id;
+    const bannerSave = await api('/admin/api/banner/save', {
+      method: 'POST', token: at, body: { type_id: 1, file_path: upB.data?.path, link_url: '#', sort: 902 },
+    });
+    ok(bannerSave.code === 1 && !!bannerSave.data?.id, '用该图创建一条广告', bannerSave.msg);
+    const refsB = await api(`/admin/api/media/refs?file_id=${fidB}`, { token: at });
+    ok((refsB.data?.usages || []).some((u) => u.includes('广告')), '能查出引用来源', (refsB.data?.usages || []).join('、'));
+    const delB = await api('/admin/api/media/remove', { method: 'POST', token: at, body: { ids: [fidB] } });
+    ok(delB.code === 1 && Number(delB.data?.deleted) === 0 && (delB.data?.skipped || []).length === 1, '被广告引用的图拒绝删除', delB.msg);
+    await api('/admin/api/banner/save', {
+      method: 'POST', token: at,
+      body: { banner_id: bannerSave.data.id, type_id: 1, file_path: '/uploads/demo-2.svg', link_url: '#', sort: 902 },
+    });
+    const delB2 = await api('/admin/api/media/remove', { method: 'POST', token: at, body: { ids: [fidB] } });
+    ok(delB2.code === 1 && Number(delB2.data?.deleted) === 1, '取消引用后可以删除', delB2.msg);
+    await api('/admin/api/banner/remove', { method: 'POST', token: at, body: { ids: [bannerSave.data.id] } });
+    ok((await api('/admin/api/media/group/remove', { method: 'POST', token: at, body: { group_id: mgid } })).code === 1, '删除分组');
+
+    // ================= 15. 数据一致性 =================
+    section('[15] 数据一致性');
     eq(db.prepare('SELECT COUNT(*) c FROM member WHERE amount < 0').get().c, 0, '没有会员出现负余额');
     eq(db.prepare('SELECT COUNT(*) c FROM orders o LEFT JOIN goods g ON g.goods_id = o.goods_id WHERE g.goods_id IS NULL').get().c, 0, '没有孤儿订单');
     ok(db.prepare('SELECT COUNT(*) c FROM store_role_node WHERE role_id NOT IN (SELECT role_id FROM store_role)').get().c === 0, '没有孤儿权限绑定');

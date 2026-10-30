@@ -69,6 +69,11 @@ function adminRequestAllowed(req, allowedPaths) {
     const group = path === '/setting/save' ? req.body?.group : path.split('/')[2];
     return has(`/setting/${group}`);
   }
+  // 文件管理：挑素材（列表/分组/上传）任何后台角色都能用，动素材（改名/移动/删除/分组维护）要 /media 权限
+  if (path === '/media/list' || path === '/media/groups' || path === '/media/refs' || path === '/media/upload') {
+    return true;
+  }
+  if (path.startsWith('/media')) return has('/media');
   if (path === '/options/role') return has('/role', '/storeuser');
   if (path === '/options/category') return has('/category', '/goods', '/shop-goods');
   if (path === '/options/specialarea') return has('/specialarea', '/goods', '/shop-goods', '/settlement');

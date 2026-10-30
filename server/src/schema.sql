@@ -341,6 +341,28 @@ CREATE TABLE IF NOT EXISTS score_goods (
   sort       INTEGER DEFAULT 100
 );
 
+-- ---------- 文件管理 ----------
+CREATE TABLE IF NOT EXISTS media_group (
+  group_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  sort        INTEGER DEFAULT 100,
+  create_time TEXT
+);
+
+CREATE TABLE IF NOT EXISTS media_file (
+  file_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT DEFAULT '',            -- 展示名（不含扩展名，可随时改）
+  path        TEXT NOT NULL UNIQUE,       -- /uploads/xxx.png
+  group_id    INTEGER DEFAULT 0,          -- 0 = 未分组
+  size        INTEGER DEFAULT 0,
+  mime        TEXT DEFAULT '',
+  width       INTEGER DEFAULT 0,
+  height      INTEGER DEFAULT 0,
+  private     INTEGER DEFAULT 0,          -- 1 = 会员私有（实名/结算凭证），不进素材库
+  create_time TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_media_file_group ON media_file(group_id);
+
 -- ---------- 系统配置 ----------
 CREATE TABLE IF NOT EXISTS setting_config (
   `key`      TEXT PRIMARY KEY,

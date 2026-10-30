@@ -6,11 +6,14 @@ import { settleOrder } from '../../lib/settle.js';
 import { runSettlement } from '../../lib/settlement.js';
 import { splitGoods, scanStreambeat, releaseStreambeat, recycleStreambeat } from '../../lib/split.js';
 import extraRouter from './extra.js';
+import mediaRouter from './media.js';
 import financeBoardRouter from './finance.js';
 
 const r = Router();
 // 补充业务接口优先匹配，避免被通用 /:module/* 路由拦截
 r.use(extraRouter);
+// 文件管理：/media/* 不能被通用 /:module/* 吞掉
+r.use(mediaRouter);
 // 财务大盘要在通用 /:module/* 之前挂载
 r.use(financeBoardRouter);
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;
@@ -51,6 +54,7 @@ const M = {
       { k: 'name', t: '分类名称', type: 'text', required: true },
       { k: 'image', t: '分类图', type: 'image', w: 90 },
       { k: 'type', t: '分类位置', type: 'select', opts: { 1: '商城', 2: '首页抢购' }, w: 110 },
+      { k: 'home_show', t: '首页显示', type: 'switch', opts: { 10: '显示', 20: '隐藏' }, w: 100 },
       { k: 'sort', t: '排序', type: 'number', w: 90 },
       { k: 'create_time', t: '创建时间', type: 'text', readonly: true, w: 160 },
     ],

@@ -130,6 +130,11 @@ export const MENU = [
         title: '公告管理',
         icon: `<path d="M4.5 9.5v5l11 4.5V5L4.5 9.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M18 9.5a3 3 0 0 1 0 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
       },
+      {
+        path: '/media',
+        title: '文件管理',
+        icon: `<path d="M3.5 7.2A2.2 2.2 0 0 1 5.7 5h3.4l1.8 2.2h7.4a2.2 2.2 0 0 1 2.2 2.2v7.4a2.2 2.2 0 0 1-2.2 2.2H5.7a2.2 2.2 0 0 1-2.2-2.2V7.2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m7 15.6 3-3.2 2.3 2.3 1.7-1.6 3 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+      },
     ],
   },
   {

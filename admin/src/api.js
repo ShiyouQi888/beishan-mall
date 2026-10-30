@@ -2,7 +2,6 @@ import axios from 'axios';
 import { ElMessage } from 'element-plus';
 
 const http = axios.create({ baseURL: '/admin/api', timeout: 20000 });
-
 http.interceptors.request.use((cfg) => {
   const t = localStorage.getItem('ADMIN_TOKEN');
   if (t) cfg.headers.token = t;
@@ -31,6 +30,15 @@ http.interceptors.response.use(
     return Promise.reject(err);
   },
 );
+
+/** 上传图片到素材库（带登录态，落库后可改名/分组） */
+const adminUpload = (file, extra = {}) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  if (extra.group_id) fd.append('group_id', String(extra.group_id));
+  if (extra.name) fd.append('name', extra.name);
+  return http.post('/media/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+};
 
 export const adminApi = {
   storeInfo: () => axios.get('/api/index/getStoreInfo').then((r) => r.data?.data || {}),
@@ -64,13 +72,20 @@ export const adminApi = {
   confirmSettle: (d) => http.post('/settle/confirm', d),
   setting: (g) => http.get(`/setting/${g}`),
   saveSetting: (d) => http.post('/setting/save', d),
-  upload: (file) => {
-    const fd = new FormData();
-    fd.append('file', file);
-    return axios.post('/api/upload/image', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }).then((res) => res.data);
-  },
+
+  // ---- 文件管理（素材库）----
+  mediaList: (p) => http.get('/media/list', { params: p }),
+  mediaGroups: () => http.get('/media/groups'),
+  mediaSaveGroup: (d) => http.post('/media/group/save', d),
+  mediaRemoveGroup: (d) => http.post('/media/group/remove', d),
+  mediaRename: (d) => http.post('/media/rename', d),
+  mediaMove: (d) => http.post('/media/move', d),
+  mediaRemove: (d) => http.post('/media/remove', d),
+  mediaRefs: (fileId) => http.get('/media/refs', { params: { file_id: fileId } }),
+  mediaUpload: (file, extra = {}) => adminUpload(file, extra),
+
+  // 表单里的图片上传统一走素材库接口：上传即入库，名字用原始文件名，用户不用再手动改
+  upload: (file) => adminUpload(file),
 };
 
 export default http;

@@ -134,9 +134,10 @@ try {
     ['/role', '角色管理'],
     ['/node', '节点管理'],
     ['/finance-board', '财务大盘'],
+    ['/media', '文件管理'],
   ];
 
-  await section('[2] 24 个后台页面逐个渲染', async () => {
+  await section('[2] 25 个后台页面逐个渲染', async () => {
     let rendered = 0;
     for (const [path, label] of pages) {
       await go(path, 1300);
