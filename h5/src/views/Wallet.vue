@@ -9,8 +9,7 @@
 
     <div class="section-pad" style="padding-top: 12px">
       <div class="wall__card">
-        <div class="wall__label">账户余额（元）</div>
-        <div class="wall__value">{{ info.amount?.member_amount || me.amount || '0.00' }}</div>
+        <!-- 账户余额按业务要求不展示，只保留收益与佣金统计 -->
         <div class="wall__row">
           <div class="w-item"><b>{{ info.amount?.today_money || '0.00' }}</b><span>今日收益</span></div>
           <div class="w-item"><b>{{ info.amount?.month_money || '0.00' }}</b><span>本月收益</span></div>
@@ -45,18 +44,14 @@ import { ref, onMounted } from 'vue';
 import { api } from '../api.js';
 
 const info = ref({});
-const me = ref({});
 const flows = ref([]);
 const typeName = (t) => ({ 1: '佣金', 2: '余额', 3: '积分', 4: '礼券' }[t] || '变更');
 
 onMounted(async () => {
   try {
-    const [a, m] = await Promise.allSettled([api.amountInfo(), api.me()]);
-    if (a.status === 'fulfilled') {
-      info.value = a.value.data || {};
-      flows.value = a.value.data?.balance_list || [];
-    }
-    if (m.status === 'fulfilled') me.value = m.value.data || {};
+    const a = await api.amountInfo();
+    info.value = a.data || {};
+    flows.value = a.data?.balance_list || [];
   } catch {}
 });
 </script>
@@ -70,9 +65,7 @@ onMounted(async () => {
   color: #fff;
   box-shadow: 0 10px 26px rgba(230, 60, 38, 0.22);
 }
-.wall__label { font-size: 12px; opacity: 0.86; }
-.wall__value { font-size: 34px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
-.wall__row { display: flex; margin: 16px 0 14px; padding-top: 13px; border-top: 1px solid rgba(255, 255, 255, 0.22); }
+.wall__row { display: flex; margin: 0 0 14px; }
 .w-item { flex: 1; text-align: center; }
 .w-item b { display: block; font-size: 14.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .w-item span { font-size: 11px; opacity: 0.82; }

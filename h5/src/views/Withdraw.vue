@@ -9,14 +9,13 @@
 
     <div class="section-pad" style="padding-top: 12px">
       <div class="card wd__amount">
-        <div class="wd__label">可提现余额</div>
-        <div class="wd__avail">¥{{ avail }}</div>
+        <!-- 余额不展示：不告诉用户「账上有多少」，只让他填要提多少；超额由后端兜底 -->
         <div class="wd__input-row">
           <span class="sym">¥</span>
           <input v-model="amount" type="number" placeholder="请输入提现金额" />
-          <span class="all" @click="amount = avail">全部</span>
+          <span class="all" @click="amount = avail">全部提现</span>
         </div>
-        <div class="muted" style="margin-top: 8px">最低提现 {{ sys.withdraw_min || 10 }} 元，手续费 {{ sys.withdraw_fee || 0 }}%</div>
+        <div class="muted" style="margin-top: 8px">最低提现 {{ sys.withdraw_min || 10 }} 元，手续费 {{ sys.withdraw_fee || 0 }}%；超过可提现金额会提示</div>
       </div>
 
       <div class="card wd__acct">
@@ -126,7 +125,7 @@ onMounted(async () => {
 async function submit() {
   const amt = Number(amount.value);
   if (!amt || amt <= 0) return showToast('请输入提现金额');
-  if (amt > Number(avail.value)) return showToast('可提现余额不足');
+  if (amt > Number(avail.value)) return showToast('超出可提现金额，请调整后重试');
   if (!selected.value) return showToast('请选择收款方式');
   loading.value = true;
   try {
@@ -150,19 +149,16 @@ async function submit() {
 <style scoped>
 .wd { background: var(--bg); }
 .card { margin-bottom: 10px; padding: 14px; }
-.wd__label { font-size: 12px; color: var(--text-3); }
-.wd__avail { font-size: 24px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
 .wd__input-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
 }
 .wd__input-row .sym { font-size: 20px; font-weight: 700; color: var(--text-1); }
 .wd__input-row input {
   flex: 1;
+  /* flex 项默认 min-width:auto，placeholder 一长就把「全部提现」顶出卡片外 */
+  min-width: 0;
   border: none;
   outline: none;
   font-size: 22px;
@@ -171,7 +167,8 @@ async function submit() {
   background: transparent;
   color: var(--text-1);
 }
-.wd__input-row .all { font-size: 12.5px; color: var(--brand); font-weight: 600; }
+/* 输入框是 flex:1，不锁住这个按钮的话「全部提现」四个字会被挤成竖排 */
+.wd__input-row .all { font-size: 12.5px; color: var(--brand); font-weight: 600; flex: none; white-space: nowrap; }
 
 .acct {
   display: flex;

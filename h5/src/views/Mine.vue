@@ -40,13 +40,8 @@
       </div>
     </div>
 
-    <!-- 资产卡片 -->
+    <!-- 资产卡片：余额不展示（业务要求），只留佣金与积分 -->
     <div class="mine__assets card">
-      <div class="asset" @click="$router.push('/wallet')">
-        <div class="v">{{ me.amount || '0.00' }}</div>
-        <div class="k">账户余额</div>
-      </div>
-      <div class="asset-div" />
       <div class="asset" @click="$router.push('/commission')">
         <div class="v">{{ me.e_card_number || '0.00' }}</div>
         <div class="k">我的佣金</div>
