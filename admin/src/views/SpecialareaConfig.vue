@@ -65,16 +65,13 @@
           <div class="hint">前台商品详情页显示的「服务承诺」，用逗号分隔，留空则不显示</div>
         </el-form-item>
 
-        <!-- 专区图片 -->
-        <el-form-item label="专区图片" required>
+        <!-- 场次图：只有这一张，场次卡和详情横幅共用 -->
+        <el-form-item label="场次图" required>
           <ImageUploader v-model="form.image_ordinary" :upload="uploadImage" :presets="[{ label: '推荐 1080 × 360 px', width: 1080, height: 360 }]" />
-          <div class="hint">前台场次横幅按 3:1 显示，推荐尺寸：1080×360 px。原图可直接上传（浏览器内自动转 WebP 并等比压缩）；想精确按 3:1 出图时，点缩略图上的「裁剪」并选「横幅 3:1」，主体放在画面中间。</div>
-        </el-form-item>
-
-        <!-- 开放预约 -->
-        <el-form-item label="开放预约">
-          <el-switch v-model="form.is_subscribe" :active-value="10" :inactive-value="0" active-text="开启" inactive-text="关闭" />
-          <div class="hint">开启后会员可以在开抢前预约本场</div>
+          <div class="hint">
+            本场次只有这一张图，抢购页的场次卡和商品详情顶部用的是同一张，不需要另配。
+            前台按 3:1 显示，推荐 1080×360 px；想精确按比例出图时，点缩略图上的「裁剪」并选「横幅 3:1」，主体放在画面中间。
+          </div>
         </el-form-item>
 
         <!-- 启用状态 -->
@@ -249,7 +246,6 @@ const form = reactive({
   buy_num: 10,
   transposition_hours: 10,
   image_ordinary: '',
-  is_subscribe: 0,
   is_open: 10,
 });
 
@@ -300,7 +296,6 @@ async function load() {
       buy_num: Number(d.buy_num || 1),
       transposition_hours: Number(d.transposition_hours || 0),
       image_ordinary: d.image_ordinary || '',
-      is_subscribe: Number(d.is_subscribe) === 10 ? 10 : 0,
       is_open: Number(d.is_open) === 20 ? 20 : 10,
     });
     days.value = String(d.open_days || '1,2,3,4,5,6,7')
@@ -332,7 +327,6 @@ async function save() {
         buy_num: form.buy_num,
         transposition_hours: form.transposition_hours,
         image_ordinary: form.image_ordinary,
-        is_subscribe: form.is_subscribe,
         is_open: form.is_open,
       });
     if (r.code === 1) {

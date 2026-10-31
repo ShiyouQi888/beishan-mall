@@ -182,14 +182,14 @@ function areaPayload() {
     return {
       specialarea_id: a.specialarea_id,
       name: a.name,
+      // 只剩「主标题 + 副标题 + 一张场次图」：introduction_* 那套是早期商城语义的遗留，
+      // 前台从来不渲染，出参里也一并去掉（列还在表里，只是不再读）
       title: {
         ordinary_title_main: a.title_main,
         ordinary_title: a.title_ordinary,
-        introduction_title: a.title_intro,
       },
       images: {
         ordinary_images: img(a.image_ordinary),
-        introduction_images: img(a.image_intro),
       },
       time: {
         start_time: start,
@@ -200,7 +200,6 @@ function areaPayload() {
       },
       is_ordinary_order: w.open ? 1 : 0,
       is_introduction_order: 0,
-      is_subscribe: a.is_subscribe,
       buy_num: a.buy_num,
       open_days: a.open_days || '1,2,3,4,5,6,7',
       transposition_hours: a.transposition_hours,

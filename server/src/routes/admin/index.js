@@ -101,7 +101,6 @@ const M = {
       { k: 'buy_num', t: '限购件数', type: 'number', w: 84, min: 1, max: 999 },
       { k: 'area_goods_count', t: '商品数', type: 'count', readonly: true, w: 80, tip: '本场次已关联多少件商品。点「配置」进去可以增减。' },
       { k: 'transposition_hours', t: '转拍时限(小时)', type: 'number', w: 96 },
-      { k: 'is_subscribe', t: '开放预约', type: 'switch', opts: { 10: '是', 0: '否' }, w: 100 },
       { k: 'is_open', t: '启用', type: 'switch', opts: { 10: '启用', 20: '停用' }, w: 90 },
     ],
   },

@@ -139,15 +139,15 @@ CREATE TABLE IF NOT EXISTS specialarea (
   name            TEXT DEFAULT '',        -- forenoon / afternoon / evening
   title_main      TEXT DEFAULT '',        -- 主标题（抢购专场）
   title_ordinary  TEXT DEFAULT '',        -- 副标题（服务承诺）
-  title_intro     TEXT DEFAULT '',
+  title_intro     TEXT DEFAULT '',        -- 已下线：前台不渲染
   image_ordinary  TEXT DEFAULT '',
-  image_intro     TEXT DEFAULT '',
+  image_intro     TEXT DEFAULT '',        -- 已下线：前台不渲染（场次图统一用 image_ordinary）
   start_time      INTEGER DEFAULT 0,      -- 每日开始（秒）
   end_time        INTEGER DEFAULT 0,      -- 每日结束（秒）
   open_days       TEXT DEFAULT '1,2,3,4,5,6,7',  -- 开启日期（1=周一 … 7=周日）
   buy_num         INTEGER DEFAULT 10,     -- 每场每人限购件数（本场次当天跨商品合计，最小 1）
   transposition_hours INTEGER DEFAULT 0,  -- 转拍时限（小时）：成交后建议多久内转拍，超时仅记录不拦截；0=不限
-  is_subscribe    INTEGER DEFAULT 0,      -- 是否开放预约
+  is_subscribe    INTEGER DEFAULT 0,      -- 已下线：H5 没有预约功能，字段保留不再读取
   is_open         INTEGER DEFAULT 10,
   sort            INTEGER DEFAULT 100,
   create_time     TEXT
