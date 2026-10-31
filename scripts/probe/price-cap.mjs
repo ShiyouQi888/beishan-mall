@@ -209,19 +209,30 @@ async function main() {
     eq(rowOf(g2).goods_min_price, 515, '无上限时 = 500 × 1.03');
 
     // ================= 6. 编辑保护与校验 =================
-    section('[6] 编辑：基准价留空不改、上限非法值归 0');
+    section('[6] 编辑：转拍货锁价、基准价留空不改、上限非法值归 0');
+    // g2 已经被会员买下并挂牌 —— 会员持有的转拍货，价格四项一律不许后台手改
+    // （改了会打乱会员的收益预期，也会让「涨价 = 标价 − 买入价」对不上）
     await api('/admin/api/goods/save', {
-      method: 'POST', token: at, body: { goods_id: g2, base_price: 0, goods_min_price: 515 },
+      method: 'POST', token: at, body: { goods_id: g2, price_cap: 1e12, goods_min_price: 999, base_price: 999 },
     });
-    eq(rowOf(g2).base_price, 500, '传 0 不会把基准价清掉');
+    eq(rowOf(g2).price_cap, 0, '会员持有的转拍货：上限改不动');
+    eq(rowOf(g2).goods_min_price, 515, '会员持有的转拍货：标价也改不动');
+    eq(rowOf(g2).base_price, 500, '会员持有的转拍货：基准价也改不动');
+
+    // 没成交过的平台货，编辑保护与非法值校验照常生效
+    const g4 = await createGoods({ name: '价格上限样品-编辑', price: 500 });
     await api('/admin/api/goods/save', {
-      method: 'POST', token: at, body: { goods_id: g2, price_cap: -5 },
+      method: 'POST', token: at, body: { goods_id: g4, base_price: 0, goods_min_price: 500 },
     });
-    eq(rowOf(g2).price_cap, 0, '负数上限归 0（不限）');
+    eq(rowOf(g4).base_price, 500, '传 0 不会把基准价清掉');
     await api('/admin/api/goods/save', {
-      method: 'POST', token: at, body: { goods_id: g2, price_cap: 1e12 },
+      method: 'POST', token: at, body: { goods_id: g4, price_cap: -5 },
     });
-    eq(rowOf(g2).price_cap, 1e9, '超大上限被截到 1e9');
+    eq(rowOf(g4).price_cap, 0, '负数上限归 0（不限）');
+    await api('/admin/api/goods/save', {
+      method: 'POST', token: at, body: { goods_id: g4, price_cap: 1e12 },
+    });
+    eq(rowOf(g4).price_cap, 1e9, '超大上限被截到 1e9');
 
     // ================= 7. 上限低于当前价 = 直接到顶 =================
     section('[7] 上限低于当前价：立即判定到顶');

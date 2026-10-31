@@ -71,19 +71,28 @@
       </div>
 
       <div class="tr-fee">
-        <div class="tr-row"><span>上架费（{{ listingRate }}%）</span><b>-¥{{ Number(quote.listing_fee || 0).toFixed(2) }}</b></div>
+        <!-- 上架费已在下单时随货款一起收过，这里不再从余额扣，只做展示 -->
+        <div class="tr-row">
+          <span>上架费（{{ listingRate }}%）</span>
+          <b v-if="Number(quote.listing_fee_prepaid) === 1" class="prepaid">
+            ¥{{ Number(quote.listing_fee || 0).toFixed(2) }}（下单时已付）
+          </b>
+          <b v-else>-¥{{ Number(quote.listing_fee || 0).toFixed(2) }}</b>
+        </div>
         <div class="tr-row tr-row--sum">
           <span>下一轮成交后您可收回</span>
           <b>¥{{ Number(quote.next_price || 0).toFixed(2) }}</b>
         </div>
         <div class="tr-row">
-          <span>扣除买入成本（含服务费）与上架费后净收益</span>
+          <span>扣除实际成本（货款 + 服务费 + 上架费）后净收益</span>
           <b :class="{ 'tr-loss': Number(quote.net_income) < 0 }">
             {{ Number(quote.net_income) >= 0 ? '+' : '' }}¥{{ Number(quote.net_income || 0).toFixed(2) }}
           </b>
         </div>
         <div class="tr-tip">
-          {{ Number(quote.listing_fee) > 0 ? '上架费按您本轮成交价计算，从余额扣除；' : '本次转拍免上架费；' }}商品转拍后即与您无关，后续涨跌由下一手持有人承担。
+          {{ Number(quote.listing_fee_prepaid) === 1
+            ? '上架费已随本单货款一起支付，本次转拍不再扣款；'
+            : (Number(quote.listing_fee) > 0 ? '上架费按您本轮成交价计算，从余额扣除；' : '本次转拍免上架费；') }}商品转拍后即与您无关，后续涨跌由下一手持有人承担。
         </div>
       </div>
 
@@ -280,6 +289,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.prepaid { color: #1f9d5f; }
+
 .orders { background: var(--bg); }
 .orders__tabs {
   display: flex;

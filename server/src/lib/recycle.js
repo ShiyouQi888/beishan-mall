@@ -68,8 +68,9 @@ function holderOrderOf(g) {
  */
 function settle(g, o, rate, remark = '') {
   const buyPrice = money(o?.total_price || g.goods_min_price);
-  // 实际成本要含买家当时付的抢单服务费 —— 只扣商品金额会把「持有人收益」报高
-  const buyCost = money(buyPrice + Number(o?.service_charge || 0));
+  // 实际成本要含买家当时付的抢单服务费与转拍上架费（现在下单时一并收取）——
+  // 只扣商品金额会把「持有人收益」报高，回收时平台等于按虚高的收益补差
+  const buyCost = money(buyPrice + Number(o?.service_charge || 0) + Number(o?.listing_fee || 0));
   // 封顶价只是围栏：结算按商品「当前实际价格」接盘 ——
   //   · 刚买下（下架待转拍）的商品，当前价就是买入价 → 原价接盘（持有人净亏一笔服务费）
   //   · 已转拍挂牌的商品，当前价是持有人挂出的价 → 按挂牌价接盘，不白丢这一轮涨幅
@@ -121,7 +122,7 @@ function settle(g, o, rate, remark = '') {
 /** 记一笔「待处理」：开关关闭或超出日限额时用，商品保持原样等人处理 */
 function markPending(g, o, rate, reason) {
   const buyPrice = money(o?.total_price || g.goods_min_price);
-  const buyCost = money(buyPrice + Number(o?.service_charge || 0));
+  const buyCost = money(buyPrice + Number(o?.service_charge || 0) + Number(o?.listing_fee || 0));
   const recyclePrice = money(Number(g.goods_min_price) || buyPrice);
   const cap = priceCapOf(g);
   const t = now();

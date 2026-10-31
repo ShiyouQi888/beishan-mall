@@ -227,6 +227,10 @@ r.post('/toAddOrder', authMember, (req, res) => {
   // 后台「交易设置 → 抢单服务费(%)」默认 0 —— 与原站实证一致（抢购环节平台不收费，
   // 平台收入来自转拍上架费）；配了费率才收。
   const fee = calcServiceCharge(total);
+  // 转拍上架费：原来要等转拍上架时再从余额扣，余额不够就转不了拍（货卡死在手里）。
+  // 现在下单时一并计入应付，转拍时不再重复收取；金额按本单总额 × 上架费率预估，
+  // 与实际转拍时的收取基数一致（转拍按「上一手成交价」算，本单就是那一手）。
+  const listingFee = calcListingFee(total);
   const no = orderNo('Q');
 
   let orderId;
@@ -238,11 +242,11 @@ r.post('/toAddOrder', authMember, (req, res) => {
       }
       const info = run(
         `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
-          type, price, num, total_price, service_charge, status, pay_status, pay_type, address_id, remark, create_time)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          type, price, num, total_price, service_charge, listing_fee, status, pay_status, pay_type, address_id, remark, create_time)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         no, m.member_id, g.member_id, g.goods_id, g.goods_name, g.good_thumb,
         orderArea ? Number(orderArea.specialarea_id) : 0,
-        1, price, numInt, total, fee, 0, 0, requestedPayType, Number(address_id) || 0, remark || '', now(),
+        1, price, numInt, total, fee, listingFee, 0, 0, requestedPayType, Number(address_id) || 0, remark || '', now(),
       );
       orderId = Number(info.lastInsertRowid);
     });
@@ -251,7 +255,9 @@ r.post('/toAddOrder', authMember, (req, res) => {
     throw e;
   }
   log(orderId, '创建订单', 'member', `${g.goods_name} × ${num}`);
-  res.json(ok({ order_id: orderId, order_no: no, total_price: total, service_charge: fee }, '下单成功'));
+  res.json(ok({
+    order_id: orderId, order_no: no, total_price: total, service_charge: fee, listing_fee: listingFee,
+  }, '下单成功'));
 });
 
 // ---------------- 服务费 ----------------
@@ -318,7 +324,8 @@ r.post('/toPay', authMember, (req, res) => {
   }
   if (pt === 1) {
     // 余额支付：事务内原子扣款 + 原子标记已支付，防止并发超扣/重复扣
-    const cost = money2(o.total_price + o.service_charge);
+    // 应付 = 货款 + 抢单服务费 + 转拍上架费（下单时已预付，转拍不再扣）
+    const cost = money2(o.total_price + Number(o.service_charge || 0) + Number(o.listing_fee || 0));
     // 兜底：不管订单是怎么来的（历史脏数据 / 导入 / 后台改单），金额非正一律不扣款。
     // 负数会被 SQL 当成「加钱」—— amount - (-x) 就是给买家送钱。
     if (!(cost > 0)) return res.json(fail('订单金额异常，请联系客服'));
@@ -341,8 +348,16 @@ r.post('/toPay', authMember, (req, res) => {
         );
         if (Number(r2.changes) !== 1) throw biz('订单已支付，请勿重复操作');
 
+        // 流水备注写清构成：实付里现在混了三笔钱（货款 + 抢单服务费 + 转拍上架费），
+        // 只写订单号的话财务对账时看不出这 1048 拆成了 1000 / 20 / 28。
+        const svc = Number(o.service_charge) || 0;
+        const lst = Number(o.listing_fee) || 0;
+        const parts = [`货款 ${Number(o.total_price).toFixed(2)}`];
+        if (svc > 0) parts.push(`服务费 ${svc.toFixed(2)}`);
+        if (lst > 0) parts.push(`上架费 ${lst.toFixed(2)}`);
         run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-          m.member_id, -cost, 2, '余额支付', `订单 ${o.order_no}`, now());
+          m.member_id, -cost, 2, '余额支付',
+          `订单 ${o.order_no}${parts.length > 1 ? `（${parts.join(' + ')}）` : ''}`, now());
         settleOrder(o);
         log(o.order_id, '支付完成', 'member', `余额支付 ¥${cost.toFixed(2)}`);
       });
@@ -449,10 +464,14 @@ r.post('/cancel', authMember, (req, res) => {
  */
 function quoteConsignment(o, g, clientPrice) {
   const prevPrice = money2(o.total_price);
-  // 买家实付 = 商品金额 + 抢单服务费。算套利时服务费一样是成本，
-  // 只扣商品金额会把利润算高（9800 买、10094 卖，实际只赚 98，不是 294）。
+  // 买家实付 = 商品金额 + 抢单服务费 + 转拍上架费（下单时已预付）。
+  // 算套利时这三笔都是成本：只扣商品金额会把利润算高
+  // （9800 买、10094 卖，实际只赚 98，不是 294）。
   const prevService = money2(Number(o.service_charge) || 0);
-  const prevCost = money2(prevPrice + prevService);
+  // 下单时已经预付过这笔上架费 → 计入成本，转拍时不再扣，净收益也别再减一次。
+  // 两个数必须成对使用，否则「预估」和「实际到账」会差一笔上架费。
+  const prepaid = Number(o.listing_fee) || 0;
+  const prevCost = money2(prevPrice + prevService + prepaid);
   const rate = priceIncreaseRate();
   const cap = priceCapOf(g);
   const raw = rate > 0
@@ -461,6 +480,7 @@ function quoteConsignment(o, g, clientPrice) {
   // 兜底：如果因为改配置/手工改价导致这一轮会越过围栏，压到围栏价（正常已被 reached 拦下）
   const nextPrice = clampToCap(raw, cap);
   const listingFee = calcListingFee(prevPrice);
+  const feeToPay = prepaid > 0 ? 0 : listingFee;
   return {
     prev_price: prevPrice,
     prev_service_charge: prevService,
@@ -469,8 +489,10 @@ function quoteConsignment(o, g, clientPrice) {
     increase_amount: money2(nextPrice - prevPrice),
     next_price: nextPrice,
     listing_fee: listingFee,
-    // 持有人的实际套利 = 下一轮收回价 − 上一手实际成本（含服务费） − 上架费
-    net_income: money2(nextPrice - prevCost - listingFee),
+    // 持有人的实际套利 = 下一轮收回价 − 上一手实际成本（含服务费） − 本次还要不要付上架费
+    net_income: money2(nextPrice - prevCost - feeToPay),
+    // 前端据此决定「上架费」是显示本次扣除，还是显示「下单时已付」
+    listing_fee_prepaid: prepaid > 0 ? 1 : 0,
     // 价格水位（供前端展示「还能涨多少」）
     base_price: cap.base_price,
     cap_price: cap.cap_price,
@@ -535,14 +557,17 @@ r.post('/consignment', authMember, (req, res) => {
 
   // 上架费 = 本轮抢购金额 × 上架费率
   const q = quoteConsignment(o, g, price);
-  const fee = q.listing_fee;
+  const fee = q.listing_fee;          // 这一手按费率算出来的应缴上架费
+  const prepaid = Number(o.listing_fee) || 0;  // 下单时已预付的金额（老订单为 0）
   const sellPrice = q.next_price;
   if (sellPrice <= 0) return res.json(fail('标价必须大于 0'));
 
   try {
     tx(() => {
-      // 上架费（费率为 0 时不扣款、不写 0 元流水，否则会员流水里会出现无意义的 ¥0.00 记录）
-      if (fee > 0) {
+      // 上架费：下单时已经预付过（orders.listing_fee > 0）就不再扣，避免重复收费；
+      // 只有「下单时没预付」的老订单才按原来的方式从余额扣。
+      // 费率为 0 时不扣款、也不写 0 元流水，否则会员流水里会出现无意义的 ¥0.00 记录。
+      if (prepaid <= 0 && fee > 0) {
         const r1 = run(
           'UPDATE member SET amount = amount - ? WHERE member_id = ? AND amount >= ?',
           fee, m.member_id, fee,
@@ -552,9 +577,9 @@ r.post('/consignment', authMember, (req, res) => {
           m.member_id, -fee, 2, '转拍上架费', `订单 ${o.order_no} 上架费 ${fee.toFixed(2)}`, now());
       }
 
-      // 原订单标记已寄卖
+      // 原订单标记已寄卖（上架费保留预付值，别用本次报价覆盖，否则统计会重复）
       run('UPDATE orders SET consignment_status = 10, listing_fee = ?, transposition_time = ? WHERE order_id = ?',
-        fee, now(), o.order_id);
+        prepaid > 0 ? prepaid : fee, now(), o.order_id);
 
       // 商品重新上架，更新标价；划线价须高于现价，否则同步上调
       const curLine = Number(g.line_price || 0);

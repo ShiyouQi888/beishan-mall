@@ -137,10 +137,10 @@ const M = {
       { k: 'goods_name', t: '商品', type: 'text', readonly: true, w: 160 },
       { k: 'member_id', t: '原持有人', type: 'member', readonly: true, w: 132 },
       { k: 'buy_price', t: '买入价', type: 'money', readonly: true, w: 96 },
-      { k: 'buy_cost', t: '实际成本', type: 'money', readonly: true, w: 100, tip: '持有人实际支出 = 买入价 + 当时支付的抢单服务费。收益要按它算，只按买入价算会把收益报高。' },
+      { k: 'buy_cost', t: '实际成本', type: 'money', readonly: true, w: 100, tip: '持有人实际支出 = 买入价 + 当时支付的抢单服务费 + 转拍上架费（下单时一并收取）。收益要按它算，只按买入价算会把收益报高。' },
       { k: 'increase_rate', t: '结算涨幅(%)', type: 'number', readonly: true, w: 96, hide: true },
       { k: 'recycle_price', t: '回收价', type: 'money', readonly: true, w: 100 },
-      { k: 'profit', t: '持有人收益', type: 'money', readonly: true, w: 100, tip: '回收价 − 实际成本（买入价 + 抢单服务费）' },
+      { k: 'profit', t: '持有人收益', type: 'money', readonly: true, w: 100, tip: '回收价 − 实际成本（买入价 + 抢单服务费 + 转拍上架费）' },
       { k: 'cap_price', t: '当时上限价', type: 'money', readonly: true, w: 108, hide: true },
       { k: 'status', t: '状态', type: 'select', opts: { 10: '已结算', 20: '待处理' }, readonly: true, w: 88 },
       { k: 'create_time', t: '产生时间', type: 'text', readonly: true, w: 140 },
@@ -161,6 +161,8 @@ const M = {
       { k: 'num', t: '数量', type: 'number', w: 70, hide: true },
       { k: 'total_price', t: '总额', type: 'money', w: 110 },
       { k: 'service_charge', t: '服务费', type: 'money', w: 90, hide: true },
+      // 上架费现在随下单一起收，等于订单的第三块构成：货款 + 服务费 + 上架费 = 买家实付
+      { k: 'listing_fee', t: '上架费(预付)', type: 'money', w: 104, hide: true },
       // 状态只看「付没付」：这套玩法没有发货环节，别再显示待发货/待收货误导运营
       { k: 'pay_status', t: '状态', type: 'select', opts: { 10: '已确认', 0: '待确认' }, w: 96 },
       { k: 'status', t: '内部状态', type: 'select', opts: ORDER_STATUS, w: 100, hide: true },
@@ -624,7 +626,7 @@ const SETTING_GROUPS = {
     { k: 'region_bg_img', t: '首页背景图', type: 'image' },
   ],
   trade: [
-    { k: 'service_charge', t: '抢单服务费(%)', type: 'number', tip: '买家在商品金额之外额外支付；填 0 则不收（平台收入来自转拍上架费）' },
+    { k: 'service_charge', t: '抢单服务费(%)', type: 'number', tip: '买家在商品金额之外额外支付；填 0 则不收。下单时与货款、转拍上架费一起算进应付金额，会员在确认订单页就能看到这三笔钱。' },
     { k: 'require_receiving_account', t: '抢购前必须绑定收款账户', type: 'switch', tip: '关闭时允许未绑定收款账户的会员直接下单；开启后，会员需先设置收款方式。默认关闭。' },
     { k: 'require_invite_code', t: '注册必须填邀请码', type: 'switch', tip: '开启：必须有有效邀请码才能入驻，注册后自动绑定上级。关闭：邀请码可留空直接注册（无上级、不产生直推奖），填了仍会校验有效性。默认开启。' },
     // 提现模块整体下线（菜单、会员端入口都已隐藏），这四项通道开关不再露出，
@@ -635,7 +637,7 @@ const SETTING_GROUPS = {
     { k: 'withdraw_offline_open', t: '提现线下打款', type: 'switch', hide: true },
     { k: 'order_pay_timeout', t: '确认时限(分钟)', type: 'number', tip: '会员提交抢单申请后，平台多久内没确认就自动关单。抢购是「提交即锁单」，超过这个时间没确认，订单会被系统关闭、商品重新放出。默认 30 分钟。' },
     { k: 'price_increase_rate', t: '转拍涨价率(%)', type: 'number', tip: '每转拍一次，在上一手成交价基础上自动加价该比例，逐轮复利：10000 → 10300 → 10609。下一轮买家付 10300 时，上一手持有人收回 10300 全额（原价 + 涨价），此后与该持有人无关。注意：涨价率要高于「上架费率 + 抢单服务费率」才有净收益，否则每转一手都在亏钱。' },
-    { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number' },
+    { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number', tip: '按「本单成交金额 × 该费率」计算，**下单时就和货款一起收**（会员确认订单页会单独列出这一笔），转拍上架时不再二次扣款，避免会员余额不够导致货卡在手里。填 0 则不收。' },
     { k: 'drive_award_rate', t: '直推奖(%)', type: 'number' },
     { k: 'consignment_open', t: '转拍开关', type: 'switch' },
     { k: 'consignment_rule', t: '转拍规则说明', type: 'textarea' },
@@ -1301,8 +1303,12 @@ r.post('/:module/save', authAdmin, (req, res) => {
     // 转拍货（货在会员手上）的价格由系统按涨幅规则算，后台不能手改 ——
     // 一改就打乱会员的收益预期，也会让「涨价 = 标价 − 买入价」这条链路对不上。
     // 上下架、标题、图片、分类、库存这些照常可改。
+    //
+    // 注意只锁「会员持有」的转拍货：被平台回收的商品仍是 `member_id = 0`，
+    // 它已经不属于任何人了，运营二次上架时要能重新定价（否则回收后永远改不了价）。
     if (id) {
-      if (isTransposedGoods(Number(id))) {
+      const holderId = Number(get('SELECT member_id FROM goods WHERE goods_id = ?', Number(id))?.member_id) || 0;
+      if (holderId > 0 && isTransposedGoods(Number(id))) {
         for (const k of ['goods_min_price', 'price_cap', 'line_price', 'base_price']) {
           const i = keys.indexOf(k);
           if (i >= 0) keys.splice(i, 1);

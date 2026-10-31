@@ -55,7 +55,12 @@
       <!-- 费用 -->
       <div class="card fee">
         <div class="fee__row"><span>商品金额</span><span>¥{{ total.toFixed(2) }}</span></div>
-        <div class="fee__row"><span>服务费（{{ feeRate }}%）</span><span>¥{{ fee.toFixed(2) }}</span></div>
+        <div v-if="feeRate > 0" class="fee__row"><span>抢单服务费（{{ feeRate }}%）</span><span>¥{{ fee.toFixed(2) }}</span></div>
+        <!-- 上架费原来要等转拍时才从余额扣，余额不足就转不了拍；现在下单时一并收取 -->
+        <div v-if="listingRate > 0" class="fee__row">
+          <span>转拍上架费（{{ listingRate }}%）</span>
+          <span>¥{{ listingFee.toFixed(2) }}</span>
+        </div>
         <div class="fee__row fee__row--sum">
           <span>应付合计</span>
           <span class="price"><span class="sym">¥</span>{{ payTotal.toFixed(2) }}</span>
@@ -93,13 +98,17 @@ const num = ref(1);
 const remark = ref('');
 const loading = ref(false);
 const feeRate = ref(0);
+// 转拍上架费率：下单时预先收取，转拍上架时不再扣
+const listingRate = ref(0);
 // 商品已抢完 / 不在抢购时间时，这个页面不该让人继续往下走
 const closedReason = ref('');
 
 // 支付方式这一环已经整体去掉：提交即「申请抢单」，等平台确认
 const total = computed(() => Number(g.value.goods_min_price || 0) * num.value);
 const fee = computed(() => Math.round(total.value * feeRate.value) / 100);
-const payTotal = computed(() => Math.round((total.value + fee.value) * 100) / 100);
+// 上架费按本单总额 × 费率，与转拍时「上一手成交价 × 费率」是同一基数
+const listingFee = computed(() => Math.round(total.value * listingRate.value) / 100);
+const payTotal = computed(() => Math.round((total.value + fee.value + listingFee.value) * 100) / 100);
 // 支付时限由后台「交易设置」控制，页面文案跟着走，别写死 30 分钟
 const payTimeout = ref(30);
 
@@ -107,6 +116,7 @@ onMounted(async () => {
   try {
     const t = await api.tradeConfig();
     payTimeout.value = Number(t.data?.pay_timeout) || 30;
+    listingRate.value = Number(t.data?.listing_fee_rate) || 0;
   } catch {}
   try {
     const r = await api.lootDetail(route.params.id);

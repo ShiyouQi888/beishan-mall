@@ -675,15 +675,16 @@ async function main() {
     ok(b2.code === 1, '带服务费下单成功', b2.msg);
     eq(b2.data?.service_charge, money(gp * 0.05), '下单落库服务费 = 总额 × 5%');
     const oid2 = b2.data.order_id;
-    const row2 = db.prepare('SELECT total_price, service_charge FROM orders WHERE order_id = ?').get(oid2);
+    const row2 = db.prepare('SELECT total_price, service_charge, listing_fee FROM orders WHERE order_id = ?').get(oid2);
     eq(row2.service_charge, money(row2.total_price * 0.05), '订单表服务费与费率吻合');
 
     const buyerBefore = Number((await detail(buyer)).amount);
     const pay2 = await api('/api/order/toPay', { method: 'POST', token: buyer, body: { order_id: oid2, pay_type: 1 } });
     ok(pay2.code === 1, '带服务费订单支付成功', pay2.msg);
     const buyerAfter = Number((await detail(buyer)).amount);
-    eq(buyerBefore - buyerAfter, money(row2.total_price + row2.service_charge),
-      `买家实付 = 商品 ${row2.total_price} + 服务费 ${row2.service_charge}`);
+    // 上架费现在随下单一起收（转拍时不再扣），所以实付 = 货款 + 服务费 + 上架费
+    eq(buyerBefore - buyerAfter, money(row2.total_price + row2.service_charge + row2.listing_fee),
+      `买家实付 = 商品 ${row2.total_price} + 服务费 ${row2.service_charge} + 上架费 ${row2.listing_fee}`);
 
     const sellerBal1 = Number((await detail(seller)).amount);
     const isSeller = (await api('/api/member/getMemberDetails', { token: seller })).data?.member_id

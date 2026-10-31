@@ -31,10 +31,16 @@
       <!-- 金额 -->
       <div class="card">
         <div class="kv"><span>商品金额</span><span>¥{{ Number(o.total_price).toFixed(2) }}</span></div>
-        <div class="kv"><span>服务费</span><span>¥{{ Number(o.service_charge || 0).toFixed(2) }}</span></div>
+        <div class="kv" v-if="Number(o.service_charge || 0) > 0">
+          <span>抢单服务费</span><span>¥{{ Number(o.service_charge || 0).toFixed(2) }}</span>
+        </div>
+        <!-- 上架费现在下单时一并收取（迁移前的老订单为 0，不显示） -->
+        <div class="kv" v-if="Number(o.listing_fee || 0) > 0">
+          <span>转拍上架费</span><span>¥{{ Number(o.listing_fee || 0).toFixed(2) }}</span>
+        </div>
         <div class="kv kv--sum">
           <span>实付金额</span>
-          <span class="price"><span class="sym">¥</span>{{ (Number(o.total_price) + Number(o.service_charge || 0)).toFixed(2) }}</span>
+          <span class="price"><span class="sym">¥</span>{{ (Number(o.total_price) + Number(o.service_charge || 0) + Number(o.listing_fee || 0)).toFixed(2) }}</span>
         </div>
       </div>
 

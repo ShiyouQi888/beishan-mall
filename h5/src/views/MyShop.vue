@@ -45,7 +45,15 @@
           <!-- 只露两行：上架费（唯一的显性扣费）和最终预计净赚。
                买入价 / 服务费 / 下一轮标价这些中间过程不展示，避免一眼看不明白到底赚多少 -->
           <template v-if="g.transferable">
-            <div class="kv"><span>上架费</span><span>-{{ money(g.listing_fee) }}</span></div>
+            <!-- 上架费现在下单时一并付掉了，这里只说明「已付多少」；
+                 迁移前的老订单没预付过，才会显示转拍时要扣的金额 -->
+            <div class="kv" v-if="Number(g.listing_fee) > 0">
+              <span>上架费（已付）</span><span>{{ money(g.listing_fee) }}</span>
+            </div>
+            <div class="kv" v-else-if="Number(g.listing_fee_due) > 0">
+              <span>上架费</span><span>-{{ money(g.listing_fee_due) }}</span>
+            </div>
+            <div class="kv" v-else><span>上架费</span><span>免</span></div>
             <div class="kv kv--net" v-if="g.est_net !== null">
               <span>预计成交净赚</span>
               <span class="strong" :class="Number(g.est_net) >= 0 ? 'brand' : 'loss'">

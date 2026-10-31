@@ -177,7 +177,13 @@ async function main() {
 
     // ---------- B 买走，看 A 实收 ----------
     console.log('\n[4] B 买走后 A 的实际到账');
+    // 转拍落场会把货排到「今天还能开的下一场」，而本用例只在种子库上开了 1 号场（00:00-00:00 全天）。
+    // 晚上 22 点之后跑，下午场/晚间场都已结束 → nextSlot 会把货排到明天，B 当天就买不了
+    // （这是对的业务行为，但会让本用例按运行时段时通时不通）。
+    // 这里把落场日期拉回今天，让 B 在同一场把货接走 —— 本用例只验收益口径，不验落场时间。
+    db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(gid);
     const o2 = await api('/api/order/toAddOrder', { method: 'POST', token: B.token, body: { goods_id: gid, num: 1, pay_type: 1 } });
+    if (!o2.data?.total_price) console.log('    B 下单原始返回：', JSON.stringify(o2));
     eq(o2.data?.total_price, expectNext, `B 支付商品金额 ${expectNext}`);
     const pay2 = await api('/api/order/toPay', { method: 'POST', token: B.token, body: { order_id: o2.data.order_id, pay_type: 1 } });
     ok(pay2.code === 1, 'B 支付成功', pay2.msg);

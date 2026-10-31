@@ -460,15 +460,18 @@ r.get('/myShop', authMember, (req, res) => {
     const pieceSale = Number(g.stock_total) > 1;
     const transferable = !pieceSale && !cap.reached;
     const myPrice = Number(o?.total_price || 0);
-    // 抢单服务费是买家实付的一部分，算收益时必须算进成本 ——
+    // 抢单服务费、转拍上架费都是买家实付的一部分，算收益时必须算进成本 ——
     // 否则「10094 − 9800 − 0 = 294」会把实际只有 98 的利润虚报三倍。
     const myService = Number(o?.service_charge || 0);
-    const myCost = money(myPrice + myService);
+    // 上架费现在下单时就一并收了，订单上记的就是实付金额（迁移前的老订单为 0）
+    const myPrepaid = Number(o?.listing_fee || 0);
+    const myCost = money(myPrice + myService + myPrepaid);
     const listed = Number(o?.consignment_status) === 10;
     // 已挂牌：商品标价就是下一轮成交价；未挂牌：按涨价率预估（并受价格上限约束）
     const rawNext = listed ? Number(g.goods_min_price) : calcNextPrice(g.goods_min_price);
     const nextPrice = cap.cap_price > 0 ? Math.min(rawNext, cap.cap_price) : rawNext;
-    const listingFee = listed ? Number(o?.listing_fee || 0) : calcListingFee(myPrice || g.goods_min_price);
+    // 还要不要再掏上架费：预付过的就不用了（否则会在成本里被减两次）
+    const listingFee = myPrepaid > 0 ? 0 : calcListingFee(myPrice || g.goods_min_price);
     // 没有买入订单（平台指派/赠送）时无法算收益，返回 null 让前端显示「—」
     const estNet = transferable && myPrice > 0 ? money(nextPrice - myCost - listingFee) : null;
     return {
@@ -477,11 +480,14 @@ r.get('/myShop', authMember, (req, res) => {
       good_thumb: g.good_thumb,
       my_price: money(myPrice),
       my_service_charge: money(myService),
-      // 实际支出 = 买入价 + 抢单服务费
+      // 实际支出 = 买入价 + 抢单服务费 + 下单时预付的转拍上架费
       my_cost: myCost,
       current_price: money(g.goods_min_price),
       next_price: money(nextPrice),
-      listing_fee: money(listingFee),
+      // listing_fee：下单时已经付掉的上架费（老订单为 0）
+      // listing_fee_due：转拍时还要从余额扣的上架费（只有老订单才会 > 0）
+      listing_fee: money(myPrepaid),
+      listing_fee_due: money(listingFee),
       est_net: estNet,
       listed,
       order_id: o?.order_id || 0,
