@@ -447,7 +447,8 @@ async function confirmPick() {
 async function removeGoods(row) {
   try {
     await ElMessageBox.confirm(
-      `把「${row.goods_name}」从本场次移除？商品本身不会被删除，只是不再在本场售卖。`,
+      `把「${row.goods_name}」从本场次移除？商品本身不会被删除，只是不再在本场售卖。\n\n`
+      + '如果它是会员持有的转拍货、且只挂在本场，移除后会同时下架并退回给持有人（对方需要重新转拍）。',
       '移除关联',
       { type: 'warning', confirmButtonText: '移除', cancelButtonText: '取消' },
     );
@@ -457,7 +458,8 @@ async function removeGoods(row) {
   const id = Number(route.params.id);
   const r = await http.post('/specialarea/goods/remove', { specialarea_id: id, goods_ids: [row.goods_id] });
   if (r.code === 1) {
-    ElMessage.success('已移除');
+    // 后端可能顺带把转拍货退货，提示里带件数与商品名，别吞掉
+    ElMessage.success(r.msg || '已移除');
     loadGoods();
   } else ElMessage.warning(r.msg);
 }

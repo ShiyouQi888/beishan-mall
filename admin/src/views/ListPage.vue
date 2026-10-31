@@ -1006,8 +1006,9 @@ async function removeOne(row) {
   } catch {
     return;
   }
-  await adminApi.remove(modKey.value, [row[mod.value.pk]]);
-  ElMessage.success('已删除');
+  // 删场次时后端可能顺带把场内转拍货退货，提示里会带件数，别吞掉
+  const r = await adminApi.remove(modKey.value, [row[mod.value.pk]]);
+  ElMessage.success(r?.msg || '已删除');
   load();
 }
 

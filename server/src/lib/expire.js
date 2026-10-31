@@ -7,6 +7,7 @@
 import { all, get, run, now } from '../db.js';
 import { todayStr, sessionWindow } from './sessionWindow.js';
 import { areasOfGoods } from './areaGoods.js';
+import { releaseListing } from './listing.js';
 
 /**
  * 扫描并下架已过期的挂单
@@ -30,7 +31,16 @@ export function expireUnsold(day = todayStr()) {
 
   for (const g of rows) {
     const areas = areasOfGoods(g.goods_id);
-    if (!areas.length) continue;                       // 没挂场次的不动
+    if (!areas.length) {
+      // 场次被移除/删除后留下的悬空货：成员手上的货已经无处可卖，直接退货。
+      // 这里原来写的是 continue —— 于是「无场次 + 已挂牌」的货永远不会被下架，彻底卡死。
+      const r = releaseListing(g.goods_id, '所在场次已移除，商品下架并退回持有人');
+      if (r.released) {
+        expired++;
+        items.push({ goods_id: g.goods_id, goods_name: g.goods_name, member_id: g.member_id });
+      }
+      continue;
+    }
     const wins = areas.map((a) => sessionWindow(a));
     if (wins.some((w) => w.open)) continue;             // 还有场次正在开放，不是到期
     if (g.area_date === day && wins.some((w) => w.state === 'upcoming')) continue; // 今天还有没开始的场次
