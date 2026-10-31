@@ -103,6 +103,8 @@ const loading = ref(true);
 const categoryOpen = computed(() => String(openNav.value?.home_category_open ?? '10') !== '20');
 
 // 场次开/关指纹：用来发现「这一场结束了／下一场开始了」，到点静默换货
+// 用服务端时间 new_time 校准客户端时钟：本机慢几分钟就让「现在」也跟着慢，倒计时才准
+const clockSkew = ref(0);
 const nowSec = ref(Math.floor(Date.now() / 1000));
 let timer;
 let lastSig = '';
@@ -167,13 +169,16 @@ onMounted(async () => {
   if (b.status === 'fulfilled') banners.value = b.value.data || [];
   if (n.status === 'fulfilled') navs.value = n.value.data || [];
   if (l.status === 'fulfilled') areas.value = l.value.data?.list || [];
+  const clockRef = areas.value.find((a) => Number(a.time?.new_time) > 0);
+  if (clockRef) clockSkew.value = Number(clockRef.time.new_time) - Math.floor(Date.now() / 1000);
+  nowSec.value = Math.floor(Date.now() / 1000) + clockSkew.value;
   if (c.status === 'fulfilled') categories.value = c.value.data?.categoryList || [];
   if (o.status === 'fulfilled') openNav.value = o.value.data || {};
   await loadGoods();
   lastSig = openSig.value;
   lastPoll = Date.now();
   timer = setInterval(() => {
-    nowSec.value = Math.floor(Date.now() / 1000);
+    nowSec.value = Math.floor(Date.now() / 1000) + clockSkew.value;
     const sig = openSig.value;
     // 某一场开始或结束时指纹会变：这时候后台换了一批货，首页要跟着换，不能停在上场的灰卡片上
     if (lastSig && sig !== lastSig) {

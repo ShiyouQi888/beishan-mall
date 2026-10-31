@@ -137,7 +137,7 @@ export function resetData(scopes) {
             `INSERT INTO member (nick_name, mobile, password, p_id, path, level, invitation_code,
                is_valid, amount, score, e_card_number, is_certification, disabled,
                client_type, create_time, update_time)
-             VALUES (?,?,?,0,'/',1,?,10,0,0,0,0,10,3,datetime('now','localtime'),datetime('now','localtime'))`,
+             VALUES (?,?,?,0,'/',1,?,10,0,0,0,0,10,3,datetime('now','+8 hours'),datetime('now','+8 hours'))`,
             OFFICIAL.nick, OFFICIAL.mobile, hashPwd(OFFICIAL.password), OFFICIAL.code,
           );
           official = get('SELECT * FROM member WHERE member_id = ?', Number(info.lastInsertRowid));

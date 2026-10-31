@@ -25,9 +25,20 @@ RUN mkdir -p public \
 FROM node:22-bookworm-slim
 WORKDIR /app
 
+# slim 镜像**不带 tzdata**：只设 TZ 环境变量是没用的，glibc 找不到时区文件会静默退回 UTC。
+# 结果就是容器里「北京时间 08:00」被算成 UTC 08:00（= 北京 16:00），上午场明明开放，
+# 前台却显示「未开始 · 距开始 5 小时」。业务时间已经在代码里固定按东八区算，
+# 这里补 tzdata 是为了让日志、sqlite 的 localtime 也一起对齐。
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tzdata \
+ && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+ && echo "Asia/Shanghai" > /etc/timezone \
+ && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3300 \
+    TZ=Asia/Shanghai \
     MALL_DB=/app/data/mall.db \
     UPLOAD_DIR=/app/data/uploads \
     PUBLIC_DIR=/app/public

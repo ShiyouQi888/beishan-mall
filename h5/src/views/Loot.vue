@@ -75,6 +75,9 @@ import { cardState, cardLabel, isGreyState } from '../utils/goodsState.js';
 const areas = ref([]);
 const activeIdx = ref(0);
 const loading = ref(true);
+// 客户端时钟可能不准（用户电脑慢几分钟很常见），接口里带了服务端时间 new_time，
+// 用它算一个偏移，之后本地时钟继续走秒。这样倒计时和「此刻是否开放」都不受本机时间影响。
+const clockSkew = ref(0);
 const nowSec = ref(Math.floor(Date.now() / 1000));
 let timer;
 let lastSig = '';
@@ -125,6 +128,9 @@ const openSig = computed(() =>
 async function load(keepId) {
   const r = await api.lootList();
   areas.value = r.data.list || [];
+  const clockRef = areas.value.find((a) => Number(a.time?.new_time) > 0);
+  if (clockRef) clockSkew.value = Number(clockRef.time.new_time) - Math.floor(Date.now() / 1000);
+  nowSec.value = Math.floor(Date.now() / 1000) + clockSkew.value;
   const same = keepId ? areas.value.findIndex((a) => a.specialarea_id === keepId) : -1;
   const idx = areas.value.findIndex((a) => a.is_ordinary_order);
   if (same >= 0 && (areas.value[same].is_ordinary_order || idx < 0)) activeIdx.value = same;
@@ -151,7 +157,7 @@ onMounted(async () => {
   lastSig = openSig.value;
   lastPoll = Date.now();
   timer = setInterval(() => {
-    nowSec.value = Math.floor(Date.now() / 1000);
+    nowSec.value = Math.floor(Date.now() / 1000) + clockSkew.value;
     const sig = openSig.value;
     if (lastSig && sig !== lastSig) {
       lastSig = sig;

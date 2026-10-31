@@ -73,10 +73,14 @@ export const scalar = (sql, ...p) => {
   return Object.values(row)[0];
 };
 
+// 落库时间统一按东八区（北京时间）写，跟 lib/sessionWindow 的 todayStr 对齐。
+// 服务器跑在 UTC（Docker 容器默认）时，用 getHours() 会写成 UTC 字面时间，
+// 与「今日」统计的口径差 8 小时：早上 8 点前的订单会被算到昨天。
+const BIZ_OFFSET_MS = 8 * 3600 * 1000;
 export const now = () => {
-  const d = new Date();
+  const d = new Date(Date.now() + BIZ_OFFSET_MS);
   const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
 };
 
 export const today = () => now().slice(0, 10);
