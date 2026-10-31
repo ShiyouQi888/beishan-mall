@@ -218,7 +218,7 @@ onMounted(() => {
 .s-value { font-size: 32px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
 .s-desc { font-size: 11px; opacity: 0.82; margin-top: 8px; }
 
-.sgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 11px; }
+.sgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .scard { background: #fff; border-radius: 13px; overflow: hidden; box-shadow: var(--shadow); }
 .scard__img { aspect-ratio: 1; background: #f6f7f9; }
 .scard__img img { width: 100%; height: 100%; object-fit: cover; }

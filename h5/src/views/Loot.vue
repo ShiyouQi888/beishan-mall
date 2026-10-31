@@ -265,7 +265,9 @@ onUnmounted(() => clearInterval(timer));
 .loot__goods { margin-top: 14px; }
 .loot__grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* minmax(0, 1fr)：写 1fr 时列的最小宽度等于内容的 min-content，
+     商品名过长（配合 nowrap 省略号）会把整列撑开，卡片溢出屏幕 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .loot-card {

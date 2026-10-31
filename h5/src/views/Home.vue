@@ -332,7 +332,9 @@ watch(activeCat, () => loadGoods());
 .home__goods { padding-top: 12px; }
 .goods-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* minmax(0, 1fr)：允许列被内容压窄。写 1fr 时最小宽度取内容的 min-content，
+     商品名一长（nowrap 的 ellipsis）就会把整列撑宽，卡片直接溢出屏幕 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .goods-card {
