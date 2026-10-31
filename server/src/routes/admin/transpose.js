@@ -66,7 +66,8 @@ function buildWhere(range, start, end, keyword) {
 
 const FROM = `FROM orders o
   JOIN goods g ON g.goods_id = o.goods_id
-  LEFT JOIN member m ON m.member_id = o.member_id`;
+  LEFT JOIN member m ON m.member_id = o.member_id
+  LEFT JOIN member s ON s.member_id = o.seller_id`;
 
 /** 已经挂牌多久（分钟） */
 function minutesSince(text) {
@@ -102,6 +103,7 @@ r.get('/transpose/list', authAdmin, (req, res) => {
             o.transposition_time, o.specialarea_id, o.pay_time,
             g.goods_name, g.good_thumb, g.goods_min_price, g.base_price, g.price_cap,
             g.turn_beat_num, g.area_date, g.stock_total, g.stock_num,
+            o.seller_id, s.nick_name AS seller_name, s.mobile AS seller_mobile,
             m.nick_name, m.mobile
      ${FROM} ${sql}
      ORDER BY o.transposition_time DESC, o.order_id DESC
@@ -125,6 +127,14 @@ r.get('/transpose/list', authAdmin, (req, res) => {
       goods_id: row.goods_id,
       goods_name: row.goods_name,
       good_thumb: row.good_thumb || '',
+      // 买卖链路：这一手是从谁手里买来的（卖家）→ 现在归谁（买家，也就是挂牌转拍的人）
+      seller_id: Number(row.seller_id) || 0,
+      seller_name: row.seller_name || (Number(row.seller_id) ? '' : '平台'),
+      seller_mobile: row.seller_mobile || '',
+      buyer_id: row.member_id,
+      buyer_name: row.nick_name || '',
+      buyer_mobile: row.mobile || '',
+      // 兼容旧字段
       member_id: row.member_id,
       nick_name: row.nick_name || '',
       mobile: row.mobile || '',
@@ -170,8 +180,31 @@ r.get('/transpose/detail', authAdmin, (req, res) => {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
   const m = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', o.member_id);
   const logs = all('SELECT action, operator, remark, create_time FROM order_log WHERE order_id = ? ORDER BY log_id DESC LIMIT 20', id);
+
+  // 商品流转链路：这件货被经手的每一手（卖家 → 买家 → 下一手…），按成交先后排
+  const chainRows = all(
+    `SELECT order_id, order_no, seller_id, member_id, total_price, pay_time, create_time
+     FROM orders WHERE goods_id = ? AND type = 1 AND pay_status = 10 ORDER BY order_id ASC`,
+    o.goods_id,
+  );
+  const nameOf = (mid) => (Number(mid) ? get('SELECT nick_name FROM member WHERE member_id = ?', Number(mid))?.nick_name || `会员#${mid}` : '平台');
+  const chain = chainRows.map((x, i) => ({
+    step: i + 1,
+    order_id: x.order_id,
+    order_no: x.order_no,
+    seller_id: Number(x.seller_id) || 0,
+    seller_name: nameOf(x.seller_id),
+    buyer_id: Number(x.member_id) || 0,
+    buyer_name: nameOf(x.member_id),
+    price: Number(x.total_price || 0),
+    pay_time: x.pay_time || x.create_time || '',
+    current: Number(x.order_id) === Number(id),
+  }));
+
+  const holder = o.seller_id ? get('SELECT nick_name, mobile FROM member WHERE member_id = ?', o.seller_id) : null;
   res.json(ok({
-    order: { ...o, _nick: m?.nick_name || '', _mobile: m?.mobile || '' },
+    order: { ...o, _nick: m?.nick_name || '', _mobile: m?.mobile || '', _seller: holder?.nick_name || '', _seller_mobile: holder?.mobile || '' },
+    chain,
     goods: g ? {
       goods_id: g.goods_id, goods_name: g.goods_name, good_thumb: g.good_thumb,
       goods_min_price: g.goods_min_price, base_price: g.base_price, price_cap: g.price_cap,

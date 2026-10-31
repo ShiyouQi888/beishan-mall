@@ -70,12 +70,16 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="order_no" label="订单号" width="150" show-overflow-tooltip />
+        <el-table-column prop="order_no" label="订单号" width="176" show-overflow-tooltip />
 
-        <el-table-column label="转拍人" width="122">
+        <el-table-column label="买卖链路" width="150">
           <template #default="{ row }">
-            <div class="nick">{{ row.nick_name || '—' }}</div>
-            <div class="nick__sub">{{ row.mobile || '' }}</div>
+            <div class="chain">
+              <span class="chain__seller" :title="`卖家 ${row.seller_name || '平台'}`">{{ row.seller_name || '平台' }}</span>
+              <span class="chain__arrow">→</span>
+              <span class="chain__buyer" :title="`买家 ${row.buyer_name || ''}`">{{ row.buyer_name || '—' }}</span>
+            </div>
+            <div class="nick__sub">{{ row.buyer_mobile || '' }}</div>
           </template>
         </el-table-column>
 
@@ -159,8 +163,8 @@
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="订单号">{{ detail.order.order_no }}</el-descriptions-item>
           <el-descriptions-item label="订单状态">{{ orderStatus(detail.order) }}</el-descriptions-item>
-          <el-descriptions-item label="转拍人">{{ detail.order._nick || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="手机号">{{ detail.order._mobile || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="卖家">{{ detail.order._seller || '平台' }}</el-descriptions-item>
+          <el-descriptions-item label="买家（转拍人）">{{ detail.order._nick || '—' }}</el-descriptions-item>
           <el-descriptions-item label="这一手买入价">¥{{ money(detail.order.total_price) }}</el-descriptions-item>
           <el-descriptions-item label="服务费">¥{{ money(detail.order.service_charge) }}</el-descriptions-item>
           <el-descriptions-item label="转拍上架费">¥{{ money(detail.order.listing_fee) }}</el-descriptions-item>
@@ -168,6 +172,22 @@
           <el-descriptions-item label="支付时间">{{ detail.order.pay_time || '—' }}</el-descriptions-item>
           <el-descriptions-item label="所在场次日期">{{ detail.goods?.area_date || '不限日期' }}</el-descriptions-item>
         </el-descriptions>
+
+        <!-- 流转链路：这件货被经过的每一手 -->
+        <div class="chainbox" v-if="detail.chain?.length">
+          <div class="logs__t">流转链路（共 {{ detail.chain.length }} 手）</div>
+          <div
+            v-for="c in detail.chain"
+            :key="c.order_id"
+            class="chainline"
+            :class="{ 'is-current': c.current }"
+          >
+            <span class="chainline__step">第 {{ c.step }} 手</span>
+            <span class="chainline__who">{{ c.seller_name }}<i>→</i>{{ c.buyer_name }}</span>
+            <span class="chainline__price">¥{{ money(c.price) }}</span>
+            <span class="chainline__time">{{ c.pay_time }}</span>
+          </div>
+        </div>
 
         <div class="logs">
           <div class="logs__t">操作记录</div>
@@ -369,6 +389,30 @@ onMounted(load);
 .detail__img { width: 56px; height: 56px; border-radius: 9px; background: #f5f6f8; }
 .detail__name { font-size: 14px; font-weight: 650; }
 .detail__meta { font-size: 12px; color: #8c93a0; margin-top: 4px; }
+
+.chain { display: flex; align-items: center; gap: 4px; font-size: 12.5px; }
+.chain__seller { color: var(--text-3, #8c93a0); max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chain__arrow { color: #b9bfc9; font-size: 11px; }
+.chain__buyer { color: #22252b; font-weight: 550; max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.chainbox { margin-top: 14px; }
+.chainline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #626a76;
+}
+.chainline + .chainline { margin-top: 4px; }
+.chainline.is-current { background: #fff6f4; color: #c9351f; }
+.chainline__step { color: #a8adb7; white-space: nowrap; }
+.chainline.is-current .chainline__step { color: #c9351f; }
+.chainline__who { flex: 1; min-width: 0; }
+.chainline__who i { font-style: normal; color: #b9bfc9; margin: 0 6px; }
+.chainline__price { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chainline__time { color: #a8adb7; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .logs { margin-top: 14px; }
 .logs__t { font-size: 12.5px; font-weight: 650; margin-bottom: 8px; }
