@@ -5,9 +5,11 @@
         <component :is="Component" />
       </transition>
     </router-view>
-    <footer v-if="store.copyright || store.icp_number" class="site-footer">
+    <!-- 页面底部：版权 / 备案 / 版号。版号来自 package.json，构建时注入（见 vite.config.js） -->
+    <footer class="site-footer">
       <span v-if="store.copyright">{{ store.copyright }}</span>
       <span v-if="store.icp_number">{{ store.icp_number }}</span>
+      <span class="site-footer__ver" :title="`前端版本 ${appVersionFull}`">{{ appVersion }}</span>
     </footer>
     <TabBar v-if="showTab" />
     <InstallApp v-if="route.meta.tab" />
@@ -22,6 +24,9 @@ import InstallApp from './components/InstallApp.vue';
 import { api } from './api.js';
 
 const route = useRoute();
+// 构建时由 vite define 注入：__APP_VERSION__ = "V2.0"，__APP_VERSION_FULL__ = "2.0.0"
+const appVersion = __APP_VERSION__;
+const appVersionFull = __APP_VERSION_FULL__;
 const showTab = computed(() => {
   const hide = route.meta.hideTab;
   return !(typeof hide === 'function' ? hide(route) : hide);
@@ -79,6 +84,7 @@ watch(() => route.fullPath, () => applyBrand(store.value));
 }
 .app-root--tab .page { padding-bottom: calc(var(--tabbar-h, 54px) + 16px); }
 .site-footer { display:flex;flex-direction:column;align-items:center;gap:3px;padding:14px 16px calc(var(--tabbar-h, 54px) + 14px);color:#a5a8ae;font-size:10px;text-align:center;line-height:1.45; }
+.site-footer__ver { font-size: 10px; letter-spacing: .3px; color: #b9bcc2; font-variant-numeric: tabular-nums; }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.18s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
