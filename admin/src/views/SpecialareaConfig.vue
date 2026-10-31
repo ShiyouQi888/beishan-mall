@@ -448,7 +448,8 @@ async function removeGoods(row) {
   try {
     await ElMessageBox.confirm(
       `把「${row.goods_name}」从本场次移除？商品本身不会被删除，只是不再在本场售卖。\n\n`
-      + '如果它是会员持有的转拍货、且只挂在本场，移除后会同时下架并退回给持有人（对方需要重新转拍）。',
+      + '如果它是会员正在挂牌的转拍货、且只挂在本场，系统会拒绝移除 —— 需要先到「商品管理」把它下架，'
+      + '再回来移除（下架会自动解除挂牌）。',
       '移除关联',
       { type: 'warning', confirmButtonText: '移除', cancelButtonText: '取消' },
     );

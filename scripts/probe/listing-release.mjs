@@ -6,12 +6,11 @@
  * H5 看不到、到期扫描跳过、持有人点转拍被「已挂牌」拦住 —— 货凭空消失。
  *
  * 覆盖：
- *   1. 移除唯一场次 → 立即退货（下架 + 退牌 + 站内信），且能重新转拍
- *   2. 双挂场次只移除一个 → 不退货
- *   3. 删除场次 → 场内转拍货统一退货，接口提示里有件数
+ *   1. 在挂牌的转拍货：不能直接从场次移除，也不能连带删除场次（先让运营处理持有人那一手）
+ *   2. 先下架 → 在挂标记自动归零 → 再移除/删场次就放行
+ *   3. 双挂场次只移除一个 → 不受影响
  *   4. 历史悬空货（无场次 + 在挂 + 已过期）→ 定时扫描自愈
  *   5. 平台自营商品（member_id=0）不受影响
- *   6. 后台把转拍货「下架」→ 在挂标记归零，可重新转拍
  *
  * 独立库（listing-release.db / 3459），跑完销毁。
  * 用法: node scripts/probe/listing-release.mjs
@@ -131,25 +130,38 @@ async function main() {
       return { gid, oid };
     };
 
-    section('[1] 移除唯一场次 → 立即退货');
+    section('[1] 在挂牌的转拍货：移除被拦、删场次被拦');
     const a = mkListed('退货验收A', 'LR-A', [1]);
     const rm = await api('/admin/api/specialarea/goods/remove', {
       method: 'POST', token: at, body: { specialarea_id: 1, goods_ids: [a.gid] },
     });
-    ok(rm.code === 1, '移除成功', rm.msg);
-    ok(/退回持有人/.test(rm.msg || ''), '接口提示里说明已退回持有人', rm.msg);
-    const gA = get('SELECT goods_status, area_date FROM goods WHERE goods_id = ?', a.gid);
-    eq(gA.goods_status, 20, '商品已下架');
-    eq(gA.area_date, '', '开抢日期已清空');
-    eq(get('SELECT consignment_status FROM orders WHERE order_id = ?', a.oid).consignment_status, 0, '在挂标记已归零');
-    ok(Number(get('SELECT COUNT(*) c FROM member_msg WHERE member_id = ? AND title = ?', M.mid, '商品已退出场次').c) >= 1,
-      '给持有人发了站内信');
-    ok(Number(get('SELECT COUNT(*) c FROM order_log WHERE order_id = ? AND action = ?', a.oid, '退出场次').c) === 1,
-      '订单日志留痕');
+    ok(rm.code === 0, '在挂牌的转拍货不能直接从场次移除', rm.msg);
+    ok(/正在本场挂牌/.test(rm.msg || ''), '提示说明它正在挂牌', rm.msg);
+    ok(/商品管理/.test(rm.msg || ''), '提示给出处理路径（先去商品管理下架）', rm.msg);
+    eq(get('SELECT consignment_status FROM orders WHERE order_id = ?', a.oid).consignment_status, 10, '被拦后商品仍在挂（没被静默处理）');
+    eq(get('SELECT COUNT(*) c FROM specialarea_goods WHERE goods_id = ?', a.gid).c, 1, '关联也还在');
 
-    // 退货后能重新转拍
+    const del1 = await api('/admin/api/specialarea/remove', { method: 'POST', token: at, body: { id: 1 } });
+    ok(del1.code === 0, '场内还有在挂牌的货时，删场次也被拦', del1.msg);
+    ok(/不能删除/.test(del1.msg || ''), '提示说明不能删除', del1.msg);
+    ok(!!get('SELECT 1 FROM specialarea WHERE specialarea_id = 1'), '场次没被删掉');
+
+    section('[1b] 先下架 → 挂牌解除 → 移除/删场次放行');
+    const offA = await api('/admin/api/goods/save', { method: 'POST', token: at, body: { goods_id: a.gid, goods_status: 20 } });
+    ok(offA.code === 1, '商品下架成功', offA.msg);
+    eq(get('SELECT consignment_status FROM orders WHERE order_id = ?', a.oid).consignment_status, 0,
+      '下架同时解除挂牌（不用等场次结束）');
+    const rmOk = await api('/admin/api/specialarea/goods/remove', {
+      method: 'POST', token: at, body: { specialarea_id: 1, goods_ids: [a.gid] },
+    });
+    ok(rmOk.code === 1, '下架后可以正常移除', rmOk.msg);
+    eq(get('SELECT COUNT(*) c FROM specialarea_goods WHERE goods_id = ?', a.gid).c, 0, '关联已删除');
+
+    // 重新申请转拍，验证退牌之后能重新挂牌
+    run('UPDATE goods SET goods_status = 10 WHERE goods_id = ?', a.gid);
+    run('INSERT INTO specialarea_goods (specialarea_id, goods_id, sort) VALUES (1, ?, 100)', a.gid);
     const consign = await api('/api/order/consignment', { method: 'POST', token: M.tk, body: { order_id: a.oid } });
-    ok(consign.code === 1, '持有人可以重新转拍（不再被「已挂牌」拦住）', consign.msg);
+    ok(consign.code === 1, '持有人可以重新转拍', consign.msg);
     eq(get('SELECT consignment_status FROM orders WHERE order_id = ?', a.oid).consignment_status, 10, '重新挂牌后标记回到 10');
 
     section('[2] 双挂场次只移除一个 → 不退货');
@@ -162,16 +174,21 @@ async function main() {
     eq(gB.goods_status, 10, '商品仍在架（还有场次 2 可卖）');
     eq(get('SELECT consignment_status FROM orders WHERE order_id = ?', b.oid).consignment_status, 10, '在挂标记保持 10');
 
-    section('[3] 删除场次 → 场内转拍货统一退货');
+    section('[3] 删除临时场次：有人在挂就拦，下架后放行');
     const tmpArea = Number(run(
       "INSERT INTO specialarea (name, title_main, start_time, end_time, open_days, buy_num, transposition_hours, is_subscribe, is_open, sort, create_time) VALUES ('', '临时待删场次', 0, 86399, '1,2,3,4,5,6,7', 10, 0, 0, 10, 200, datetime('now','+8 hours'))",
     ).lastInsertRowid);
     const c = mkListed('退货验收C', 'LR-C', [tmpArea]);
-    const del = await api('/admin/api/specialarea/remove', { method: 'POST', token: at, body: { id: tmpArea } });
-    ok(del.code === 1, '场次删除成功', del.msg);
-    ok(/退回持有人/.test(del.msg || ''), '删除提示里说明有货被退回', del.msg);
-    eq(get('SELECT goods_status FROM goods WHERE goods_id = ?', c.gid).goods_status, 20, '场内转拍货已下架');
-    eq(get('SELECT consignment_status FROM orders WHERE order_id = ?', c.oid).consignment_status, 0, '在挂标记已归零');
+    const delBlocked = await api('/admin/api/specialarea/remove', { method: 'POST', token: at, body: { id: tmpArea } });
+    ok(delBlocked.code === 0, '场内转拍货在挂时删除被拦', delBlocked.msg);
+    ok(/退货验收C/.test(delBlocked.msg || ''), '提示里点名是哪件货', delBlocked.msg);
+    ok(!!get('SELECT 1 FROM specialarea WHERE specialarea_id = ?', tmpArea), '场次还在');
+
+    await api('/admin/api/goods/save', { method: 'POST', token: at, body: { goods_id: c.gid, goods_status: 20 } });
+    const delOk = await api('/admin/api/specialarea/remove', { method: 'POST', token: at, body: { id: tmpArea } });
+    ok(delOk.code === 1, '把货下架后可以删除场次', delOk.msg);
+    ok(!get('SELECT 1 FROM specialarea WHERE specialarea_id = ?', tmpArea), '场次已删除');
+    eq(get('SELECT COUNT(*) c FROM specialarea_goods WHERE goods_id = ?', c.gid).c, 0, '场次关联随之清空');
 
     section('[4] 历史悬空货 → 定时扫描自愈');
     // 造一件「无场次 + 在挂 + 日期已过」的货，模拟本次修复前留下的死锁数据
@@ -194,7 +211,7 @@ async function main() {
     const rm3 = await api('/admin/api/specialarea/goods/remove', {
       method: 'POST', token: at, body: { specialarea_id: 2, goods_ids: [e.gid] },
     });
-    ok(rm3.code === 0 || rm3.code === 1, '移除接口正常响应（该商品本就不在场次里）', rm3.msg);
+    ok(rm3.code !== 1 ? /不在本场次|正在本场挂牌/.test(rm3.msg || '') : true, '接口对平台货不会触发退货', rm3.msg);
     eq(get('SELECT goods_status FROM goods WHERE goods_id = ?', e.gid).goods_status, 10, '平台货没被下架');
 
     section('[6] 后台下架转拍货 → 在挂标记归零');

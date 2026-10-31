@@ -7,7 +7,6 @@ import { hashPwd, verifyPwd, needsRehash, signAdmin, randomCode } from '../../li
 import { settleOrder, goodsStillOwnedBySeller } from '../../lib/settle.js';
 import { restoreStock } from '../../lib/stock.js';
 import { areasOfGoods, areaMapOfGoods, setGoodsAreas, addGoodsToArea, removeGoodsFromArea, clearAreaLinks } from '../../lib/areaGoods.js';
-import { releaseListing } from '../../lib/listing.js';
 import { priceCapOf } from '../../lib/priceCap.js';
 import { todayStr, addDays } from '../../lib/sessionWindow.js';
 import { rangeClause } from '../../lib/dateRange.js';
@@ -950,17 +949,32 @@ r.post('/specialarea/goods/remove', authAdmin, (req, res) => {
   if (!areaId) return res.json(fail('请选择场次'));
   const ids = (Array.isArray(req.body?.goods_ids) ? req.body.goods_ids : [req.body?.goods_id]).map(Number).filter(Boolean);
   if (!ids.length) return res.json(fail('请选择要移除的商品'));
+  // 在挂牌的转拍货不能直接移出：移出后它既没有场次、又还挂在架上，
+  // 会变成「看得见买不了」的悬空货。先让运营处理持有人那一手，再移除。
+  const blocking = [];
+  for (const gid of ids) {
+    const g = get('SELECT goods_id, goods_name, member_id FROM goods WHERE goods_id = ?', gid);
+    if (!g || Number(g.member_id) <= 0) continue;
+    // 还挂在别的场次 → 移出本场不影响它继续卖
+    if (get('SELECT 1 FROM specialarea_goods WHERE goods_id = ? AND specialarea_id <> ? LIMIT 1', gid, areaId)) continue;
+    const listed = get(
+      `SELECT 1 FROM orders WHERE goods_id = ? AND member_id = ? AND type = 1
+         AND IFNULL(consignment_status, 0) = 10 LIMIT 1`,
+      gid, g.member_id,
+    );
+    if (listed) blocking.push(g.goods_name);
+  }
+  if (blocking.length) {
+    const names = blocking.slice(0, 3).join('、') + (blocking.length > 3 ? ' 等' : '');
+    return res.json(fail(
+      `「${names}」正在本场挂牌，不能直接移除。`
+      + '请先到「商品管理」把它下架（下架会自动解除挂牌），或等本场次结束自动退回后再移除。',
+    ));
+  }
+
   const removed = removeGoodsFromArea(areaId, ids);
   if (!removed) return res.json(fail('这些商品本来就不在本场次'));
-  // 移出后如果这件转拍货再没有任何场次，它会变成「无场次 + 已挂牌」的死锁状态，
-  // 这里当场退货（下架 + 退牌 + 站内信），让它能重新转拍
-  const released = [];
-  for (const gid of ids) {
-    const r = releaseListing(gid, '已从场次中移除，商品下架并退回持有人');
-    if (r.released) released.push(r.goods_name);
-  }
-  const extra = released.length ? `；${released.length} 件转拍货已下架退回持有人（${released.slice(0, 3).join('、')}${released.length > 3 ? ' 等' : ''}）` : '';
-  res.json(ok({ removed, released }, `已移除 ${removed} 件商品${extra}`));
+  res.json(ok({ removed }, `已移除 ${removed} 件商品`));
 });
 
 // ---------------- 订单导出 ----------------
@@ -1445,8 +1459,6 @@ r.post('/:module/remove', authAdmin, (req, res) => {
   if (['orders', 'member', 'energy', 'withdraw', 'settle', 'certification'].includes(moduleName)) {
     return res.json(fail('业务记录需保留审计，不能通过通用接口删除'));
   }
-  // 删场次时被退货的转拍货，最后汇总到提示里
-  const releasedGoods = [];
   for (const id of ids) {
     if (moduleName === 'storeuser') {
       const user = get('SELECT store_user_id, role_id FROM store_user WHERE store_user_id = ?', Number(id));
@@ -1464,16 +1476,31 @@ r.post('/:module/remove', authAdmin, (req, res) => {
     if (moduleName === 'category' && get('SELECT 1 FROM goods WHERE category_id = ?', Number(id))) {
       return res.json(fail('分类下仍有商品，不能删除'));
     }
-    // 场次下的商品只存在于关联表里：删场次先把关联清掉，商品本身保留（不连带删货）。
-    // 清完之后，场内那些「还挂在架上的转拍货」会失去唯一场次 —— 当场退货，避免货凭空消失。
+    // 场次下还有在挂牌的转拍货时，不允许删 —— 先让运营把持有人那一手处理掉。
+    // 静默退货虽然不会丢货，但会让会员的货无缘无故被下架，运营也不知道发生过什么。
     if (moduleName === 'specialarea') {
-      const gids = all('SELECT goods_id FROM specialarea_goods WHERE specialarea_id = ?', Number(id))
-        .map((r) => Number(r.goods_id));
-      clearAreaLinks(id);
-      for (const gid of gids) {
-        const r = releaseListing(gid, '所在场次已被删除，商品下架并退回持有人');
-        if (r.released) releasedGoods.push(r.goods_name);
+      const listed = all(
+        `SELECT g.goods_name, g.member_id FROM specialarea_goods sg
+         JOIN goods g ON g.goods_id = sg.goods_id
+         WHERE sg.specialarea_id = ? AND IFNULL(g.member_id, 0) > 0
+           AND EXISTS (
+             SELECT 1 FROM orders o
+             WHERE o.goods_id = g.goods_id AND o.member_id = g.member_id
+               AND o.type = 1 AND IFNULL(o.consignment_status, 0) = 10
+           )`,
+        Number(id),
+      );
+      if (listed.length) {
+        const names = listed.slice(0, 3).map((x) => x.goods_name).join('、')
+          + (listed.length > 3 ? ' 等' : '');
+        const area = get('SELECT title_main FROM specialarea WHERE specialarea_id = ?', Number(id));
+        return res.json(fail(
+          `「${area?.title_main || '本场次'}」还有 ${listed.length} 件转拍货在挂牌（${names}），不能删除。`
+          + '请先到「商品管理」把它们下架（下架会自动解除挂牌），再删除本场次。',
+        ));
       }
+      // 没有在挂的货了，清掉关联（商品本身保留，不连带删货）
+      clearAreaLinks(id);
     }
   }
   tx(() => ids.forEach((id) => {
@@ -1481,10 +1508,7 @@ r.post('/:module/remove', authAdmin, (req, res) => {
     if (moduleName === 'goods') run('DELETE FROM specialarea_goods WHERE goods_id = ?', Number(id));
     run(`DELETE FROM ${mod.table} WHERE ${mod.pk} = ?`, id);
   }));
-  const extra = releasedGoods.length
-    ? `，${releasedGoods.length} 件转拍货已下架退回持有人（${releasedGoods.slice(0, 3).join('、')}${releasedGoods.length > 3 ? ' 等' : ''}）`
-    : '';
-  res.json(ok({ released: releasedGoods }, `删除成功${extra}`));
+  res.json(ok([], '删除成功'));
 });
 
 // ---------------- 订单操作 ----------------
