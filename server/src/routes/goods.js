@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { all, get, run, now } from '../db.js';
-import { ok, fail, authMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
+import { ok, fail, authMember, maybeMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
 import { sessionWindow, todayStr } from '../lib/sessionWindow.js';
 import { soldTodayByGoods, soldTodayOf, quotaFull, quotaLeft } from '../lib/quota.js';
-import { areasOfGoods, areaMapOfGoods, displayAreaOf, openAreaOf } from '../lib/areaGoods.js';
+import { areasOfGoods, areaMapOfGoods, displayAreaOf, openAreaOf, advanceLeadOf } from '../lib/areaGoods.js';
 
 // 商品与场次的关系自本版起只由关联表 specialarea_goods 决定（一件商品可挂多场）。
 // goods.specialarea_id 仅作为「首个关联场次」的镜像，这里一律不再读它。
@@ -230,7 +230,7 @@ r.get('/getLootGoodsList', (req, res) => {
   res.json(ok(page(fmtList(list), total, cur, pp)));
 });
 
-r.get('/getLootDetails', (req, res) => {
+r.get('/getLootDetails', maybeMember, (req, res) => {
   const { goods_id } = req.query;
   if (!goods_id) return res.json(fail('method param miss:goods_id'));
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
@@ -239,12 +239,20 @@ r.get('/getLootDetails', (req, res) => {
   const shown = displayAreaOf(areas);
   const area = shown?.a || null;
   const w = shown?.w || null;
-  const open = openAreaOf(areas);
+  const now = new Date();
+  const open = openAreaOf(areas, now);
+  // 提前抢购：场次还没开，但这个会员有资格提前进来
+  const lead = advanceLeadOf(req.member);
+  const adv = !open && lead > 0 ? openAreaOf(areas, now, lead) : null;
   res.json(
     ok({
       ...fmtGoods(g, soldTodayOf(g.goods_id), areas),
       // 只要这件商品关联的场次里有一个正在开放，此刻就能抢
       is_ordinary_order: open ? 1 : 0,
+      // 已开通提前抢购、且此刻正处在提前窗口里
+      advance_open: adv && adv.advanced ? 1 : 0,
+      advance_lead_left: adv && adv.advanced ? adv.lead_left : 0,
+      advance_seconds: lead,
       // 与列表同一口径：open / upcoming / ended / closed / none
       session_state: w ? w.state : 'none',
       specialarea: area
@@ -287,12 +295,43 @@ r.get('/searchShop', (req, res) => {
   res.json(ok(page(fmtList(list), total, cur, pp)));
 });
 
-r.get('/shopgoods/getDetails', (req, res) => {
+r.get('/shopgoods/getDetails', maybeMember, (req, res) => {
   const { goods_id } = req.query;
   if (!goods_id) return res.json(fail('method param miss:goods_id'));
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g || Number(g.recycled) === 1) return res.json(fail('商品不存在'));
-  res.json(ok({ ...fmtGoods(g, soldTodayOf(g.goods_id), areasOfGoods(g.goods_id)), comments: [] }));
+
+  const areas = areasOfGoods(g.goods_id);
+  const shown = displayAreaOf(areas);
+  // 场次对象要把开始/结束时间格式化成 HH:MM 再给出去 —— 前端模板直接用这两个字段
+  const area = shown ? {
+    specialarea_id: shown.a.specialarea_id,
+    name: shown.a.name,
+    title_main: shown.a.title_main,
+    title_ordinary: shown.a.title_ordinary,
+    start_end_time: shown.w.startText,
+    start_end_time1: shown.w.endText,
+    state: shown.w.state,
+    days_text: shown.w.daysText,
+  } : null;
+
+  // 提前抢购：当前会员（没登录则没有）能把场次往前放多少秒
+  const lead = advanceLeadOf(req.member);
+  const now = new Date();
+  const opened = openAreaOf(areas, now);
+  const adv = !opened && lead > 0 ? openAreaOf(areas, now, lead) : null;
+
+  res.json(ok({
+    ...fmtGoods(g, soldTodayOf(g.goods_id), areas),
+    specialarea: area,
+    // 本场此刻是否真的开放（前端靠它决定按钮能不能点）
+    is_ordinary_order: opened ? 1 : 0,
+    // 已开通提前抢购、且此刻正处在「提前窗口」里
+    advance_open: adv && adv.advanced ? 1 : 0,
+    advance_lead_left: adv && adv.advanced ? adv.lead_left : 0,
+    advance_seconds: lead,
+    comments: [],
+  }));
 });
 
 r.get('/getGoodsEvaluation', (req, res) => {

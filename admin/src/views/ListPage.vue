@@ -119,6 +119,14 @@
               ¥{{ Number(row[f.k] || 0).toFixed(2) }}
             </span>
 
+            <!-- 提前抢购：开关 + 提前多少分钟 -->
+            <span v-else-if="f.type === 'advance'">
+              <span v-if="Number(row[f.k]) === 10" class="tag-status tag-warn">
+                已开通{{ Number(row.advance_minutes) > 0 ? ` · 提前 ${row.advance_minutes} 分钟` : ' · 未设提前量' }}
+              </span>
+              <span v-else class="tag-status tag-off">未开通</span>
+            </span>
+
             <!-- 状态 -->
             <span v-else-if="f.type === 'switch'" class="tag-status" :class="statusClass(row[f.k])">
               {{ labelOf(f, row[f.k]) }}
@@ -592,6 +600,46 @@
       </template>
     </el-dialog>
 
+    <!-- 开通提前抢购：提前多少分钟 + 可用次数 -->
+    <el-dialog v-model="advanceDlg" title="开通提前抢购" width="460px">
+      <el-form label-width="88px">
+        <el-form-item label="会员">
+          <b>{{ advanceForm.nick_name }}</b>
+        </el-form-item>
+        <el-form-item label="提前时间">
+          <div class="advance-field">
+            <div class="advance-row">
+              <el-input-number v-model="advanceForm.minutes" :min="0" :max="60" :step="1" style="width: 128px" />
+              <span class="muted">分钟（0 = 不提前）</span>
+            </div>
+            <div class="advance-quick">
+              <el-button
+                v-for="m in [1, 3, 5, 10]"
+                :key="m"
+                size="small"
+                :type="advanceForm.minutes === m ? 'primary' : 'default'"
+                @click="advanceForm.minutes = m"
+              >
+                提前 {{ m }} 分钟
+              </el-button>
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="可用次数">
+          <el-input-number v-model="advanceForm.count" :min="0" style="width: 128px" />
+          <span class="muted" style="margin-left: 8px">0 = 不限</span>
+        </el-form-item>
+        <div class="advance-tip">
+          开通后，该会员在场次开始前 <b>{{ advanceForm.minutes || 0 }} 分钟</b> 就能下单；
+          <b>结束时间不变</b>，场次结束后照样买不了。其他会员仍按原时间开抢。
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="advanceDlg = false">取消</el-button>
+        <el-button type="primary" :loading="advanceSaving" @click="submitAdvance">开通</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 详情正文插图用的隐藏选择器：走同一套上传接口，插到光标所在位置 -->
     <input ref="richInputEl" class="rich-file" type="file" accept="image/*" @change="onRichFile" />
   </div>
@@ -648,6 +696,11 @@ const energyTotal = ref(0);
 const teamData = ref({});
 const shopOrderDlg = ref(false);
 const shopOrderForm = reactive({ goods_id: 0, member_id: 0, price: 0, remark: '' });
+
+// 提前抢购：开通弹窗的临时表单
+const advanceDlg = ref(false);
+const advanceSaving = ref(false);
+const advanceForm = reactive({ member_id: 0, nick_name: '', minutes: 3, count: 0 });
 
 const visibleFields = computed(() => (mod.value.fields || []).filter((f) => !f.hide));
 const formFields = computed(() =>
@@ -1355,23 +1408,40 @@ async function createShopOrder() {
 }
 
 async function toggleAdvance(row) {
-  const enable = Number(row.is_advance) !== 10;
-  let count = Number(row.advance_count) || 0;
-  if (enable) {
+  // 已开通 → 直接确认关闭；未开通 → 打开弹窗填提前量与次数
+  if (Number(row.is_advance) === 10) {
     try {
-      const answer = await ElMessageBox.prompt('请输入提前抢购次数（0 表示不限制）。', '开通提前抢购', {
-        inputType: 'number', inputValue: String(count), confirmButtonText: '开通', cancelButtonText: '取消',
-        inputValidator: (v) => Number.isInteger(Number(v)) && Number(v) >= 0 || '请输入大于等于 0 的整数',
-      });
-      count = Number(answer.value);
+      await ElMessageBox.confirm(`确定关闭 ${row.nick_name} 的提前抢购资格？`, '提示', { type: 'warning' });
     } catch { return; }
-  } else {
-    try { await ElMessageBox.confirm(`确定关闭 ${row.nick_name} 的提前抢购资格？`, '提示', { type: 'warning' }); }
-    catch { return; }
+    await adminApi.advanceMember({ member_id: row.member_id, enable: false });
+    ElMessage.success('已关闭提前抢购');
+    load();
+    return;
   }
-  await adminApi.advanceMember({ member_id: row.member_id, enable, count });
-  ElMessage.success(enable ? '已开通提前抢购' : '已关闭提前抢购');
-  load();
+  Object.assign(advanceForm, {
+    member_id: row.member_id,
+    nick_name: row.nick_name || '',
+    minutes: Number(row.advance_minutes) > 0 ? Number(row.advance_minutes) : 3,
+    count: Number(row.advance_count) || 0,
+  });
+  advanceDlg.value = true;
+}
+
+async function submitAdvance() {
+  advanceSaving.value = true;
+  try {
+    const r = await adminApi.advanceMember({
+      member_id: advanceForm.member_id,
+      enable: true,
+      count: advanceForm.count,
+      minutes: advanceForm.minutes,
+    });
+    ElMessage.success(r.msg || '已开通提前抢购');
+    advanceDlg.value = false;
+    load();
+  } finally {
+    advanceSaving.value = false;
+  }
 }
 
 // ---------- 系统回收 ----------
@@ -1549,6 +1619,21 @@ onUnmounted(() => {
   background: #22c55e;
   animation: auto-scan-pulse 1.8s infinite;
 }
+
+/* 提前抢购弹窗 */
+.advance-field { width: 100%; }
+.advance-row { display: flex; align-items: center; gap: 8px; }
+.advance-quick { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.advance-tip {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #f7f8fa;
+  color: #626a76;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.advance-tip b { color: #c9351f; }
 
 /* 详情富文本的工具栏：插入图片 + 一句说明，避免运营以为必须手写 HTML */
 .rich-tools {

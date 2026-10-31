@@ -42,12 +42,38 @@ export function areaMapOfGoods(goodsIds) {
 }
 
 /** 取「此刻正在开放」的场次（多场同时开放时取排序最靠前的那个） */
-export function openAreaOf(areas, at = new Date()) {
+/**
+ * 找出此刻正在开放的场次。
+ *
+ * `leadSeconds` 是「提前抢购」的提前量：只有带这个资格的会员才会传 > 0 的值。
+ * 语义很克制 —— 只把「还没开始」的场次往前放，**不延长结束时间**：
+ * 提前会员在 07:57 就能买 08:00 那场，但 12:00 之后照样买不了。
+ *
+ * 实现上把参照时间往后挪 leadSeconds 再判一次，而不是直接改 sessionWindow ——
+ * 场次本身的开放/结束口径必须只有一份，别为了提前抢购把它改出第二套。
+ */
+export function openAreaOf(areas, at = new Date(), leadSeconds = 0) {
+  const lead = Math.max(0, Number(leadSeconds) || 0);
+  const shifted = lead > 0 ? new Date(at.getTime() + lead * 1000) : at;
   for (const a of areas || []) {
     const w = sessionWindow(a, at);
     if (w.open) return { area: a, win: w };
+    if (!lead || w.state !== 'upcoming') continue; // 已结束/今天不开放，提前也没用
+    const w2 = sessionWindow(a, shifted);
+    if (w2.open) {
+      // 还差多少秒才真正开抢，前端拿它显示「提前抢购中，还有 42 秒」
+      const left = Math.max(0, w.startsAt - Math.floor(at.getTime() / 1000));
+      return { area: a, win: w2, advanced: true, lead_left: left };
+    }
   }
   return null;
+}
+
+/** 这个会员的提前量（秒）：没开通资格一律 0，开了也得填了分钟数才算 */
+export function advanceLeadOf(member) {
+  if (!member || Number(member.is_advance) !== 10) return 0;
+  const sec = Number(member.advance_seconds) || 0;
+  return sec > 0 ? Math.min(sec, 3600) : 0; // 最多提前 1 小时，防止填错把场次穿透
 }
 
 /**

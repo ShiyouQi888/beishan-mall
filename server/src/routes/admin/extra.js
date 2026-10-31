@@ -69,15 +69,20 @@ r.get('/stats/today-orders', authAdmin, (req, res) => {
 // ---------------- 会员操作 ----------------
 /** 提前抢购授权 */
 r.post('/member/advance', authAdmin, (req, res) => {
-  const { member_id, enable, count = 0 } = req.body || {};
+  const { member_id, enable, count = 0, minutes = 0 } = req.body || {};
   const m = get('SELECT * FROM member WHERE member_id = ?', Number(member_id));
   if (!m) return res.json(fail('会员不存在'));
   const on = enable ? 10 : 0;
+  // 提前量：分钟 → 秒，最多 60 分钟。关闭时一并清零，避免下次开通带着旧值
+  const minutesNum = Math.max(0, Math.min(60, Math.round(Number(minutes) || 0)));
+  const seconds = on ? minutesNum * 60 : 0;
   run(
-    'UPDATE member SET is_advance = ?, advance_count = ?, advance_time = ? WHERE member_id = ?',
-    on, Number(count) || 0, on ? Math.floor(Date.now() / 1000) : 0, m.member_id,
+    'UPDATE member SET is_advance = ?, advance_count = ?, advance_seconds = ?, advance_time = ? WHERE member_id = ?',
+    on, Number(count) || 0, seconds, on ? Math.floor(Date.now() / 1000) : 0, m.member_id,
   );
-  res.json(ok([], on ? '已开通提前抢购' : '已关闭提前抢购'));
+  res.json(ok([], on
+    ? `已开通提前抢购${minutesNum > 0 ? `（每场提前 ${minutesNum} 分钟）` : '（未设置提前量，按场次原时间）'}`
+    : '已关闭提前抢购'));
 });
 
 /** 清除佣金（记一条负数流水，保留审计痕迹） */

@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS member (
   personal_income REAL DEFAULT 0,         -- 个人收益
   total_amount   REAL DEFAULT 0,          -- 累计消费
   is_advance     INTEGER DEFAULT 0,       -- 提前抢购资格 10有 0无
+  advance_seconds INTEGER DEFAULT 0,      -- 提前多少秒可以下单（0 = 不提前，按场次原开始时间）
   advance_time   INTEGER DEFAULT 0,
   advance_count  INTEGER DEFAULT 0,
   morning_limit  INTEGER DEFAULT 0,       -- 早场限购数

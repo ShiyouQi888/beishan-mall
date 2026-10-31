@@ -121,7 +121,7 @@ const M = {
       { k: 'fy_price', t: '礼券', type: 'money', w: 90, hide: true, readonly: true },
       { k: 'score', t: '积分', type: 'number', w: 80, readonly: true },
       { k: 'p_id', t: '上级', type: 'parent', w: 130 },
-      { k: 'is_advance', t: '提前抢购', type: 'switch', opts: { 10: '已开通', 0: '未开通' }, w: 100, readonly: true },
+      { k: 'is_advance', t: '提前抢购', type: 'advance', w: 132, readonly: true, tip: '开通后该会员可以比场次开始时间提前若干分钟下单（只提前开始，不延长结束）。' },
       { k: 'disabled', t: '状态', type: 'switch', opts: { 10: '正常', 20: '禁用' }, w: 90 },
       { k: 'create_time', t: '注册时间', type: 'text', readonly: true, w: 160 },
     ],
@@ -965,6 +965,8 @@ function enrich(mod, row) {
   }
   if (mod === 'member') {
     out._parent = row.p_id ? get('SELECT nick_name FROM member WHERE member_id = ?', row.p_id)?.nick_name || '' : '';
+    // 提前抢购的提前量：库里存秒，列表上按分钟展示
+    out.advance_minutes = Math.round((Number(row.advance_seconds) || 0) / 60);
   }
   if (mod === 'specialarea') {
     // 场次列表展示「已关联商品数」，商品归属完全由关联表决定

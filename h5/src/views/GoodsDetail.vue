@@ -39,6 +39,13 @@
       <div class="detail__state" :class="{ 'is-out': soldOut }" v-if="closedTip">{{ closedTip }}</div>
     </div>
 
+    <!-- 提前抢购：让会员清楚知道自己是「提前」进来的，而不是场次已经开了。
+         放在价格卡正下方 —— 这是购买决策的位置，放到详情下面要滚很久才看得到 -->
+    <div v-if="advanceOpen" class="detail__advance">
+      <span class="dot" />
+      提前抢购中 —— 你比正式开抢早 {{ advanceMinutes }} 分钟进场，现在下单即可锁定
+    </div>
+
     <div class="detail__promise card">
       <div class="pi" v-for="p in promises" :key="p">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" style="flex: none">
@@ -74,7 +81,7 @@
         <span>订单</span>
       </div>
       <button class="btn-main bar-btn" :disabled="!canBuy" @click="buy">
-        {{ canBuy ? '立即抢购' : soldOut ? '已抢完' : buyClosed ? '当前不在抢购时间' : '不可购买' }}
+        {{ canBuy ? (advanceOpen ? '提前抢购' : '立即抢购') : soldOut ? '已抢完' : buyClosed ? '当前不在抢购时间' : '不可购买' }}
       </button>
     </div>
   </div>
@@ -113,7 +120,11 @@ const promises = computed(() => {
 // 之前就是接口漏返 type，Number(undefined) === 1 恒为 false，抢购商品在非抢购时段
 // 也显示「立即抢购」、按钮还能点。不再赌单个字段一定在。
 const isLootGoods = computed(() => (Number(g.value.type) === 2 ? false : !!g.value.specialarea));
-const buyClosed = computed(() => isLootGoods.value && Number(g.value.is_ordinary_order) !== 1);
+// 提前抢购：后端只在「已开通 + 此刻处于提前窗口内」时把 advance_open 置 1
+const advanceOpen = computed(() => Number(g.value.advance_open) === 1);
+const advanceMinutes = computed(() => Math.max(1, Math.round((Number(g.value.advance_seconds) || 0) / 60)));
+// 场次没开放时按钮要灰掉；但提前抢购的会员例外 —— 他本来就该能买
+const buyClosed = computed(() => isLootGoods.value && Number(g.value.is_ordinary_order) !== 1 && !advanceOpen.value);
 // 已抢完：商品被买走或一批货卖光后下架。列表里留一张灰卡片，点进来就是这里 —— 不能下单。
 // 优先用后端的 sold_out，字段缺失时退回 goods_status，两者都不会让售罄商品漏过
 const soldOut = computed(() => (g.value.sold_out === undefined
@@ -273,6 +284,27 @@ watch(() => route.params.id, (id) => load(id));
 .detail__long { margin-top: 4px; display: grid; gap: 8px; }
 .detail__long img { display: block; width: 100%; border-radius: 10px; background: #f5f6f8; }
 .detail__empty { color: #9aa0aa; font-size: 13.5px; }
+
+/* 提前抢购提示条 */
+.detail__advance {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff3ee;
+  border: 1px solid #ffd9cd;
+  color: #c94a2f;
+  font-size: 12.5px;
+  line-height: 1.6;
+}.detail__advance .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e4553d;
+  flex: none;
+}
 
 .detail__bar {
   position: fixed;

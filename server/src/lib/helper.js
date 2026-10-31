@@ -30,6 +30,21 @@ export function authMember(req, res, next) {
   next();
 }
 
+/**
+ * 可选登录：带了有效会员 token 就挂 req.member，没带/失效也照常放行。
+ * 给「游客也能看、登录后多显示一点」的接口用 —— 例如商品详情要按当前会员
+ * 判断他有没有提前抢购资格，但没登录的人打开同一个链接不能报错。
+ */
+export function maybeMember(req, res, next) {
+  const raw = req.headers.token || req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.token;
+  const payload = raw ? decode(raw) : null;
+  if (payload && payload.scope === 'member') {
+    const m = get('SELECT * FROM member WHERE member_id = ?', payload.member_info);
+    if (m && Number(m.disabled) === 10) req.member = m;
+  }
+  next();
+}
+
 /** 后台身份 */
 export function authAdmin(req, res, next) {
   const raw = req.headers.token || req.headers.authorization?.replace(/^Bearer\s+/i, '');

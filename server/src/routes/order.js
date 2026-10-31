@@ -7,7 +7,7 @@ import { deductStock, restoreStock, isPieceSale } from '../lib/stock.js';
 import { soldTodayOf } from '../lib/quota.js';
 import { todayStr } from '../lib/sessionWindow.js';
 import { nextSlot } from '../lib/sessions.js';
-import { areasOfGoods, openAreaOf, displayAreaOf, setGoodsAreas } from '../lib/areaGoods.js';
+import { areasOfGoods, openAreaOf, displayAreaOf, setGoodsAreas, advanceLeadOf } from '../lib/areaGoods.js';
 import { priceCapOf, clampToCap } from '../lib/priceCap.js';
 
 const r = Router();
@@ -144,7 +144,10 @@ r.post('/toAddOrder', authMember, (req, res) => {
   const areas = areasOfGoods(g.goods_id);
   let orderArea = null;
   if (areas.length) {
-    const opened = openAreaOf(areas);
+    // 提前抢购：开通了资格的会员（且填了提前分钟数）可以先把场次「往前放」lead 秒。
+    // 只提前开始，不推迟结束 —— 12:00 之后照样买不了。
+    const lead = advanceLeadOf(m);
+    const opened = openAreaOf(areas, new Date(), lead);
     if (!opened) {
       // 给出最贴近的提示：今天不开放 / 还没到时间 / 今天已经结束
       const shown = displayAreaOf(areas);
