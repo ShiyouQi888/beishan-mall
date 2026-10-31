@@ -49,6 +49,13 @@ async function main() {
   });
   const { db } = await import('../../server/src/db.js');
 
+  // 系统默认只开线下转账；本用例要走余额支付，测试库显式把余额支付打开
+  {
+    try {
+      const { db: __payDb } = await import('../../server/src/db.js');
+      __payDb.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'").run();
+    } catch {}
+  }
   const srv = spawn(process.execPath, ['src/app.js'], { cwd: SERVER, env, stdio: 'pipe' });
   let log = '';
   srv.stdout.on('data', (d) => (log += d));
@@ -187,7 +194,9 @@ async function main() {
     ok(scan.code === 1 && scan.data.settled >= 1, '到顶商品被回收', scan.msg);
     const rec = db.prepare('SELECT * FROM goods_recycle WHERE goods_id = ? ORDER BY recycle_id DESC LIMIT 1').get(g1);
     eq(rec?.recycle_price, 1091.8, '回收价 = 当前实际标价 1091.8');
-    eq(rec?.profit, 31.8, '持有人收益 = 1091.8 − 1060');
+    // 收益按实际成本算：买入 1060 + 抢单服务费 21.2（2%）= 1081.2
+    eq(rec?.buy_cost, 1081.2, '回收台书记录实际成本 1081.2（含服务费）');
+    eq(rec?.profit, 10.6, '持有人收益 = 1091.8 − 1081.2');
     eq(Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(b1.mid).amount) - beforeRecycle, 1091.8, '款项按实际价格入账');
 
     // ================= 5. 未设上限：仍按 3% 复利 =================

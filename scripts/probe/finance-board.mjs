@@ -60,6 +60,13 @@ async function main() {
   const { db, now } = await import('../../server/src/db.js');
   db.exec("UPDATE specialarea SET start_time = 0, end_time = 86399, buy_num = 999, open_days = '1,2,3,4,5,6,7'");
 
+  // 系统默认只开线下转账；本用例要走余额支付，测试库显式把余额支付打开
+  {
+    try {
+      const { db: __payDb } = await import('../../server/src/db.js');
+      __payDb.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'").run();
+    } catch {}
+  }
   const srv = spawn('node', ['src/app.js'], { cwd: SERVER, env, stdio: 'pipe' });
   let log = '';
   srv.stdout.on('data', (d) => (log += d));

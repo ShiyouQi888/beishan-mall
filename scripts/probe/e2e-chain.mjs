@@ -66,6 +66,13 @@ async function main() {
   // 场次全天开放、放开限购，避免时间窗干扰
   db.exec("UPDATE specialarea SET start_time = 0, end_time = 86399, buy_num = 999, open_days = '1,2,3,4,5,6,7'");
 
+  // 系统默认只开线下转账；本用例要走余额支付，测试库显式把余额支付打开
+  {
+    try {
+      const { db: __payDb } = await import('../../server/src/db.js');
+      __payDb.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'").run();
+    } catch {}
+  }
   const srv = spawn('node', ['src/app.js'], { cwd: SERVER, env, stdio: 'pipe' });
   let log = '';
   srv.stdout.on('data', (d) => (log += d));
@@ -140,6 +147,9 @@ async function main() {
     });
     ok(createGoods.code === 1 && createGoods.data?.id, '创建商品', createGoods.msg);
     const gid = createGoods.data.id;
+    // 后台表单已不提供「现持有人」，新建商品默认归平台（member_id=0）。
+    // 平台卖货不会给任何会员打款，这里置为官方持有，才能验证「卖家收到全额货款」那一环。
+    db.prepare('UPDATE goods SET member_id = ? WHERE goods_id = ?').run(holder.member_id, gid);
     // 商品不再自带场次字段：建完之后单独把它关联到场次（唯一数据源是关联表）
     const linkArea = await adminAt('/admin/api/specialarea/goods/add', {
       method: 'POST', token: at, body: { specialarea_id: areaId, goods_ids: [gid] },
@@ -252,7 +262,8 @@ async function main() {
         eqMoney(cq.data?.prev_price, e.price, `第${r}轮 报价上一手价`);
         eqMoney(cq.data?.next_price, nextExpect, `第${r}轮 下一轮标价 = ${yuan(e.price)} × 1.03`);
         eqMoney(cq.data?.listing_fee, 0, `第${r}轮 上架费为 0`);
-        eqMoney(cq.data?.net_income, m2(nextExpect - e.price - 0), `第${r}轮 持有人本轮净收益 = 涨价额`);
+        // 净收益 = 下一轮标价 − 本轮实际成本（标价 + 抢单服务费） − 上架费(0)
+        eqMoney(cq.data?.net_income, m2(nextExpect - e.price - e.fee), `第${r}轮 持有人本轮净收益 = 涨价额 − 服务费`);
 
         const feeBefore = await balance(buyer.token);
         const consign = await api('/api/order/consignment', { method: 'POST', token: buyer.token, body: { order_id: currentOrderId } });
@@ -291,13 +302,14 @@ async function main() {
     const totalListing = m2(db.prepare("SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE type_name = '转拍上架费'").get().v);
     eqMoney(totalListing, 0, '全程未产生上架费');
 
-    // 每一手的净收益（涨价额）
-    console.log('\n  各手持有人净收益（无上架费，卖出价 − 买入价）：');
+    // 每一手的净收益：涨价额要扣掉买家自己付的抢单服务费才是真钱
+    console.log('\n  各手持有人净收益（无上架费，卖出价 − 买入价 − 抢单服务费）：');
     for (let r = 1; r < CFD.rounds; r += 1) {
       const buy = expectChain[r - 1].price;
+      const buyFee = expectChain[r - 1].fee;
       const sell = expectChain[r].price;
-      console.log(`    第${r}手：买入 ${yuan(buy)} → 卖出 ${yuan(sell)}，净赚 ${yuan(sell - buy)}`);
-      eqMoney(sell - buy, m2((buy * CFD.increaseRate) / 100), `第${r}手净收益 = 买入价 × ${CFD.increaseRate}%`);
+      console.log(`    第${r}手：买入 ${yuan(buy)} + 服务费 ${yuan(buyFee)} → 卖出 ${yuan(sell)}，净赚 ${yuan(sell - buy - buyFee)}`);
+      eqMoney(sell - buy - buyFee, m2((buy * CFD.increaseRate) / 100 - buyFee), `第${r}手净收益 = 涨价额 − 服务费`);
     }
     const lastBuy = expectChain[CFD.rounds - 1].price;
     console.log(`    第${CFD.rounds}手：买入 ${yuan(lastBuy)}（仍在持仓，未卖出）`);

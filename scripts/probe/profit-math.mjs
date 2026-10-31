@@ -59,6 +59,11 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
 
 async function main() {
   await runSeed();
+  // 系统默认只开线下转账；本用例要用余额支付走完买入→卖出，测试库显式打开
+  {
+    const { db: bootDb } = await import('../../server/src/db.js');
+    bootDb.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'").run();
+  }
 
   const srv = spawn(process.execPath, ['src/app.js'], { cwd: SERVER, env, stdio: 'pipe' });
   let log = '';

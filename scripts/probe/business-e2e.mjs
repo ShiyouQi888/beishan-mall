@@ -49,6 +49,8 @@ async function main() {
     p.on('close', (c) => (c === 0 ? resolve(out) : reject(new Error(out))));
   });
   const { db } = await import('../../server/src/db.js');
+  // 系统默认只开线下转账；本用例验证的是余额扣款与分账，测试库显式把余额支付打开
+  db.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'").run();
 
   const srv = spawn(process.execPath, ['src/app.js'], { cwd: SERVER, env, stdio: 'pipe' });
   let log = '';

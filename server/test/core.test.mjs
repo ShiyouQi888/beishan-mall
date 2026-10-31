@@ -47,6 +47,8 @@ async function main() {
 
   const { db } = await import('../src/db.js');
   db.exec('UPDATE specialarea SET start_time = 0, end_time = 86399, buy_num = 99');
+  // 系统默认只开线下转账；本套用例全程用余额支付验证扣款与分账，测试库显式打开
+  db.exec("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'");
 
   const baseline = {
     balSum: db.prepare('SELECT IFNULL(SUM(amount),0) v FROM member').get().v,

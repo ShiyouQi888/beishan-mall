@@ -49,6 +49,13 @@ async function main() {
   await runSeed();
   const { db } = await import('../../server/src/db.js');
 
+  // 系统默认只开线下转账；本用例要走余额支付，测试库显式把余额支付打开
+  {
+    try {
+      const { db: __payDb } = await import('../../server/src/db.js');
+      __payDb.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'").run();
+    } catch {}
+  }
   const srv = spawn(process.execPath, ['src/app.js'], { cwd: SERVER, env, stdio: 'pipe' });
   let log = '';
   srv.stdout.on('data', (d) => (log += d));
