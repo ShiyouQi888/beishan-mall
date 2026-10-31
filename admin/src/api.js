@@ -54,6 +54,7 @@ export const adminApi = {
   // 转拍订单：正在挂牌等下一手买走的单子，支持今日/昨日/周/月/自定义
   transposeList: (params) => http.get('/transpose/list', { params }),
   transposeDetail: (id) => http.get('/transpose/detail', { params: { id } }),
+  exportTranspose: (params) => http.get('/transpose/export', { params, responseType: 'blob', timeout: 60000 }),
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
   orderNotifications: (params) => http.get('/notifications/orders', { params, silent: true }),

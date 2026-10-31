@@ -10,6 +10,7 @@ import { areasOfGoods, areaMapOfGoods, setGoodsAreas, addGoodsToArea, removeGood
 import { priceCapOf } from '../../lib/priceCap.js';
 import { todayStr, addDays } from '../../lib/sessionWindow.js';
 import { rangeClause } from '../../lib/dateRange.js';
+import { toCsv, sendCsv } from '../../lib/csv.js';
 import { scanCappedGoods, settlePending, recycleSummary } from '../../lib/recycle.js';
 import extraRouter from './extra.js';
 import mediaRouter from './media.js';
@@ -863,12 +864,6 @@ r.post('/specialarea/goods/remove', authAdmin, (req, res) => {
 });
 
 // ---------------- 订单导出 ----------------
-/** CSV 单元格转义：逗号、换行、引号都要包起来，否则 Excel 会串列 */
-const csvCell = (v) => {
-  const s = v === null || v === undefined ? '' : String(v);
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
 // 导出走的是和列表完全同一套筛选条件（关键词 / 类型 / 确认状态 / 时间范围），
 // 免得「页面看到 12 条、导出 200 条」对不上账
 r.get('/orders/export', authAdmin, (req, res) => {
@@ -911,29 +906,21 @@ r.get('/orders/export', authAdmin, (req, res) => {
   );
 
   const header = ['订单号', '商品', '类型', '单价', '数量', '总额', '服务费', '状态', '买家', '卖家', '下单时间', '备注'];
-  const lines = [header.join(',')];
-  for (const o of rows) {
-    lines.push([
-      o.order_no,
-      o.goods_name,
-      ORDER_TYPE[o.type] || '',
-      Number(o.price || 0).toFixed(2),
-      o.num,
-      Number(o.total_price || 0).toFixed(2),
-      Number(o.service_charge || 0).toFixed(2),
-      Number(o.pay_status) === 10 ? '已确认' : '待确认',
-      o.buyer_name || '',
-      o.seller_name || '',
-      o.create_time,
-      o.remark || '',
-    ].map(csvCell).join(','));
-  }
-  // BOM：不加的话 Excel 打开中文是乱码
-  const csv = '\ufeff' + lines.join('\r\n');
-  const stamp = todayStr().replace(/-/g, '');
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="orders-${stamp}.csv"`);
-  res.send(csv);
+  const body = rows.map((o) => [
+    o.order_no,
+    o.goods_name,
+    ORDER_TYPE[o.type] || '',
+    Number(o.price || 0).toFixed(2),
+    o.num,
+    Number(o.total_price || 0).toFixed(2),
+    Number(o.service_charge || 0).toFixed(2),
+    Number(o.pay_status) === 10 ? '已确认' : '待确认',
+    o.buyer_name || '',
+    o.seller_name || '',
+    o.create_time,
+    o.remark || '',
+  ]);
+  sendCsv(res, `orders-${todayStr().replace(/-/g, '')}.csv`, toCsv(header, body));
 });
 
 // ---------------- 通用列表 ----------------

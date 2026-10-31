@@ -1,7 +1,8 @@
 /**
  * 转拍订单「买卖链路」验收。
  *
- * 造一件被倒过三手的货：总部运营 → 玄德世家 → 北山 → 云中客（最后一手正在挂牌）。
+ * 造一件被倒过三手的货：m1 → m2 → m3 → m4（最后一手正在挂牌）。
+ * 会员从库里取，不够 4 个就临时造（跑完删），不依赖演示库恰好有谁。
  * 验证：
  *   列表的「买卖链路」列显示「卖家 → 买家」
  *   详情弹窗的流转链路有三手，且当前这一手高亮
@@ -31,24 +32,52 @@ const { db, run, get } = await import('../../server/src/db.js');
 const { todayStr } = await import('../../server/src/lib/sessionWindow.js');
 
 let goodsId = 0;
+// 演示库可能被清过，会员不够 4 个；缺的自己临时补，别依赖库里恰好有人
+const tempMemberIds = [];
 function cleanup() {
-  if (!goodsId) return;
-  const ids = db.prepare('SELECT order_id FROM orders WHERE goods_id = ?').all(goodsId).map((x) => x.order_id);
-  for (const id of ids) {
-    run('DELETE FROM order_log WHERE order_id = ?', id);
-    run('DELETE FROM orders WHERE order_id = ?', id);
+  if (goodsId) {
+    const ids = db.prepare('SELECT order_id FROM orders WHERE goods_id = ?').all(goodsId).map((x) => x.order_id);
+    for (const id of ids) {
+      run('DELETE FROM order_log WHERE order_id = ?', id);
+      run('DELETE FROM orders WHERE order_id = ?', id);
+    }
+    run('DELETE FROM specialarea_goods WHERE goods_id = ?', goodsId);
+    run('DELETE FROM goods WHERE goods_id = ?', goodsId);
+    goodsId = 0;
   }
-  run('DELETE FROM specialarea_goods WHERE goods_id = ?', goodsId);
-  run('DELETE FROM goods WHERE goods_id = ?', goodsId);
+  for (const mid of tempMemberIds.splice(0)) {
+    for (const t of ['finance_energy', 'member_address', 'member_card', 'member_certification', 'member_msg']) {
+      run(`DELETE FROM ${t} WHERE member_id = ?`, mid);
+    }
+    run('DELETE FROM member WHERE member_id = ?', mid);
+  }
+}
+
+/** 取够 n 个会员，不足的临时造（跑完删） */
+function ensureMembers(n, t) {
+  const out = db.prepare('SELECT member_id, nick_name FROM member ORDER BY member_id LIMIT ?').all(n);
+  let i = 0;
+  while (out.length < n) {
+    i += 1;
+    const mid = Number(run(
+      `INSERT INTO member (nick_name, mobile, password, p_id, path, level, invitation_code,
+         is_valid, amount, score, e_card_number, is_certification, disabled, client_type, create_time, update_time)
+       VALUES (?,?,'x',0,'/',1,?,10,0,0,0,0,10,3,?,?)`,
+      `链路验收${i}`, `1391100006${i}`, `chain0${i}`, `${t} 00:00:00`, `${t} 00:00:00`,
+    ).lastInsertRowid);
+    tempMemberIds.push(mid);
+    out.push({ member_id: mid, nick_name: `链路验收${i}` });
+  }
+  return out;
 }
 
 async function main() {
   cleanup();
 
-  const members = db.prepare('SELECT member_id, nick_name FROM member ORDER BY member_id LIMIT 4').all();
-  if (members.length < 4) throw new Error('演示库会员不足 4 个，无法构造三手链路');
-  const [m1, m2, m3, m4] = members;
   const t = todayStr();
+  const [m1, m2, m3, m4] = ensureMembers(4, t);
+  // 后端对空昵称会兜底成「会员#id」，断言这边用同一套口径，否则库里有个没填昵称的账号就会假失败
+  const dn = (m) => m.nick_name || `会员#${m.member_id}`;
 
   // 三手：m1 → m2 → m3 → m4，最后一手挂着等下一轮
   const g = db.prepare(
@@ -98,9 +127,9 @@ async function main() {
   const chain = detailRes.data?.chain || [];
   check('详情返回三手链路', chain.length === 3, `${chain.length} 手`);
   if (chain.length === 3) {
-    check('第 1 手 总部运营 → 玄德世家', chain[0].seller_name === m1.nick_name && chain[0].buyer_name === m2.nick_name,
+    check(`第 1 手 ${dn(m1)} → ${dn(m2)}`, chain[0].seller_name === dn(m1) && chain[0].buyer_name === dn(m2),
       `${chain[0].seller_name}→${chain[0].buyer_name}`);
-    check('第 3 手 北山 → 云中客', chain[2].seller_name === m3.nick_name && chain[2].buyer_name === m4.nick_name,
+    check(`第 3 手 ${dn(m3)} → ${dn(m4)}`, chain[2].seller_name === dn(m3) && chain[2].buyer_name === dn(m4),
       `${chain[2].seller_name}→${chain[2].buyer_name}`);
     check('只有最后一手标记为当前', chain.filter((c) => c.current).length === 1 && chain[2].current === true,
       JSON.stringify(chain.map((c) => c.current)));
@@ -166,7 +195,8 @@ async function main() {
       return { head, text: row ? row.innerText.replace(/\\s+/g, ' ').trim() : '' };
     })()`);
     check('表头有「买卖链路」列', dom.head.includes('买卖链路'), JSON.stringify(dom.head));
-    check('行里显示「卖家 → 买家」', dom.text.includes('北山') && dom.text.includes('云中客') && dom.text.includes('→'), dom.text);
+    check('行里显示「卖家 → 买家」',
+      dom.text.includes(dn(m3).slice(0, 2)) && dom.text.includes(dn(m4)) && dom.text.includes('→'), dom.text);
 
     // 列表截图（详情弹窗之前拍，能看到「买卖链路」列）
     try {

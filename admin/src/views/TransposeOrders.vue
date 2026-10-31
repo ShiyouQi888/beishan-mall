@@ -7,6 +7,7 @@
           正在挂牌、等下一手买走的单子。被买走、到期自动下架、或被系统回收后，会自动从这里消失。
         </div>
       </div>
+      <el-button :loading="exporting" @click="exportCsv">导出表格</el-button>
       <el-button :loading="loading" @click="load">刷新</el-button>
     </div>
 
@@ -107,10 +108,18 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="所在场次" width="142">
+        <el-table-column label="所在场次" width="150">
           <template #default="{ row }">
             <div class="area">{{ row.area_name || '未关联场次' }}</div>
             <div v-if="row.area_date" class="nick__sub">{{ row.area_date }}</div>
+            <!-- 下一场：这件货没卖掉的话，下一轮落在哪一场、什么时候开 -->
+            <div
+              v-if="row.next_slot"
+              class="next-slot"
+              :title="row.next_slot.text"
+            >
+              下一场 {{ row.next_slot.short }}
+            </div>
           </template>
         </el-table-column>
 
@@ -170,7 +179,11 @@
           <el-descriptions-item label="转拍上架费">¥{{ money(detail.order.listing_fee) }}</el-descriptions-item>
           <el-descriptions-item label="挂牌时间">{{ detail.order.transposition_time || '—' }}</el-descriptions-item>
           <el-descriptions-item label="支付时间">{{ detail.order.pay_time || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="所在场次日期">{{ detail.goods?.area_date || '不限日期' }}</el-descriptions-item>
+          <el-descriptions-item label="所在场次">{{ detail.goods?.area_name || '未关联场次' }} · {{ detail.goods?.area_date || '不限日期' }}</el-descriptions-item>
+          <el-descriptions-item label="下一场">
+            <span v-if="detail.goods?.next_slot">{{ detail.goods.next_slot.text }}</span>
+            <span v-else class="muted">—</span>
+          </el-descriptions-item>
         </el-descriptions>
 
         <!-- 流转链路：这件货被经过的每一手 -->
@@ -225,6 +238,7 @@ const total = ref(0);
 const page = ref(1);
 const pageSize = 15;
 const loading = ref(false);
+const exporting = ref(false);
 const summary = ref({ count: 0, goods_count: 0, fee: 0, price: 0, gain: 0 });
 const rangeInfo = ref({ start: '', end: '' });
 
@@ -305,6 +319,37 @@ function reload() {
   load();
 }
 
+/** 导出：跟当前列表同一套筛选（时间范围 + 关键词），字段比页面更全 */
+async function exportCsv() {
+  if (range.value === 'custom') {
+    const [s, e] = customRange.value || [];
+    if (!s || !e) return ElMessage.warning('请先选择自定义日期区间');
+  }
+  exporting.value = true;
+  try {
+    const params = { range: range.value, keyword: keyword.value || '' };
+    if (range.value === 'custom') {
+      params.start = customRange.value[0];
+      params.end = customRange.value[1];
+    }
+    const res = await adminApi.exportTranspose(params);
+    const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transpose-orders-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    ElMessage.success('已导出，可用 Excel 直接打开');
+  } catch {
+    // 拦截器已提示
+  } finally {
+    exporting.value = false;
+  }
+}
+
 function setRange(k) {
   if (range.value === k) return;
   range.value = k;
@@ -375,6 +420,16 @@ onMounted(load);
 .gain-flat { color: #a8adb7; }
 .time { font-size: 12px; font-variant-numeric: tabular-nums; color: #2f3540; }
 .area { font-size: 12px; color: #2f3540; }
+/* 下一场：跟着场次走，字比场次小一号、用品牌色区分开 */
+.next-slot {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #c9351f;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .cap { display: flex; align-items: center; gap: 7px; }
 .cap__bar { flex: 1; height: 6px; border-radius: 3px; background: #eef0f3; overflow: hidden; }
