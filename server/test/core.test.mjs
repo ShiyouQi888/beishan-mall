@@ -658,11 +658,17 @@ async function main() {
     eq(gd.data?.service_charge_rate, 5, '商品详情费率与后台配置同源');
 
     const sellerBal0 = Number((await detail(seller)).amount);
-    const b2 = await api('/api/order/toAddOrder', {
+    // 下单只允许 1 件（每件商品每人只能买一次），报价接口仍按 num 计算
+    const multi = await api('/api/order/toAddOrder', {
       method: 'POST', token: buyer, body: { goods_id: goods2.goods_id, num: 2, pay_type: 1 },
     });
+    ok(multi.code === 0 && /不能一次购买多件/.test(multi.msg || ''), '一次买多件被拒', multi.msg);
+
+    const b2 = await api('/api/order/toAddOrder', {
+      method: 'POST', token: buyer, body: { goods_id: goods2.goods_id, num: 1, pay_type: 1 },
+    });
     ok(b2.code === 1, '带服务费下单成功', b2.msg);
-    eq(b2.data?.service_charge, money(total2 * 0.05), '下单落库服务费 = 总额 × 5%');
+    eq(b2.data?.service_charge, money(gp * 0.05), '下单落库服务费 = 总额 × 5%');
     const oid2 = b2.data.order_id;
     const row2 = db.prepare('SELECT total_price, service_charge FROM orders WHERE order_id = ?').get(oid2);
     eq(row2.service_charge, money(row2.total_price * 0.05), '订单表服务费与费率吻合');
@@ -783,13 +789,19 @@ async function main() {
     );
 
     // 涨价率置 0 → 退回原价挂牌
-    const oA2 = await api('/api/order/toAddOrder', {
-      method: 'POST', token: A, body: { goods_id: gw.goods_id, num: 1, pay_type: 1 },
+    // 注意：同一件货每人只能买一次，A 之前已经买过它，这一轮必须换人接
+    const C = await login('13800000002');
+    const cMid = db.prepare("SELECT member_id FROM member WHERE mobile = '13800000002'").get()?.member_id;
+    await api('/admin/api/member/adjust', {
+      method: 'POST', token: at, body: { member_id: cMid, field: 'amount', value: 1000000, remark: '转拍口径测试' },
     });
-    ok(oA2.code === 1, 'A 再次买入进入下一轮', oA2.msg);
+    const oA2 = await api('/api/order/toAddOrder', {
+      method: 'POST', token: C, body: { goods_id: gw.goods_id, num: 1, pay_type: 1 },
+    });
+    ok(oA2.code === 1, '换一个没买过的会员买入，进入下一轮', oA2.msg);
     await setInc(0);
     eq(incOf(), 0, '涨价率可关闭');
-    const qZero = await api(`/api/order/getConsignmentQuote?order_id=${oA2.data.order_id}`, { token: A });
+    const qZero = await api(`/api/order/getConsignmentQuote?order_id=${oA2.data.order_id}`, { token: C });
     eq(qZero.data?.next_price, P2, '关闭涨价后按原价挂牌');
     eq(qZero.data?.increase_amount, 0, '关闭涨价后无涨价金额');
     await setInc(3);

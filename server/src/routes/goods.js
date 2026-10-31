@@ -271,6 +271,13 @@ r.get('/getLootDetails', maybeMember, (req, res) => {
         const { limit, bought } = sessionLimitLeft(req.member?.member_id, target);
         return { purchase_limit: limit, purchase_bought: bought };
       })(),
+      // 这件货本人是否已经买过（同一件货每人只能买一次），前端据此直接禁用按钮
+      purchased: req.member
+        ? (Number(get(
+          'SELECT COUNT(*) c FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
+          req.member.member_id, g.goods_id,
+        )?.c || 0) > 0 ? 1 : 0)
+        : 0,
       specialarea: area
         ? {
             specialarea_id: area.specialarea_id,

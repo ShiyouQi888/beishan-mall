@@ -140,7 +140,8 @@ async function main() {
 
     const oA2 = await api('/api/order/toAddOrder', { method: 'POST', token: A.token, body: { goods_id: gA, num: 1, pay_type: 1 } });
     eq(oA2.code, 0, 'A 重复下单也被拒');
-    ok(/已经下过单/.test(oA2.msg), '提示让 A 先去付款或取消', oA2.msg);
+    // 「同一件货每人只能买一次」的分支比锁单更靠前，两种提示都算拦住了
+    ok(/已经下过单|已经买过/.test(oA2.msg), '提示让 A 先去付款或取消（已被拦下）', oA2.msg);
 
     // ---------- 3. 支付后商品下架变灰 ----------
     console.log('\n[3] A 支付后商品下架');

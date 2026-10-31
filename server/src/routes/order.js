@@ -141,10 +141,24 @@ r.post('/toAddOrder', authMember, (req, res) => {
   // 数量必须在服务端收死：负数会让总额为负，支付时变成「余额加钱」；小数/NaN 会污染金额与库存
   const numInt = Number(num);
   if (!Number.isInteger(numInt) || numInt < 1) return res.json(fail('购买数量必须是不小于 1 的整数'));
-  if (numInt > 999) return res.json(fail('单笔最多购买 999 件'));
+  if (numInt !== 1) {
+    // 一件商品就是一个标的，同一个人只可能持有一件：一次买多件没有业务含义，
+    // 而且会让「每人每场限购」的口径变得含糊（按件还是按商品）。前台本来也没有数量选择器。
+    return res.json(fail('每件商品每人限购 1 件，不能一次购买多件'));
+  }
   if (isPieceSale(g) && numInt > Number(g.stock_num || 0)) {
     // 拆分商品按「份」卖，一批货按「名额」卖，提示文案要跟着走，不然用户看不懂
     return res.json(fail(`只剩 ${Number(g.stock_num) || 0} 个名额了`));
+  }
+
+  // 同一个商品，同一个人只能买一次（终身）。已取消的不算，取消后可以重新抢。
+  // 「不能购买自己持有的商品」只能挡住当前持有人，挡不住「前几天买过、后来转拍出去了」的情况。
+  const everBought = Number(get(
+    'SELECT IFNULL(SUM(num), 0) n FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
+    m.member_id, g.goods_id,
+  )?.n) || 0;
+  if (everBought > 0) {
+    return res.json(fail('这件商品你已经买过了，同一件货每人只能买一次'));
   }
 
   // 场次校验：商品与场次是多对多，只要其中一场正在开放就能下单。

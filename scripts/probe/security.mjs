@@ -137,10 +137,13 @@ async function main() {
       ok(r.code === 0 && /数量|件/.test(r.msg), `num=${label} 被拒`, r.msg);
     }
 
-    const good = await api('/api/order/toAddOrder', { method: 'POST', token: mt, body: { goods_id: g.goods_id, num: 2, pay_type: 1 } });
-    ok(good.code === 1, '合法数量（2 件）可以下单', good.msg);
+    const multi = await api('/api/order/toAddOrder', { method: 'POST', token: mt, body: { goods_id: g.goods_id, num: 2, pay_type: 1 } });
+    ok(multi.code === 0 && /不能一次购买多件/.test(multi.msg || ''), '一次买多件被拒（每件商品每人 1 件）', multi.msg);
+
+    const good = await api('/api/order/toAddOrder', { method: 'POST', token: mt, body: { goods_id: g.goods_id, num: 1, pay_type: 1 } });
+    ok(good.code === 1, '合法数量（1 件）可以下单', good.msg);
     const total = db.prepare('SELECT num, total_price FROM orders WHERE order_id = ?').get(good.data.order_id);
-    ok(Number(total.num) === 2 && Number(total.total_price) === Number(g.goods_min_price) * 2, '订单数量与总额正确', `${total.num} × ${g.goods_min_price}`);
+    ok(Number(total.num) === 1 && Number(total.total_price) === Number(g.goods_min_price), '订单数量与总额正确', `${total.num} × ${g.goods_min_price}`);
 
     section('[3] 会员不能直接改订单状态');
     const up = await api('/api/order/upOrderStatus', { method: 'POST', token: mt, body: { order_id: good.data.order_id, status: 10 } });
@@ -161,16 +164,9 @@ async function main() {
     const afterBal = db.prepare('SELECT amount FROM member WHERE member_id = ?').get(buyer.member_id).amount;
     ok(Number(afterBal) === Number(beforeBal), '余额没有被反向增加', `${beforeBal} → ${afterBal}`);
 
-    section('[5] 只能查自己的物流');
-    const other = db.prepare('SELECT order_id FROM orders WHERE member_id <> ? LIMIT 1').get(buyer.member_id);
-    if (other) {
-      const ex = await api(`/api/order/express?order_id=${other.order_id}`, { token: mt });
-      ok(ex.code === 0, '查别人订单的物流被拒', ex.msg);
-    } else {
-      ok(true, '没有他人订单（跳过）');
-    }
+    section('[5] 物流接口已随发货环节下线');
     const own = await api(`/api/order/express?order_id=${good.data.order_id}`, { token: mt });
-    ok(own.code === 1, '查自己的物流正常', own.msg);
+    ok(own.code !== 1 && /不存在/.test(own.msg || ''), '物流接口已下线（不再返回运单）', own.msg);
 
     section('[6] 后台导入：状态走白名单、数量要正整数');
     const badStatus = await api('/admin/api/orders/import', {

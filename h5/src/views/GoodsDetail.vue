@@ -136,12 +136,15 @@ const lockedByOther = computed(() => Number(g.value.locked) === 1);
 // 本场额度用尽：货还有，但这个会员这场已经买满了
 const limitFull = computed(() => Number(g.value.purchase_limit) > 0
   && Number(g.value.purchase_bought) >= Number(g.value.purchase_limit));
+// 这件货本人已经买过：同一件货每人只能买一次（转拍出去也算买过）
+const purchased = computed(() => Number(g.value.purchased) === 1);
 const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value && !soldOut.value
-  && !lockedByOther.value && !limitFull.value);
+  && !lockedByOther.value && !limitFull.value && !purchased.value);
 // 不能买时给一句人话，别只把按钮弄灰 —— 按钮变灰很容易被当成「点一下试试」
 const closedTip = computed(() => {
   if (!g.value.goods_id || canBuy.value) return '';
   if (soldOut.value) return '这件货已经被抢走了，等下一场再来';
+  if (purchased.value) return '这件货你已经买过或持有过了，同一件货每人只能买一次';
   if (limitFull.value) {
     return `本场每人限购 ${g.value.purchase_limit} 件，你已抢满，明天这场再来（换场次不占额度）`;
   }

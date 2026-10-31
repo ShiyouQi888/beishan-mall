@@ -80,6 +80,18 @@ async function main() {
     const B = await login('13800000004');
     ok(!!at && !!A && !!B, '后台与两个买家登录成功');
 
+    // 「每件商品每人只能买一次」上线后，同一会员没法重复买同一商品，
+    // 需要几个「干净」的会员轮流当首次买家
+    const tempMember = async (phone) => {
+      await api('/api/member/registerAnAccount', {
+        method: 'POST', body: { phone, password: phone, code: 'boss01', nickName: `库存测试${phone.slice(-4)}` },
+      });
+      const tk = (await api('/api/member/accountLogin', { method: 'POST', body: { phone, password: phone } })).data?.token;
+      const mid = db.prepare('SELECT member_id id FROM member WHERE mobile = ?').get(phone)?.id;
+      await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: mid, field: 'amount', value: 50000000, remark: '库存件数测试' } });
+      return tk;
+    };
+
     await api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'trade', values: { service_charge: '0', listing_fee_rate: '0', price_increase_rate: '0' } } });
     db.prepare("UPDATE specialarea SET start_time = 0, end_time = 86399, buy_num = 999, open_days = '1,2,3,4,5,6,7'").run();
     for (const phone of ['13800000001', '13800000004']) {
@@ -125,37 +137,48 @@ async function main() {
 
     // ---------------- 第二个人接着买 ----------------
     section('[3] 第二个人还能买');
-    const b2 = await buy(B);
-    ok(b2.ok, 'B 买下第 2 件', b2.msg);
+    const B2 = await tempMember('13800000021');
+    const b2 = await buy(B2);
+    ok(b2.ok, '新买家买下第 2 件', b2.msg);
     const after2 = read();
     ok(Number(after2.stock_num) === 98, '库存 99 → 98', `stock=${after2.stock_num}`);
     ok(Number(after2.goods_status) === 10, '仍在售');
     ok(Number(after2.member_id) === holder, '持有人没变（B 只买到一件货，不是整件）', `holder=${after2.member_id}`);
 
     // ---------------- 一次买多件 ----------------
-    section('[4] 一次买多件按件扣');
+    section('[4] 一次买多件被拒（每件商品每人只能买 1 件）');
+    const before4 = Number(read().stock_num);
     const b3 = await buy(A, 3);
-    ok(b3.ok, 'A 一次买 3 件', b3.msg);
-    ok(Number(read().stock_num) === 95, '库存 98 → 95', `stock=${read().stock_num}`);
+    ok(!b3.ok, 'A 一次买 3 件被拒', b3.msg);
+    ok(/不能一次购买多件/.test(b3.msg || ''), '提示写明「不能一次购买多件」', b3.msg);
+    ok(Number(read().stock_num) === before4, `库存没被扣（仍 ${before4}）`, `stock=${read().stock_num}`);
+    const bAgain = await buy(A);
+    ok(!bAgain.ok && /已经买过/.test(bAgain.msg || ''), 'A 再买同一商品也被拒（已买过）', bAgain.msg);
 
     // ---------------- 未付款占库存、取消归还 ----------------
     section('[5] 下单即占库存，取消要还回去');
-    const holdOrder = await api('/api/order/toAddOrder', { method: 'POST', token: B, body: { goods_id: src.goods_id, num: 2, pay_type: 1 } });
-    ok(holdOrder.code === 1, 'B 下单 2 件先不付款', holdOrder.msg);
-    ok(Number(read().stock_num) === 93, '未付款也占库存 95 → 93', `stock=${read().stock_num}`);
-    const cancel = await api('/api/order/cancel', { method: 'POST', token: B, body: { order_id: holdOrder.data.order_id } });
-    ok(cancel.code === 1, 'B 取消订单', cancel.msg);
-    ok(Number(read().stock_num) === 95, '取消后库存还回来 93 → 95', `stock=${read().stock_num}`);
+    const C = await tempMember('13800000011');
+    ok(!!C, '新买家 C 登录');
+    const before5 = Number(read().stock_num);
+    const holdOrder = await api('/api/order/toAddOrder', { method: 'POST', token: C, body: { goods_id: src.goods_id, num: 1, pay_type: 1 } });
+    ok(holdOrder.code === 1, 'C 下单 1 件先不付款', holdOrder.msg);
+    ok(Number(read().stock_num) === before5 - 1, `未付款也占库存 ${before5} → ${before5 - 1}`, `stock=${read().stock_num}`);
+    const dup = await api('/api/order/toAddOrder', { method: 'POST', token: C, body: { goods_id: src.goods_id, num: 1, pay_type: 1 } });
+    ok(dup.code !== 1 && /已经买过/.test(dup.msg || ''), 'C 占着单再买同一商品被拒', dup.msg);
+    const cancel = await api('/api/order/cancel', { method: 'POST', token: C, body: { order_id: holdOrder.data.order_id } });
+    ok(cancel.code === 1, 'C 取消订单', cancel.msg);
+    ok(Number(read().stock_num) === before5, `取消后库存还回来 ${before5 - 1} → ${before5}`, `stock=${read().stock_num}`);
 
     // ---------------- 卖光才下架 ----------------
     section('[6] 卖到 0 才下架，之后不能再买');
     db.prepare('UPDATE goods SET stock_num = 1 WHERE goods_id = ?').run(src.goods_id);
-    const last = await buy(A);
-    ok(last.ok, '买走最后 1 件', last.msg);
+    const D = await tempMember('13800000012');
+    const last = await buy(D);
+    ok(last.ok, '新买家 D 买走最后 1 件', last.msg);
     const soldOut = read();
     ok(Number(soldOut.stock_num) === 0, '库存归零');
     ok(Number(soldOut.goods_status) === 20, '卖光才下架', `status=${soldOut.goods_status}`);
-    const denied = await api('/api/order/toAddOrder', { method: 'POST', token: B, body: { goods_id: src.goods_id, num: 1, pay_type: 1 } });
+    const denied = await api('/api/order/toAddOrder', { method: 'POST', token: C, body: { goods_id: src.goods_id, num: 1, pay_type: 1 } });
     ok(denied.code !== 1, '售罄后下单被拒', denied.msg);
 
     // ---------------- 库存 1 的商品仍是转拍语义 ----------------
@@ -186,13 +209,15 @@ async function main() {
       'SELECT * FROM goods WHERE type = 1 AND IFNULL(stock_total,0) > 1 LIMIT 1',
     ).get();
     ok(Number(legacy?.stock_total) === 100, '被迁移的商品名额记成原库存 100', `stock_total=${legacy?.stock_total}`);
-    // ---------------- 限购只锁这个商品 ----------------
-    section('[9] 限购只锁这个商品，不锁整个场次');
+    // ---------------- 本场额度跨商品共用 ----------------
+    section('[9] 本场限购是「整场共用一份额度」，不是每个商品各一份');
     const pair = db.prepare('SELECT goods_id FROM goods WHERE type = 1 ORDER BY goods_id DESC LIMIT 2').all();
     for (const row of pair) {
-      // 名额留 2 个：抢走 1 个后商品仍在架，第二次下单才会真的撞上限购而不是「已下架」
       db.prepare("UPDATE goods SET goods_status = 10, stock_num = 2, stock_total = 2, area_date = '', member_id = 0 WHERE goods_id = ?")
         .run(row.goods_id);
+      // 必须挂到同一场次，否则走的是「未关联场次 = 随时可买、不限购」分支，量不出场次额度
+      db.prepare('DELETE FROM specialarea_goods WHERE goods_id = ?').run(row.goods_id);
+      db.prepare('INSERT INTO specialarea_goods (specialarea_id, goods_id, sort) VALUES (1, ?, 100)').run(row.goods_id);
     }
     db.prepare('UPDATE specialarea SET buy_num = 1').run();
     ok(pair.length === 2, '准备两件各 2 个名额的商品');
@@ -204,15 +229,17 @@ async function main() {
       return { ok: p.code === 1, msg: p.msg };
     };
 
-    const first = await buyOne(A, pair[0].goods_id);
-    ok(first.ok, 'A 抢到第一件', first.msg);
-    const againSame = await api('/api/order/toAddOrder', { method: 'POST', token: A, body: { goods_id: pair[0].goods_id, num: 1, pay_type: 1 } });
-    ok(againSame.code !== 1 && /每人限抢|已经抢过/.test(againSame.msg || ''), 'A 不能再抢这一件了', againSame.msg);
-    const other = await buyOne(A, pair[1].goods_id);
-    ok(other.ok, 'A 仍然可以抢另一个商品（限购不锁整场）', other.msg);
+    const E = await tempMember('13800000022');
+    const first = await buyOne(E, pair[0].goods_id);
+    ok(first.ok, 'E 抢到第一件', first.msg);
+    const second = await api('/api/order/toAddOrder', { method: 'POST', token: E, body: { goods_id: pair[1].goods_id, num: 1, pay_type: 1 } });
+    ok(second.code !== 1 && /本场每人限购 1 件/.test(second.msg || ''),
+      'E 再抢同场的另一件被拒（额度是整场共用的）', second.msg);
 
-    const numInfo = await api(`/api/goods/getPurchaseNum?goods_id=${pair[0].goods_id}`, { token: A });
-    ok(numInfo.code !== 1, '详情页「还能抢几件」也按单商品算', numInfo.msg);
+    db.prepare('UPDATE specialarea SET buy_num = 999').run();
+    const afterRaise = await api('/api/order/toAddOrder', { method: 'POST', token: E, body: { goods_id: pair[1].goods_id, num: 1, pay_type: 1 } });
+    ok(afterRaise.code === 1, '把本场限购调大后，同一件商品立刻能买（说明拦它的是场次额度）', afterRaise.msg);
+
     db.prepare('UPDATE specialarea SET buy_num = 999').run();
   } catch (e) {
     fails.push('异常：' + e.message);
