@@ -1,9 +1,6 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
-import ElementPlus from 'element-plus';
-import zhCn from 'element-plus/es/locale/lang/zh-cn';
-import 'element-plus/dist/index.css';
 import './styles/main.css';
 import App from './App.vue';
 import routes from './router.js';
@@ -33,4 +30,5 @@ router.beforeEach(async (to) => {
   }
 });
 
-createApp(App).use(createPinia()).use(router).use(ElementPlus, { locale: zhCn }).mount('#app');
+// 组件库改为按需引入（见 vite.config.js），全局 locale 交给 App.vue 里的 el-config-provider
+createApp(App).use(createPinia()).use(router).mount('#app');

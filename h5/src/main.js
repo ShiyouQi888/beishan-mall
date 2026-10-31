@@ -1,8 +1,6 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
-import Vant from 'vant';
-import 'vant/lib/index.css';
 import './styles/main.css';
 import App from './App.vue';
 import routes from './router.js';
@@ -26,7 +24,8 @@ router.beforeEach((to, from, next) => {
   next();
 });
 
-createApp(App).use(createPinia()).use(router).use(Vant).mount('#app');
+// 组件库改为按需引入（见 vite.config.js），不再 app.use(Vant) 整体注册
+createApp(App).use(createPinia()).use(router).mount('#app');
 
 // PWA：注册 Service Worker（开发环境不注册，避免热更新被缓存挡住）
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
