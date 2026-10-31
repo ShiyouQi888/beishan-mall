@@ -1,5 +1,5 @@
 /**
- * 「支付时限」能否在后台改：页面可见 → 改值 → 保存 → 生效 → 改回。
+ * 「确认时限」能否在后台改：页面可见 → 改值 → 保存 → 生效 → 改回。
  *
  * 跑完把值还原成原来的，不留痕迹。
  *
@@ -84,7 +84,7 @@ async function main() {
 
     const label = await evaluate(`(() => {
       const items = [...document.querySelectorAll('.el-form-item')];
-      const el = items.find((i) => (i.querySelector('.el-form-item__label')?.textContent || '').includes('支付时限'));
+      const el = items.find((i) => (i.querySelector('.el-form-item__label')?.textContent || '').includes('确认时限'));
       if (!el) return null;
       const input = el.querySelector('input');
       return {
@@ -93,7 +93,7 @@ async function main() {
         tip: el.querySelector('.el-form-item__tip, .tip, .hint')?.textContent?.trim() || '',
       };
     })()`);
-    check('后台交易设置里有「支付时限(分钟)」', !!label, JSON.stringify(label?.title));
+    check('后台交易设置里有「确认时限(分钟)」', !!label, JSON.stringify(label?.title));
     check('当前值读到了', label?.value === original, `${label?.value} vs 库里 ${original}`);
 
     try {
@@ -106,7 +106,7 @@ async function main() {
     // 在页面上改成 5 分钟再保存
     const changed = await evaluate(`(() => {
       const items = [...document.querySelectorAll('.el-form-item')];
-      const el = items.find((i) => (i.querySelector('.el-form-item__label')?.textContent || '').includes('支付时限'));
+      const el = items.find((i) => (i.querySelector('.el-form-item__label')?.textContent || '').includes('确认时限'));
       const input = el?.querySelector('input');
       if (!input) return false;
       const setter = Object.getOwnPropertyDescriptor(input.constructor.prototype, 'value').set;
@@ -138,7 +138,7 @@ async function main() {
     try { rmSync(profile, { recursive: true, force: true }); } catch {}
     // 还原
     db.prepare("UPDATE setting_config SET `value` = ? WHERE `key` = 'order_pay_timeout'").run(String(original));
-    console.log(`\n已还原支付时限为 ${original} 分钟`);
+    console.log(`\n已还原确认时限为 ${original} 分钟`);
   }
 
   const failed = results.filter((x) => !x.ok);

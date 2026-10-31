@@ -570,18 +570,20 @@ const SETTING_GROUPS = {
     { k: 'service_charge', t: '抢单服务费(%)', type: 'number', tip: '买家在商品金额之外额外支付；填 0 则不收（平台收入来自转拍上架费）' },
     { k: 'require_receiving_account', t: '抢购前必须绑定收款账户', type: 'switch', tip: '关闭时允许未绑定收款账户的会员直接下单；开启后，会员需先设置收款方式。默认关闭。' },
     { k: 'require_invite_code', t: '注册必须填邀请码', type: 'switch', tip: '开启：必须有有效邀请码才能入驻，注册后自动绑定上级。关闭：邀请码可留空直接注册（无上级、不产生直推奖），填了仍会校验有效性。默认开启。' },
-    { k: 'withdraw_wx_open', t: '提现到微信', type: 'switch' },
-    { k: 'withdraw_zfb_open', t: '提现到支付宝', type: 'switch' },
-    { k: 'withdraw_bank_open', t: '提现到银行卡', type: 'switch' },
-    { k: 'withdraw_offline_open', t: '提现线下打款', type: 'switch' },
+    // 提现模块整体下线（菜单、会员端入口都已隐藏），这四项通道开关不再露出，
+    // 免得运营以为自己开了个能用的提现通道。字段与库值全部保留，随时可恢复。
+    { k: 'withdraw_wx_open', t: '提现到微信', type: 'switch', hide: true },
+    { k: 'withdraw_zfb_open', t: '提现到支付宝', type: 'switch', hide: true },
+    { k: 'withdraw_bank_open', t: '提现到银行卡', type: 'switch', hide: true },
+    { k: 'withdraw_offline_open', t: '提现线下打款', type: 'switch', hide: true },
     { k: 'order_pay_timeout', t: '确认时限(分钟)', type: 'number', tip: '会员提交抢单申请后，平台多久内没确认就自动关单。抢购是「提交即锁单」，超过这个时间没确认，订单会被系统关闭、商品重新放出。默认 30 分钟。' },
     { k: 'price_increase_rate', t: '转拍涨价率(%)', type: 'number', tip: '每转拍一次，在上一手成交价基础上自动加价该比例，逐轮复利：10000 → 10300 → 10609。下一轮买家付 10300 时，上一手持有人收回 10300 全额（原价 + 涨价），此后与该持有人无关。注意：涨价率要高于「上架费率 + 抢单服务费率」才有净收益，否则每转一手都在亏钱。' },
     { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number' },
     { k: 'drive_award_rate', t: '直推奖(%)', type: 'number' },
     { k: 'consignment_open', t: '转拍开关', type: 'switch' },
     { k: 'consignment_rule', t: '转拍规则说明', type: 'textarea' },
-    { k: 'withdraw_min', t: '最低提现金额', type: 'number' },
-    { k: 'withdraw_fee', t: '提现手续费(%)', type: 'number' },
+    { k: 'withdraw_min', t: '最低提现金额', type: 'number', hide: true },
+    { k: 'withdraw_fee', t: '提现手续费(%)', type: 'number', hide: true },
     { k: 'recycle_open', t: '到顶自动回收', type: 'switch', tip: '开启：商品的下一轮涨价会越过「价格上限」时即判定到顶，持有人无法再转拍，系统按商品「当前实际价格」接盘结算（刚买下的按买入价原价退回），商品转平台持仓。关闭：只记一笔「待处理」，不自动打款。' },
     { k: 'recycle_daily_cap', t: '每日回收上限(元)', type: 'number', tip: '平台每天最多垫付多少回收款；0 = 不限。超出后当天的到顶商品只记「待处理」，可在「订单管理 → 系统回收」里手动结算。' },
   ],
@@ -667,8 +669,11 @@ const SETTING_GROUPS = {
 r.get('/setting/:group', authAdmin, (req, res) => {
   const g = Object.prototype.hasOwnProperty.call(SETTING_GROUPS, req.params.group) ? SETTING_GROUPS[req.params.group] : null;
   if (!g) return res.json(fail('设置组不存在'));
+  // hide:true 的项只从 items 里摘掉（页面就不渲染了）；values 仍按全量返回，
+  // 老前端/脚本读这些键不会突然拿到 undefined，save 的白名单也照旧认它
+  const shown = g.filter((x) => !x.hide);
   const values = Object.fromEntries(g.map((x) => [x.k, get('SELECT `value` FROM setting_config WHERE `key` = ?', x.k)?.value ?? null]));
-  res.json(ok({ group: req.params.group, items: g, values }));
+  res.json(ok({ group: req.params.group, items: shown, values }));
 });
 
 r.post('/setting/save', authAdmin, (req, res) => {
