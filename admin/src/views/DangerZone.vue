@@ -51,7 +51,8 @@
       <div class="factory-main">
         <div class="factory-t">恢复出厂</div>
         <div class="factory-d">
-          一次做完四件事：清空<b>会员、订单、财务与资金流水</b>；<b>复位商品</b>（持有人回官方、名额复原、转拍与销量归零、解除封顶并重新上架）；
+          一次全部清干净：清空<b>会员、订单、财务与资金流水</b>；<b>撤掉所有在挂转拍</b>、<b>清空系统回收台账</b>、
+          <b>清空积分兑换单并退回积分</b>；<b>复位商品</b>（持有人回官方、名额复原、转拍与销量归零、解除封顶并重新上架）；
           <b>清理没人用的素材</b>。只留下官方账号，回到刚部署好的状态。
           <br />
           <b>商品不删除：详情文字、详情长图、主图与图集、分类、场次关联、系统设置全部保留。</b>
@@ -173,6 +174,9 @@ const matched = computed(() => typed.value.trim() === confirmText.value && !!con
 const statCards = computed(() => [
   { k: '会员', v: summary.value.member ?? 0 },
   { k: '订单', v: summary.value.orders ?? 0 },
+  { k: '转拍挂单', v: summary.value.transpose ?? 0 },
+  { k: '回收台账', v: summary.value.recycle ?? 0 },
+  { k: '兑换单', v: summary.value.score ?? 0 },
   { k: '资金流水', v: summary.value.energy ?? 0 },
   { k: '提现申请', v: summary.value.withdraw ?? 0 },
   { k: '商品', v: summary.value.goods ?? 0 },
@@ -219,8 +223,8 @@ function selectAll() {
   load();
 }
 
-/** 恢复出厂 = 四项全带：会员、订单资金、商品复位、没人用的素材 */
-const FACTORY_SCOPES = ['trade', 'member', 'goods', 'media'];
+/** 恢复出厂 = 七项全带：订单资金、转拍挂单、系统回收、积分兑换、会员、商品复位、没人用的素材 */
+const FACTORY_SCOPES = ['trade', 'transpose', 'recycle', 'score', 'member', 'goods', 'media'];
 
 /** 恢复出厂：四个范围全选，直接进确认弹窗 */
 function factoryReset() {

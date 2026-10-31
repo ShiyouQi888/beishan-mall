@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, all, get, run } from '../db.js';
+import { db, all, get, run, now } from '../db.js';
 import { hashPwd } from './auth.js';
 import { normPath, referencedPathSet } from './mediaRefs.js';
 
@@ -39,6 +39,18 @@ const MEMBER_TABLES = ['member_address', 'member_card', 'member_certification', 
 
 export const SCOPES = {
   trade: { label: '订单与资金', desc: '订单、订单日志、资金流水、提现、结算账目、系统回收台账' },
+  transpose: {
+    label: '转拍订单',
+    desc: '撤销所有在挂的转拍挂单：转拍订单列表清空，商品收回持有人手中并下架。订单与资金记录保留（要连订单一起清，请再勾「订单与资金」）',
+  },
+  recycle: {
+    label: '系统回收',
+    desc: '删除回收台账，并解除商品的「封顶」标记、重新上架。商品本身不删除，价格与详情不动',
+  },
+  score: {
+    label: '积分兑换',
+    desc: '删除兑换单，把积分退回会员、恢复积分商品库存与已兑数。积分流水里对应的兑换记录一并清掉',
+  },
   member: { label: '会员与团队', desc: '除官方账号外全部会员，及其地址、收款卡、实名、站内消息' },
   goods: {
     label: '商品复位',
@@ -48,6 +60,7 @@ export const SCOPES = {
 };
 
 const countOf = (t) => Number(get(`SELECT COUNT(*) c FROM ${t}`)?.c || 0);
+const countWhere = (t, w = '1 = 1') => Number(get(`SELECT COUNT(*) c FROM ${t} WHERE ${w}`)?.c || 0);
 const officialOf = () =>
   get("SELECT * FROM member WHERE invitation_code = ? OR mobile = ? ORDER BY member_id LIMIT 1", OFFICIAL.code, OFFICIAL.mobile);
 
@@ -61,6 +74,19 @@ export function planReset(scopes) {
   const detail = {};
 
   detail.trade = TRADE_TABLES.map((t) => ({ table: t, rows: countOf(t) }));
+
+  // 转拍订单页的口径：在挂（consignment_status=10）且货还在他手上。
+  // 这里按订单侧统计，和页面「转拍订单」的条数保持同一量级
+  detail.transpose = [
+    { table: '在挂转拍订单', rows: countWhere('orders', 'IFNULL(consignment_status, 0) = 10') },
+  ];
+  detail.recycle = [
+    { table: 'goods_recycle（台账）', rows: countOf('goods_recycle') },
+    { table: 'goods（解除封顶）', rows: countWhere('goods', 'IFNULL(recycled, 0) <> 0') },
+  ];
+  detail.score = [
+    { table: 'score_exchange（兑换单）', rows: countOf('score_exchange') },
+  ];
 
   const members = countOf('member');
   const keep = officialOf() ? 1 : 0;
@@ -119,8 +145,8 @@ export function resetData(scopes) {
 
   const backup = backupDb();
 
-  // 执行顺序固定：先订单资金 → 再会员 → 商品复位 → 最后素材（此时引用关系已经刷新）
-  const order = ['trade', 'member', 'goods', 'media'].filter((s) => list.includes(s));
+  // 执行顺序固定：先订单资金 → 撤挂单 → 回收 → 积分兑换 → 再会员 → 商品复位 → 最后素材
+  const order = ['trade', 'transpose', 'recycle', 'score', 'member', 'goods', 'media'].filter((s) => list.includes(s));
   const removed = {};
   let keptMemberId = 0;
 
@@ -130,6 +156,37 @@ export function resetData(scopes) {
       let n = 0;
       if (scope === 'trade') {
         for (const t of TRADE_TABLES) n += Number(run(`DELETE FROM ${t}`).changes || 0);
+      } else if (scope === 'transpose') {
+        // 只撤挂单、不删订单：订单是持仓与收益的凭证（我的店铺靠它算买入价与服务费），
+        // 删掉会让商品「凭空持有」且算不出收益。商品一并下架，回到持有人手里。
+        const pending = all('SELECT order_id, goods_id FROM orders WHERE IFNULL(consignment_status, 0) = 10');
+        for (const o of pending) {
+          run('UPDATE orders SET consignment_status = 0 WHERE order_id = ?', o.order_id);
+          run('UPDATE goods SET goods_status = 20, is_sell = 0, update_time = ? WHERE goods_id = ?', now(), o.goods_id);
+          n += 1;
+        }
+      } else if (scope === 'recycle') {
+        // 台账删掉，商品解除封顶并重新上架；持有人保持现状（回收时已转平台）
+        const unCapped = Number(run(
+          `UPDATE goods SET recycled = 0, goods_status = 10, is_sell = 10, update_time = ?
+           WHERE IFNULL(recycled, 0) <> 0`,
+          now(),
+        ).changes || 0);
+        n += Number(run('DELETE FROM goods_recycle').changes || 0) + unCapped;
+      } else if (scope === 'score') {
+        // 逐单回滚：退积分 + 还原库存与已兑数；已取消（status=40）的当时就退过，跳过
+        const rows = all('SELECT exchange_id, member_id, item_id, num, total_score, status FROM score_exchange');
+        for (const e of rows) {
+          if (Number(e.status) === 40) continue;
+          run('UPDATE member SET score = score + ? WHERE member_id = ?', Number(e.total_score) || 0, e.member_id);
+          run('UPDATE score_item SET stock = stock + ?, sold = MAX(0, sold - ?) WHERE item_id = ?',
+            Number(e.num) || 0, Number(e.num) || 0, e.item_id);
+        }
+        // 兑换流水属于这次兑换的镜像记录，兑换单清了就该一起清，否则积分余额与流水对不上
+        n += Number(run("DELETE FROM finance_energy WHERE type = 3 AND type_name = '积分兑换'").changes || 0);
+        // 兑换取消退还的流水也一并清（它对应的兑换单同样不在了）
+        n += Number(run("DELETE FROM finance_energy WHERE type = 3 AND type_name = '兑换取消退还'").changes || 0);
+        n += Number(run('DELETE FROM score_exchange').changes || 0);
       } else if (scope === 'member') {
         let official = officialOf();
         if (!official) {
@@ -204,7 +261,7 @@ export function resetData(scopes) {
     }
 
     // 自增序列归零，让测试从 member_id=2 / order_id=1 重新开始
-    for (const t of [...TRADE_TABLES, ...MEMBER_TABLES]) {
+    for (const t of [...TRADE_TABLES, ...MEMBER_TABLES, 'score_exchange']) {
       run('UPDATE sqlite_sequence SET seq = 0 WHERE name = ?', t);
     }
     if (keptMemberId) run('UPDATE sqlite_sequence SET seq = ? WHERE name = ?', keptMemberId, 'member');
@@ -233,5 +290,8 @@ export function summary() {
     withdraw: countOf('finance_withdraw'),
     goods: countOf('goods'),
     media: countOf('media_file'),
+    transpose: countWhere('orders', 'IFNULL(consignment_status, 0) = 10'),
+    recycle: countOf('goods_recycle'),
+    score: countOf('score_exchange'),
   };
 }

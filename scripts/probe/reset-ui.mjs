@@ -121,7 +121,13 @@ async function main() {
     check('打开数据清除页', String(title).includes('数据清除'), String(title));
 
     const s0 = await snapshot();
-    check('四个范围卡片都渲染了', s0.labels.length === 4, JSON.stringify(s0.labels));
+    check(
+      '七个范围卡片都渲染了',
+      s0.labels.length === 7
+        && ['订单与资金', '转拍订单', '系统回收', '积分兑换', '会员与团队', '商品复位', '未引用的素材']
+          .every((t) => s0.labels.includes(t)),
+      JSON.stringify(s0.labels),
+    );
     check('没勾选时行数也是真实值（不是全 0）', s0.counts.some((n) => n > 0), JSON.stringify(s0.counts));
     check('商品范围默认不勾选', s0.selected[s0.labels.indexOf('商品复位')] === false, JSON.stringify(s0.selected));
 
@@ -180,10 +186,10 @@ async function main() {
     })()`);
     check('弹出确认框', !!dlg && dlg.title.includes('确认清除'), JSON.stringify(dlg?.title));
     check(
-      '恢复出厂包含四个范围（会员/订单/商品复位/素材）',
+      '恢复出厂包含七个范围（订单/转拍/回收/兑换/会员/商品/素材）',
       !!dlg
-        && dlg.items.length === 4
-        && ['会员', '订单', '商品', '素材'].every((kw) => dlg.items.some((t) => t.includes(kw))),
+        && dlg.items.length === 7
+        && ['订单', '转拍', '回收', '兑换', '会员', '商品', '素材'].every((kw) => dlg.items.some((t) => t.includes(kw))),
       JSON.stringify(dlg?.items),
     );
     check('没输确认语时「确认清除」是禁用的', dlg?.confirmDisabled === true, String(dlg?.confirmDisabled));
