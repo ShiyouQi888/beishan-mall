@@ -26,7 +26,7 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
-const { db, run, all } = await import('../../server/src/db.js');
+const { db, run, all, get } = await import('../../server/src/db.js');
 const { todayStr, addDays } = await import('../../server/src/lib/sessionWindow.js');
 
 const TAG = 'TPTEST';
@@ -41,6 +41,18 @@ const dates = (() => {
   return { today, weekStart, monthStart, prevMonth, yesterday: addDays(today, -1) };
 })();
 
+// 演示库可能是个刚清空、还没填昵称的账号，缺昵称会让「带出转拍人昵称」这项假失败。
+// 临时补一个，跑完还原。
+let nickPatched = false;
+function ensureNick() {
+  const m = get('SELECT nick_name FROM member WHERE member_id = 2');
+  if (!m) return;
+  if (!m.nick_name) {
+    run("UPDATE member SET nick_name = '转拍验收会员' WHERE member_id = 2");
+    nickPatched = true;
+  }
+}
+
 function cleanup() {
   const orders = all(`SELECT order_id FROM orders WHERE order_no LIKE '${TAG}-%'`).map((o) => o.order_id);
   for (const id of orders) {
@@ -48,6 +60,10 @@ function cleanup() {
     run('DELETE FROM orders WHERE order_id = ?', id);
   }
   run(`DELETE FROM goods WHERE goods_no LIKE '${TAG}-%'`);
+  if (nickPatched) {
+    run("UPDATE member SET nick_name = '' WHERE member_id = 2");
+    nickPatched = false;
+  }
   return orders.length;
 }
 
@@ -84,6 +100,7 @@ async function main() {
   if (login.code !== 1) throw new Error('后台登录失败：' + login.msg);
   const token = login.data.token;
 
+  ensureNick();
   // 今日 / 昨日 / 本周内（非今日昨日）/ 上月
   const weekInner = dates.weekStart > addDays(dates.today, -2) ? dates.today : addDays(dates.today, -2);
   const rows = {

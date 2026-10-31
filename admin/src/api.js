@@ -10,6 +10,8 @@ http.interceptors.request.use((cfg) => {
 
 http.interceptors.response.use(
   (res) => {
+    // 二进制下载（订单导出）没有 { code } 外壳，直接返回整个响应
+    if (res.config?.responseType === 'blob') return res;
     const d = res.data;
     if (d && d.code === 1) return d;
     if (d && d.code === -1) {
@@ -69,6 +71,7 @@ export const adminApi = {
   scoreDeliver: (d) => http.post('/score-exchange/deliver', d),
   cancelScoreExchange: (d) => http.post('/score-exchange/cancel', d),
   importOrders: (rows) => http.post('/orders/import', { rows }),
+  exportOrders: (params) => http.get('/orders/export', { params, responseType: 'blob', timeout: 60000 }),
   duplicateGoods: (goods_id) => http.post('/goods/duplicate', { goods_id }),
   teamOrders: (memberId) => http.get('/member/team-orders', { params: { member_id: memberId } }),
   advanceMember: (d) => http.post('/member/advance', d),

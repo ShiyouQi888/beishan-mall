@@ -6,6 +6,7 @@
         <div class="desc">{{ desc }}</div>
       </div>
       <div class="page-actions">
+        <el-button v-if="modKey === 'orders'" :loading="EXPORTING" @click="exportOrders">导出表格</el-button>
         <el-button v-if="modKey === 'orders'" @click="importOrders">批量导入</el-button>
         <span v-if="modKey === 'recycle'" class="auto-scan-hint">
           <i class="auto-scan-dot" />系统每 60 秒自动扫描 · 列表实时刷新
@@ -36,6 +37,26 @@
           <el-option label="已确认" :value="10" />
           <el-option label="待确认" :value="0" />
         </el-select>
+        <!-- 订单时间范围：快捷档 + 自定义区间 -->
+        <el-radio-group v-if="modKey === 'orders'" v-model="filters.range" size="default" @change="onRangeChange">
+          <el-radio-button label="">全部</el-radio-button>
+          <el-radio-button label="today">今日</el-radio-button>
+          <el-radio-button label="yesterday">昨日</el-radio-button>
+          <el-radio-button label="week">本周</el-radio-button>
+          <el-radio-button label="month">本月</el-radio-button>
+          <el-radio-button label="custom">自定义</el-radio-button>
+        </el-radio-group>
+        <el-date-picker
+          v-if="modKey === 'orders' && filters.range === 'custom'"
+          v-model="customRange"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          style="width: 250px"
+          @change="onCustomRange"
+        />
         <el-select v-if="modKey === 'settle'" v-model="filters.kind" placeholder="账目类型" clearable style="width: 140px" @change="reload">
           <el-option label="大帐-结算" value="large" />
           <el-option label="中账-差额" value="medium" />
@@ -638,7 +659,10 @@ const loading = ref(false);
 const sel = ref([]);
 const optsCache = reactive({});
 
-const filters = reactive({ pay_status: '', kind: '', disabled: '', area_id: '' });
+const filters = reactive({ pay_status: '', kind: '', disabled: '', area_id: '', range: '', date_start: '', date_end: '' });
+// 自定义日期区间（el-date-picker 用数组，提交时拆成 date_start / date_end）
+const customRange = ref([]);
+const EXPORTING = ref(false);
 
 const dialog = ref(false);
 const saving = ref(false);
@@ -1237,6 +1261,66 @@ async function loadStats() {
   } catch {}
 }
 
+/** 时间范围切换：自定义没选日期就先不查，免得白跑一次全量 */
+function onRangeChange(v) {
+  if (v === 'custom') {
+    if (!customRange.value || customRange.value.length !== 2) return;
+    onCustomRange(customRange.value);
+    return;
+  }
+  filters.date_start = '';
+  filters.date_end = '';
+  page.value = 1;
+  load();
+}
+
+function onCustomRange(v) {
+  if (!v || v.length !== 2) {
+    filters.date_start = '';
+    filters.date_end = '';
+    return;
+  }
+  [filters.date_start, filters.date_end] = v;
+  page.value = 1;
+  load();
+}
+
+/** 导出：走的是当前这套筛选条件，导出的是筛选后的全量而不是当前这一页 */
+async function exportOrders() {
+  if (filters.range === 'custom' && (!filters.date_start || !filters.date_end)) {
+    return ElMessage.warning('请先选择自定义日期区间');
+  }
+  EXPORTING.value = true;
+  try {
+    const params = {};
+    if (keyword.value) params.keyword = keyword.value;
+    if (filters.pay_status !== '' && filters.pay_status !== null && filters.pay_status !== undefined) {
+      params.pay_status = filters.pay_status;
+    }
+    if (filters.range) params.range = filters.range;
+    if (filters.range === 'custom') {
+      params.date_start = filters.date_start;
+      params.date_end = filters.date_end;
+    }
+    Object.assign(params, fixed.value);
+    const res = await adminApi.exportOrders(params);
+    const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    ElMessage.success('已导出，可用 Excel 直接打开');
+  } catch {
+    // 拦截器已提示
+  } finally {
+    EXPORTING.value = false;
+  }
+}
+
 async function importOrders() {
   const example = JSON.stringify([{ goods_id: 1, member_id: 1, price: 100, num: 1, type: Number(fixed.value.type) || 1, remark: '后台导入' }], null, 2);
   let value;
@@ -1415,6 +1499,11 @@ watch(() => route.fullPath, () => {
   filters.status = '';
   filters.kind = '';
   filters.disabled = '';
+  // 换模块时时间范围也要归零，否则从订单页跳到商品页会带着 range 参数
+  filters.range = '';
+  filters.date_start = '';
+  filters.date_end = '';
+  customRange.value = [];
   teamDlg.value = false;
   load();
 });

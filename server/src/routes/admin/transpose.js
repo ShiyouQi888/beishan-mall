@@ -14,34 +14,10 @@
 import { Router } from 'express';
 import { all, get } from '../../db.js';
 import { ok, fail, authAdmin } from '../../lib/helper.js';
-import { todayStr, addDays } from '../../lib/sessionWindow.js';
+import { resolveRange } from '../../lib/dateRange.js';
 import { priceCapOf } from '../../lib/priceCap.js';
 
 const r = Router();
-
-/** 快捷时间范围 → [起, 止] 的 YYYY-MM-DD（按北京日期，不用服务器时区） */
-function resolveRange(range, start, end) {
-  const today = todayStr();
-  if (range === 'yesterday') {
-    const d = addDays(today, -1);
-    return { start: d, end: d };
-  }
-  if (range === 'week') {
-    // 本周一 → 今天。getUTCDay 读的是纯日历值，不受服务器时区影响
-    const dow = new Date(`${today}T00:00:00Z`).getUTCDay(); // 0 = 周日
-    return { start: addDays(today, -(dow === 0 ? 6 : dow - 1)), end: today };
-  }
-  if (range === 'month') return { start: `${today.slice(0, 7)}-01`, end: today };
-  if (range === 'custom') {
-    const s = String(start || '').trim();
-    const e = String(end || '').trim();
-    // 只认 YYYY-MM-DD，别把任意字符串拼进 SQL
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e)) return null;
-    return s <= e ? { start: s, end: e } : { start: e, end: s };
-  }
-  if (range === 'all') return { start: '', end: '' };
-  return { start: today, end: today }; // 默认今日
-}
 
 function buildWhere(range, start, end, keyword) {
   const where = [

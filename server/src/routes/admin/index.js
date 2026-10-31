@@ -9,6 +9,7 @@ import { restoreStock } from '../../lib/stock.js';
 import { areasOfGoods, areaMapOfGoods, setGoodsAreas, addGoodsToArea, removeGoodsFromArea, clearAreaLinks } from '../../lib/areaGoods.js';
 import { priceCapOf } from '../../lib/priceCap.js';
 import { todayStr, addDays } from '../../lib/sessionWindow.js';
+import { rangeClause } from '../../lib/dateRange.js';
 import { scanCappedGoods, settlePending, recycleSummary } from '../../lib/recycle.js';
 import extraRouter from './extra.js';
 import mediaRouter from './media.js';
@@ -861,6 +862,80 @@ r.post('/specialarea/goods/remove', authAdmin, (req, res) => {
   res.json(ok({ removed }, `已移除 ${removed} 件商品`));
 });
 
+// ---------------- 订单导出 ----------------
+/** CSV 单元格转义：逗号、换行、引号都要包起来，否则 Excel 会串列 */
+const csvCell = (v) => {
+  const s = v === null || v === undefined ? '' : String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+// 导出走的是和列表完全同一套筛选条件（关键词 / 类型 / 确认状态 / 时间范围），
+// 免得「页面看到 12 条、导出 200 条」对不上账
+r.get('/orders/export', authAdmin, (req, res) => {
+  const where = [];
+  const args = [];
+  const kw = String(req.query.keyword || '').trim();
+  if (kw) {
+    where.push('(o.order_no LIKE ? OR o.goods_name LIKE ?)');
+    args.push(`%${kw}%`, `%${kw}%`);
+  }
+  if (req.query.type) {
+    where.push('o.type = ?');
+    args.push(Number(req.query.type));
+  }
+  if (req.query.pay_status !== undefined && req.query.pay_status !== '') {
+    where.push('o.pay_status = ?');
+    args.push(Number(req.query.pay_status));
+  }
+  if (req.query.status !== undefined && req.query.status !== '') {
+    where.push('o.status = ?');
+    args.push(Number(req.query.status));
+  }
+  const rc = rangeClause(req.query.range, req.query.date_start, req.query.date_end, 'o.create_time');
+  if (req.query.range === 'custom' && !rc) {
+    return res.json(fail('自定义日期格式不正确，应为 YYYY-MM-DD'));
+  }
+  if (rc) {
+    where.push(rc.sql);
+    args.push(...rc.args);
+  }
+
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  // 上限 5 万行：本地 sqlite 撑得住，也给内存留条后路
+  const rows = all(
+    `SELECT o.*,
+       (SELECT nick_name FROM member WHERE member_id = o.member_id) AS buyer_name,
+       (SELECT nick_name FROM member WHERE member_id = o.seller_id) AS seller_name
+     FROM orders o ${w} ORDER BY o.order_id DESC LIMIT 50000`,
+    ...args,
+  );
+
+  const header = ['订单号', '商品', '类型', '单价', '数量', '总额', '服务费', '状态', '买家', '卖家', '下单时间', '备注'];
+  const lines = [header.join(',')];
+  for (const o of rows) {
+    lines.push([
+      o.order_no,
+      o.goods_name,
+      ORDER_TYPE[o.type] || '',
+      Number(o.price || 0).toFixed(2),
+      o.num,
+      Number(o.total_price || 0).toFixed(2),
+      Number(o.service_charge || 0).toFixed(2),
+      Number(o.pay_status) === 10 ? '已确认' : '待确认',
+      o.buyer_name || '',
+      o.seller_name || '',
+      o.create_time,
+      o.remark || '',
+    ].map(csvCell).join(','));
+  }
+  // BOM：不加的话 Excel 打开中文是乱码
+  const csv = '\ufeff' + lines.join('\r\n');
+  const stamp = todayStr().replace(/-/g, '');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="orders-${stamp}.csv"`);
+  res.send(csv);
+});
+
 // ---------------- 通用列表 ----------------
 r.get('/:module/list', authAdmin, (req, res) => {
   const mod = M[req.params.module];
@@ -897,6 +972,12 @@ r.get('/:module/list', authAdmin, (req, res) => {
       where.push('pay_status = ?');
       args.push(Number(req.query.pay_status));
     }
+    // 时间范围：今日 / 昨日 / 本周 / 本月 / 自定义（口径见 lib/dateRange.js）
+    const rc = rangeClause(req.query.range, req.query.date_start, req.query.date_end);
+    if (req.query.range === 'custom' && !rc) {
+      return res.json(fail('自定义日期格式不正确，应为 YYYY-MM-DD'));
+    }
+    if (rc) { where.push(rc.sql); args.push(...rc.args); }
   }
   if (req.params.module === 'settle' && req.query.kind) {
     where.push('kind = ?');
