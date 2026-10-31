@@ -269,7 +269,7 @@ async function main() {
     }
 
     // ========== 订单列表 / 详情 / 取消 / 确认收货 ==========
-    section('[6] 订单列表、详情、取消与确认收货');
+    section('[6] 订单列表、详情与取消');
     const orderList = await api('/api/order/getOrder?page=1&limit=20', { token: newToken });
     ok(orderList.code === 1 && (orderList.data?.data || []).length > 0, '订单列表', `${orderList.data?.total} 单`);
     const myOid = orderList.data.data[0].order_id;
@@ -292,16 +292,12 @@ async function main() {
     const cancelPaid = await api('/api/order/cancel', { method: 'POST', token: newToken, body: { order_id: firstOid } });
     ok(cancelPaid.code === 0, '已支付订单不可取消', cancelPaid.msg);
 
+    // 发货与确认收货环节已下线：两个接口都不存在，订单状态停在「已支付」
     const receiptBad = await api('/api/order/receipt', { method: 'POST', token: newToken, body: { order_id: firstOid } });
-    ok(receiptBad.code === 0, '未发货不可确认收货', receiptBad.msg);
-    // 发货后确认收货
-    const ship = await api('/admin/api/orders/deliver', {
-      method: 'POST', token: at, body: { order_id: firstOid, express_company: '顺丰', express_no: 'SF123456789' },
-    });
-    ok(ship.code === 1, '后台发货', ship.msg);
-    const receiptOk = await api('/api/order/receipt', { method: 'POST', token: newToken, body: { order_id: firstOid } });
-    ok(receiptOk.code === 1, '确认收货成功', receiptOk.msg);
-    eq(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(firstOid).status, 30, '确认收货后状态为 30');
+    ok(receiptBad.code !== 1 && /接口不存在/.test(receiptBad.msg), '确认收货接口已下线', receiptBad.msg);
+    const ship = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: firstOid } });
+    ok(ship.code !== 1 && /接口不存在/.test(ship.msg), '发货接口已下线', ship.msg);
+    eq(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(firstOid).status, 10, '已支付订单状态停在 10');
 
     // ========== 转拍 ==========
     section('[7] 转拍与自动涨价');

@@ -1,6 +1,6 @@
-// 「已转拍出去的订单不需要发货」回归
-// 覆盖：持有人变了才判定为已转拍、当前持有人仍可发货、接口层拦截、
-//       平台回收也算转手、未支付不判定、非抢购类不受影响。
+// 「订单是否已被持有人转拍出去」标记回归
+// 覆盖：持有人变了才判定为已转拍、列表接口带标记、平台回收也算转手、
+//       未支付不判定、非抢购类不受影响；发货接口与快递字段已整体下线。
 // 独立库（transferred.db / 3425）
 // 用法: node scripts/probe/transferred-order.mjs
 import { spawn } from 'node:child_process';
@@ -105,15 +105,16 @@ async function main() {
     const gB = pickTwo[1]?.goods_id;
 
     // ---------------- 一手：A 买下，A 是当前持有人 ----------------
-    section('[1] 刚买下：还没转拍，正常发货');
+    section('[1] 刚买下：还没转拍');
     const oA = await buy(A, gA);
     const dA = await orderOf(oA);
     ok(dA.transferred === 0, '这笔订单未标记已转拍');
     ok(Number(db.prepare('SELECT member_id m FROM goods WHERE goods_id = ?').get(gA).m) === 1, '商品现持有人是 A');
     ok(dA.status === 10, '订单仍是待发货');
-    const ship1 = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: oA, express_no: 'SF001' } });
-    ok(ship1.code === 1, '当前持有人可以直接发货', ship1.msg);
-    ok(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(oA).status === 20, '发货后进入待收货');
+    // 发货环节已下线：接口没了，订单支付后状态就停在 10（已支付）
+    const ship1 = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: oA } });
+    ok(ship1.code !== 1 && /接口不存在/.test(ship1.msg), '发货接口已下线', ship1.msg);
+    ok(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(oA).status === 10, '订单状态停在已支付');
 
     // ---------------- 转拍出去 ----------------
     section('[2] A 转拍给 B：A 的订单不该再要求发货');
@@ -131,12 +132,13 @@ async function main() {
     ok(dOut.transferred === 1, 'A 的订单已标记为「已转拍」', `transferred=${dOut.transferred}`);
     ok(dOut.status_text !== '待发货', '状态文案不再是待发货', dOut.status_text);
 
-    section('[3] 已转拍的单：后台不能再发货');
-    const shipOut = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: oB1, express_no: 'SF999' } });
-    ok(shipOut.code !== 1, '发货被拒', shipOut.msg);
-    ok(/转拍/.test(shipOut.msg || ''), '被拒原因指向已转拍', shipOut.msg);
-    const after = db.prepare('SELECT status, express_no FROM orders WHERE order_id = ?').get(oB1);
-    ok(after.status === 10 && !after.express_no, '被拒后订单没有被改坏');
+    section('[3] 发货接口与快递字段已整体下线');
+    const shipOut = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: oB1 } });
+    ok(shipOut.code !== 1 && /接口不存在/.test(shipOut.msg), '发货接口已下线', shipOut.msg);
+    const cols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
+    ok(!cols.includes('express_no') && !cols.includes('express_company') && !cols.includes('send_time'),
+      'orders 表不再有快递三列', JSON.stringify(cols.filter((c) => c.startsWith('express') || c === 'send_time')));
+    ok(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(oB1).status === 10, '已转拍的单状态仍是已支付');
 
     section('[4] 列表接口也带这个标记（前端据此隐藏按钮）');
     const list = await orderList();
@@ -146,10 +148,10 @@ async function main() {
     ok(!!rowCur && rowCur.transferred === 0, 'B 的单（当前持有人）transferred=0');
 
     // ---------------- 当前持有人不受影响 ----------------
-    section('[5] 当前持有人的单照常发货');
-    const shipB = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: oB2, express_no: 'SF002' } });
-    ok(shipB.code === 1, 'B 的单可以正常发货', shipB.msg);
-    ok(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(oB2).status === 20, '发货后进入待收货');
+    section('[5] 当前持有人的单同样没有发货环节');
+    const orderB2 = await orderOf(oB2);
+    ok(orderB2.transferred === 0, 'B 是当前持有人，transferred=0');
+    ok(orderB2.status === 10, 'B 的订单状态也停在已支付');
 
     // ---------------- 平台回收也算转手 ----------------
     section('[6] 商品被平台回收：买家手上也没货了');
@@ -191,7 +193,8 @@ async function main() {
     const h5row = h5.data;
     ok(!!h5row, '会员能查到自己的这笔单');
     ok(h5row.transferred === 1, '会员端也返回 transferred=1', `transferred=${h5row.transferred}`);
-    ok(h5row.status_text === '已转拍', '会员端状态文案是「已转拍」', h5row.status_text);
+    // 状态只看付没付：转拍是另一个维度（transferred 标记），不混进状态文案
+    ok(h5row.status_text === '已支付', '会员端状态文案是「已支付」', h5row.status_text);
   } catch (e) {
     fails.push('异常：' + e.message);
     console.error('\n异常：', e.message);

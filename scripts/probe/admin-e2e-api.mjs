@@ -222,7 +222,7 @@ async function main() {
     ok(noIdRemove.code === 0, '删除未指定记录被拒', noIdRemove.msg);
 
     // ================= 5. 订单专用操作 =================
-    section('[5] 订单：详情 / 发货 / 确认收款 / 审核 / 取消');
+    section('[5] 订单：详情 / 确认收款 / 审核 / 取消');
     const buyerToken = (await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13800000001', password: '13800000001' } })).data?.token;
     const buyerMid = buyerIdOf(db);
     const pickGoods = () => db.prepare(
@@ -243,11 +243,10 @@ async function main() {
     const confirmPay = await api('/admin/api/orders/confirm-pay', { method: 'POST', token: at, body: { order_id: tOid } });
     ok(confirmPay.code === 1, '线下凭证：确认收款', confirmPay.msg);
     eq(db.prepare('SELECT pay_status FROM orders WHERE order_id = ?').get(tOid).pay_status, 10, '确认收款后 pay_status=10');
-    const deliver = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: tOid, express_company: '顺丰', express_no: 'SF999' } });
-    ok(deliver.code === 1, '发货', deliver.msg);
-    eq(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(tOid).status, 20, '发货后状态为待收货(20)');
-    const deliverAgain = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: tOid, express_company: '顺丰', express_no: 'SF999' } });
-    ok(deliverAgain.code === 0, '重复发货被拒', deliverAgain.msg);
+    // 发货环节已整体下线：接口没了，订单状态也不会再走到「待收货」
+    const deliver = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: tOid } });
+    ok(deliver.code !== 1 && /接口不存在/.test(deliver.msg), '发货接口已下线', deliver.msg);
+    eq(db.prepare('SELECT status FROM orders WHERE order_id = ?').get(tOid).status, 10, '支付后状态停在 10，不再流转到待收货');
 
     const gid2 = pickGoods();
     const cancelTarget = gid2
