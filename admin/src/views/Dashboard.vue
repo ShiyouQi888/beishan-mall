@@ -8,12 +8,12 @@
       <el-button size="default" @click="load">刷新数据</el-button>
     </div>
 
-    <div class="stat-grid">
+    <div class="stat-grid dash-cards">
       <div class="stat-card" v-for="c in cards" :key="c.key" @click="$router.push(c.route)">
         <div class="badge" :style="{ background: c.bg, color: c.color }" v-html="c.icon" />
         <div class="label">{{ c.label }}</div>
         <div class="value">{{ c.value }}</div>
-        <div class="hint">点击查看明细 ›</div>
+        <div class="hint">{{ c.tip || '点击查看明细 ›' }}</div>
       </div>
     </div>
 
@@ -62,7 +62,7 @@
             </div>
             <div class="r-right">
               <div class="money money-red">¥{{ o.total_price }}</div>
-              <span class="tag-status tag-off">{{ o.status_text }}</span>
+              <span class="tag-status" :class="o.pay_status === 10 ? 'tag-ok' : 'tag-warn'">{{ o.status_text }}</span>
             </div>
           </div>
         </div>
@@ -100,16 +100,18 @@ const d = ref({});
 const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
 
 const icons = {
-  wait_send: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M3.5 8.5 12 4l8.5 4.5v7L12 20l-8.5-4.5v-7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
-  wait_receive: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><rect x="2.5" y="7" width="12" height="10" rx="1.6" stroke="currentColor" stroke-width="1.8"/><path d="M14.5 10h4l3 3v4h-7v-7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
-  wait_withdraw: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M12 4v11M7.8 11l4.2 4.2 4.2-4.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 19.5h15" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
+  wait_confirm: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="8.2" stroke="currentColor" stroke-width="1.8"/></svg>',
+  transposing: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M4 8h13l-3.2-3.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 16H7l3.2 3.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  wait_recycle: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M20 12a8 8 0 1 1-2.3-5.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20.5 4.5V9H16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  wait_score: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M4 9h11l-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 15H9l3 3m-3-3 3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   wait_cert: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><rect x="3" y="5" width="18" height="14" rx="2.2" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="11" r="2" stroke="currentColor" stroke-width="1.7"/><path d="M5.6 16.2c.4-1.5 1.7-2.4 3.4-2.4s3 .9 3.4 2.4" stroke="currentColor" stroke-width="1.7"/></svg>',
 };
 
 const styles = {
-  wait_send: { bg: '#fff1ee', color: '#e63c26' },
-  wait_receive: { bg: '#eef4ff', color: '#3d6fdd' },
-  wait_withdraw: { bg: '#fff7e8', color: '#c88a1e' },
+  wait_confirm: { bg: '#fff1ee', color: '#e63c26' },
+  transposing: { bg: '#eef4ff', color: '#3d6fdd' },
+  wait_recycle: { bg: '#fff7e8', color: '#c88a1e' },
+  wait_score: { bg: '#f3f0ff', color: '#6b53d8' },
   wait_cert: { bg: '#eefaf3', color: '#1f9d5f' },
 };
 
@@ -117,15 +119,18 @@ const cards = computed(() =>
   (d.value.cards || []).map((c) => ({ ...c, icon: icons[c.key] || '', ...(styles[c.key] || { bg: '#f4f6f9', color: '#666' }) })),
 );
 
+const yuan = (n) => `¥${Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 const overviewItems = computed(() => {
   const o = d.value.overview || {};
+  const incomeToday = Number(o.fee_today || 0) + Number(o.listing_fee_today || 0);
   return [
     { k: '会员总数', v: o.member_total ?? 0, h: `今日新增 ${o.member_today ?? 0}` },
-    { k: '在售商品', v: o.goods_online ?? 0, h: `商品总数 ${o.goods_total ?? 0}` },
+    { k: '在售商品', v: o.goods_online ?? 0, h: `商品总数 ${o.goods_total ?? 0} · 封顶下架 ${o.goods_capped ?? 0}` },
     { k: '订单总数', v: o.order_total ?? 0, h: `今日新增 ${o.order_today ?? 0}` },
-    { k: '累计成交额', v: `¥${(o.turnover_total ?? 0).toLocaleString()}`, h: `今日 ¥${(o.turnover_today ?? 0).toLocaleString()}` },
-    { k: '会员余额总额', v: `¥${(o.amount_total ?? 0).toLocaleString()}`, h: '含全部会员' },
-    { k: '佣金累计发放', v: `¥${(o.commission_total ?? 0).toLocaleString()}`, h: '三级分销' },
+    { k: '今日成交额', v: yuan(o.turnover_today), h: `累计 ${yuan(o.turnover_total)}` },
+    { k: '今日平台收入', v: yuan(incomeToday), h: `服务费 ${yuan(o.fee_today)} · 上架 ${yuan(o.listing_fee_today)}` },
+    { k: '会员余额（平台待付）', v: yuan(o.amount_total), h: `佣金账户 ${yuan(o.commission_total)}` },
   ];
 });
 
@@ -147,6 +152,9 @@ onMounted(load);
 </script>
 
 <style scoped>
+/* 五张待办卡：窄屏自动折行，别硬挤成一条 */
+.dash-cards { grid-template-columns: repeat(auto-fit, minmax(198px, 1fr)); }
+
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -183,7 +191,14 @@ onMounted(load);
   margin-top: 5px;
   font-variant-numeric: tabular-nums;
 }
-.ov-h { font-size: 11px; color: #a8adb7; margin-top: 3px; }
+.ov-h {
+  font-size: 11px;
+  color: #a8adb7;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .chart {
   display: flex;

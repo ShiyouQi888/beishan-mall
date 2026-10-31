@@ -133,10 +133,11 @@ async function main() {
   const lines = text.replace(/^\ufeff/, '').split('\r\n').filter(Boolean);
   check('返回 text/csv', (res.headers.get('content-type') || '').includes('text/csv'), res.headers.get('content-type'));
   check('带 UTF-8 BOM', buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf, buf.slice(0, 3).toString('hex'));
-  check('表头 28 列', lines[0].split(',').length === 28, String(lines[0].split(',').length));
+  check('表头 31 列', lines[0].split(',').length === 31, String(lines[0].split(',').length));
   check('表头含关键字段',
     ['订单ID', '订单号', '商品编码', '卖家手机号', '买家（当前持有人）', '买入价', '服务费', '上架费',
-      '所在场次', '场次时段', '下一场次', '下一场日期', '下一场时段', '价格水位(%)', '是否封顶']
+      '所在场次', '场次时段', '下一场次', '下一场日期', '下一场时段', '价格水位(%)', '是否封顶',
+      '下单时间', '确认时间', '备注']
       .every((h) => lines[0].includes(h)),
     lines[0].slice(0, 80));
   check('导出行数 = 造的 2 条 + 表头', lines.length === 3, String(lines.length));

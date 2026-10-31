@@ -393,38 +393,94 @@ r.post('/me/password', authAdmin, (req, res) => {
 });
 
 // ---------------- 控制面板 ----------------
+/**
+ * 控制面板
+ *
+ * 指标只留「这套业务真实在跑的东西」：抢购下单 → 平台确认 → 转拍 → 到顶回收，外加积分兑换。
+ * 原来的待发货 / 待收货 / 待提现审核三个卡片，对应的模块都已经下线了，
+ * 值永远是 0，留着只会让人以为有活没干。
+ */
 r.get('/dashboard', authAdmin, (req, res) => {
   const d = today();
-  const num = (sql, ...p) => get(sql, ...p)?.c || 0;
-  const sum = (sql, ...p) => get(sql, ...p)?.v || 0;
+  const num = (sql, ...p) => Number(get(sql, ...p)?.c || 0);
+  const sum = (sql, ...p) => Number(get(sql, ...p)?.v || 0);
+
+  // 在挂转拍：与「转拍订单」页同一套判定（挂了牌 + 货还在他手上 + 还在架 + 没被回收）
+  const transposing = num(
+    `SELECT COUNT(*) c FROM orders o JOIN goods g ON g.goods_id = o.goods_id
+     WHERE o.type = 1 AND IFNULL(o.consignment_status, 0) = 10
+       AND g.member_id = o.member_id AND g.goods_status = 10 AND IFNULL(g.recycled, 0) = 0`,
+  );
 
   res.json(
     ok({
       cards: [
-        { key: 'wait_send', label: '待发货订单', value: num("SELECT COUNT(*) c FROM orders WHERE status = 10"), route: 'orders' },
-        { key: 'wait_receive', label: '待收货订单', value: num("SELECT COUNT(*) c FROM orders WHERE status = 20"), route: 'orders' },
-        { key: 'wait_withdraw', label: '待提现审核', value: num("SELECT COUNT(*) c FROM finance_withdraw WHERE status = 0"), route: 'withdraw' },
-        { key: 'wait_cert', label: '待实名审核', value: num("SELECT COUNT(*) c FROM member_certification WHERE status = 0"), route: 'certification' },
+        {
+          key: 'wait_confirm',
+          label: '待确认抢单',
+          value: num("SELECT COUNT(*) c FROM orders WHERE IFNULL(pay_status, 0) = 0 AND IFNULL(status, 0) <> 40"),
+          route: '/orders',
+          tip: '会员已提交申请，等平台确认',
+        },
+        {
+          key: 'transposing',
+          label: '在挂转拍',
+          value: transposing,
+          route: '/transpose',
+          tip: '已挂牌，等下一手买走',
+        },
+        {
+          key: 'wait_recycle',
+          label: '待处理回收',
+          value: num('SELECT COUNT(*) c FROM goods_recycle WHERE IFNULL(status, 0) = 0'),
+          route: '/recycle',
+          tip: '到顶商品未自动结算的部分',
+        },
+        {
+          key: 'wait_score',
+          label: '待发货兑换',
+          value: num('SELECT COUNT(*) c FROM score_exchange WHERE status = 10'),
+          route: '/score-exchange',
+          tip: '积分兑换的实物还没寄出',
+        },
+        {
+          key: 'wait_cert',
+          label: '待实名审核',
+          value: num('SELECT COUNT(*) c FROM member_certification WHERE status = 0'),
+          route: '/certification',
+          tip: '会员提交的实名资料',
+        },
       ],
       overview: {
         member_total: num('SELECT COUNT(*) c FROM member'),
         member_today: num('SELECT COUNT(*) c FROM member WHERE create_time >= ?', d),
         goods_total: num('SELECT COUNT(*) c FROM goods'),
-        goods_online: num('SELECT COUNT(*) c FROM goods WHERE goods_status = 10'),
+        goods_online: num('SELECT COUNT(*) c FROM goods WHERE goods_status = 10 AND IFNULL(recycled, 0) = 0'),
+        goods_capped: num('SELECT COUNT(*) c FROM goods WHERE IFNULL(recycled, 0) <> 0'),
         order_total: num('SELECT COUNT(*) c FROM orders'),
         order_today: num('SELECT COUNT(*) c FROM orders WHERE create_time >= ?', d),
-        turnover_total: money(sum("SELECT IFNULL(SUM(total_price),0) v FROM orders WHERE pay_status = 10")),
+        turnover_total: money(sum('SELECT IFNULL(SUM(total_price),0) v FROM orders WHERE pay_status = 10')),
         turnover_today: money(sum('SELECT IFNULL(SUM(total_price),0) v FROM orders WHERE pay_status = 10 AND create_time >= ?', d)),
-        amount_total: money(sum("SELECT IFNULL(SUM(amount),0) v FROM member")),
-        commission_total: money(sum("SELECT IFNULL(SUM(e_card_number),0) v FROM member")),
+        // 平台自己的收入：抢单服务费 + 转拍上架费（直推奖是支出，放在财务大盘）
+        fee_total: money(sum('SELECT IFNULL(SUM(service_charge),0) v FROM orders WHERE pay_status = 10')),
+        fee_today: money(sum('SELECT IFNULL(SUM(service_charge),0) v FROM orders WHERE pay_status = 10 AND create_time >= ?', d)),
+        listing_fee_total: money(sum('SELECT IFNULL(SUM(listing_fee),0) v FROM orders WHERE pay_status = 10')),
+        listing_fee_today: money(sum('SELECT IFNULL(SUM(listing_fee),0) v FROM orders WHERE pay_status = 10 AND create_time >= ?', d)),
+        amount_total: money(sum('SELECT IFNULL(SUM(amount),0) v FROM member')),
+        commission_total: money(sum('SELECT IFNULL(SUM(e_card_number),0) v FROM member')),
       },
       trend: buildTrend(),
-      recent_orders: all('SELECT * FROM orders ORDER BY order_id DESC LIMIT 6').map((o) => ({
+      recent_orders: all(
+        `SELECT order_id, order_no, goods_name, total_price, pay_status, create_time, type
+         FROM orders ORDER BY order_id DESC LIMIT 6`,
+      ).map((o) => ({
         order_id: o.order_id,
         order_no: o.order_no,
         goods_name: o.goods_name,
         total_price: Number(o.total_price).toFixed(2),
-        status_text: ORDER_STATUS[o.status] || '',
+        // 订单早就不看发货了，这里也只区分「付没付」
+        pay_status: Number(o.pay_status) === 10 ? 10 : 0,
+        status_text: Number(o.pay_status) === 10 ? '已确认' : '待确认',
         create_time: o.create_time,
       })),
       recent_members: all('SELECT member_id, nick_name, mobile, create_time FROM member ORDER BY member_id DESC LIMIT 6'),
@@ -519,8 +575,8 @@ function buildTrend() {
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const d = addDays(todayStr(), -i);
-    const orders = get('SELECT COUNT(*) c, IFNULL(SUM(total_price),0) v FROM orders WHERE create_time >= ? AND create_time < ?', d, d + ' 23:59:59');
-    const members = get('SELECT COUNT(*) c FROM member WHERE create_time >= ? AND create_time < ?', d, d + ' 23:59:59');
+    const orders = get('SELECT COUNT(*) c, IFNULL(SUM(total_price),0) v FROM orders WHERE create_time >= ? AND create_time <= ?', d, `${d} 23:59:59`);
+    const members = get('SELECT COUNT(*) c FROM member WHERE create_time >= ? AND create_time <= ?', d, `${d} 23:59:59`);
     days.push({ date: d.slice(5), orders: orders.c, amount: money(orders.v), members: members.c });
   }
   return days;
@@ -905,7 +961,7 @@ r.get('/orders/export', authAdmin, (req, res) => {
     ...args,
   );
 
-  const header = ['订单号', '商品', '类型', '单价', '数量', '总额', '服务费', '状态', '买家', '卖家', '下单时间', '备注'];
+  const header = ['订单号', '商品', '类型', '单价', '数量', '总额', '服务费', '状态', '买家', '卖家', '下单时间', '确认时间', '备注'];
   const body = rows.map((o) => [
     o.order_no,
     o.goods_name,
@@ -918,6 +974,7 @@ r.get('/orders/export', authAdmin, (req, res) => {
     o.buyer_name || '',
     o.seller_name || '',
     o.create_time,
+    o.pay_time || '',
     o.remark || '',
   ]);
   sendCsv(res, `orders-${todayStr().replace(/-/g, '')}.csv`, toCsv(header, body));

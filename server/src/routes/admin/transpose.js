@@ -50,7 +50,8 @@ const FROM = `FROM orders o
 
 /** 列表与导出共用同一段查询，避免两处字段走偏 */
 const ROW_SELECT = `SELECT o.order_id, o.order_no, o.goods_id, o.member_id, o.total_price, o.listing_fee,
-            o.transposition_time, o.specialarea_id, o.pay_time, o.service_charge, o.pay_status,
+            o.transposition_time, o.specialarea_id, o.pay_time, o.create_time, o.remark,
+            o.service_charge, o.pay_status,
             g.goods_name, g.goods_no, g.good_thumb, g.goods_min_price, g.base_price, g.price_cap,
             g.turn_beat_num, g.area_date, g.stock_total, g.stock_num,
             g.specialarea_id AS goods_area_id, g.member_id AS holder_id,
@@ -131,6 +132,9 @@ function fmtRow(row) {
     gain: Number((Number(row.goods_min_price || 0) - Number(row.total_price || 0)).toFixed(2)),
     listing_fee: Number(row.listing_fee || 0),
     transposition_time: row.transposition_time || '',
+    pay_time: row.pay_time || '',
+    create_time: row.create_time || '',
+    remark: row.remark || '',
     online_minutes: minutesSince(row.transposition_time),
     turn_beat_num: Number(row.turn_beat_num || 0),
     area_id: areaId,
@@ -211,10 +215,10 @@ r.get('/transpose/export', authAdmin, (req, res) => {
     '订单ID', '订单号', '订单状态', '商品ID', '商品编码', '商品名称',
     '卖家', '卖家手机号', '买家（当前持有人）', '买家手机号', '持有人ID',
     '买入价', '服务费', '上架费', '当前标价', '涨价',
-    '挂牌时间', '已挂(分钟)', '转拍次数',
+    '挂牌时间', '已挂(分钟)', '转拍次数', '下单时间', '确认时间',
     '所在场次', '场次日期', '场次时段',
     '下一场次', '下一场日期', '下一场时段',
-    '价格上限', '价格水位(%)', '是否封顶',
+    '价格上限', '价格水位(%)', '是否封顶', '备注',
   ];
   const body = list.map((x) => [
     x.order_id,
@@ -236,6 +240,8 @@ r.get('/transpose/export', authAdmin, (req, res) => {
     x.transposition_time,
     x.online_minutes === null ? '' : x.online_minutes,
     x.turn_beat_num,
+    x.create_time,
+    x.pay_time,
     x.area_name || '未关联场次',
     x.area_date,
     x.area_start ? `${x.area_start}-${x.area_end}` : '',
@@ -245,6 +251,7 @@ r.get('/transpose/export', authAdmin, (req, res) => {
     x.cap_price > 0 ? x.cap_price.toFixed(2) : '不限',
     x.cap_price > 0 ? x.cap_ratio : '',
     x.cap_reached ? '是' : '否',
+    x.remark,
   ]);
   sendCsv(res, `transpose-orders-${todayStr().replace(/-/g, '')}.csv`, toCsv(header, body));
 });
