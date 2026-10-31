@@ -109,7 +109,8 @@ const router = useRouter();
 const g = ref({});
 const addr = ref(null);
 const num = ref(1);
-const payType = ref(1);
+// 系统默认走线下转账，先给个 4，真正的选择在拿到支付开关后再校正
+const payType = ref(4);
 const remark = ref('');
 const loading = ref(false);
 const feeRate = ref(0);
@@ -148,7 +149,8 @@ onMounted(async () => {
   try {
     const p = await api.paymentSettings();
     paymentSettings.value = p.data || {};
-    payType.value = payTypes.value[0]?.v || 0;
+    // 只要线下转账开着就默认选它；没开才退回第一个可用方式
+    payType.value = (payTypes.value.find((p2) => p2.v === 4) || payTypes.value[0])?.v || 0;
   } catch {
     paymentSettings.value = {};
   }

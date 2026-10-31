@@ -185,10 +185,11 @@ const switchOn = (key, def = '20') => (Number(cfg(key, def)) === 10 ? '1' : '0')
 r.get('/index/getPaySeeting', (req, res) => {
   res.json(
     ok({
-      balance_open: switchOn('pay_balance_open', '10'),
-      wx_open: switchOn('pay_wx', '10'),
-      zfb_open: switchOn('pay_zfb', '10'),
-      bank_open: switchOn('pay_bank', '20'),
+      // 默认只有线下转账开着，其余需要在后台按需打开
+      balance_open: switchOn('pay_balance_open', '20'),
+      wx_open: switchOn('pay_wx', '20'),
+      zfb_open: switchOn('pay_zfb', '20'),
+      bank_open: switchOn('pay_bank', '10'),
       // 线下支付是否必须上传付款凭证（后台「支付凭证必传」开关）
       voucher_required: switchOn('pay_voucher_required', '10'),
       wx_qr_ready: cfg('wx_qr', '') ? '1' : '0',

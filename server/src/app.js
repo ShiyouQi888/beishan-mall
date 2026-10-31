@@ -279,7 +279,12 @@ for (const [key, val, group] of [
   ['score_award_parent', '0', 'store'],     // 上级积分返利百分比（成交金额 × 百分比）
   ['theme_key', 'coral', 'store'],          // 外观主题
   ['home_category_show', '10', 'nav'],      // 首页商品分类栏开关
-  ['pay_balance_open', '10', 'pay'],        // 余额支付开关
+  // 支付方式默认只开「线下转账」：余额/微信/支付宝默认关闭，需要时在后台逐项打开。
+  // 这是业务口径 —— 平台收款走线下对公，不引导会员在线自助支付。
+  ['pay_balance_open', '20', 'pay'],        // 余额支付开关
+  ['pay_wx', '20', 'pay'],                  // 微信扫码
+  ['pay_zfb', '20', 'pay'],                 // 支付宝扫码
+  ['pay_bank', '10', 'pay'],                // 线下转账（默认唯一开启）
   ['pay_voucher_required', '10', 'pay'],    // 线下支付是否必须上传凭证
   ['withdraw_wx_open', '10', 'trade'],      // 提现到微信
   ['withdraw_zfb_open', '10', 'trade'],     // 提现到支付宝
@@ -300,8 +305,9 @@ if (get("SELECT 1 FROM setting_config WHERE `key` = 'same_level_award_rate'")) {
   console.log('[migrate] 删除废弃配置 same_level_award_rate（分销仅一级，无平级奖）');
 }
 
-// 支付开关统一为 10 开 / 20 关（旧数据是 1 / 0，后台开关组件认不出）
-for (const [key, on] of [['pay_wx', true], ['pay_zfb', true], ['pay_bank', false]]) {
+// 支付开关统一为 10 开 / 20 关（旧数据是 1 / 0，后台开关组件认不出）。
+// 归一化后的默认口径与上面一致：只有线下转账是开的。
+for (const [key, on] of [['pay_wx', false], ['pay_zfb', false], ['pay_bank', true]]) {
   const cur = get('SELECT `value` v FROM setting_config WHERE `key` = ?', key);
   if (cur && ['0', '1'].includes(String(cur.v))) {
     run('UPDATE setting_config SET `value` = ? WHERE `key` = ?', on ? '10' : '20', key);

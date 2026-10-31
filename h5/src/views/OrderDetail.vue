@@ -173,9 +173,12 @@ async function load() {
     if (s.status === 'fulfilled') sys.value = s.value.data || {};
     if (p.status === 'fulfilled') paymentSettings.value = p.value.data || {};
     const original = Number(r.data.pay_type);
+    // 没有指定过支付方式时，默认落在「线下转账」上（系统默认只走线下）
+    const fallback = availablePayTypes.value.find((item) => item.v === 4)?.v
+      || availablePayTypes.value[0]?.v || 0;
     selectedPayType.value = availablePayTypes.value.some((item) => item.v === original)
       ? original
-      : (availablePayTypes.value[0]?.v || 0);
+      : fallback;
   } catch {
     showToast('订单加载失败');
     o.value = {};

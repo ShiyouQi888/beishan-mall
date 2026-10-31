@@ -63,11 +63,12 @@ function serviceCharge(amount) {
   return calcServiceCharge(amount);
 }
 
+// 支付方式默认口径：只有线下转账是开的（与 app.js 的默认配置一致）
 const PAY_SWITCHES = {
-  1: ['pay_balance_open', '10'],
-  2: ['pay_wx', '10'],
-  3: ['pay_zfb', '10'],
-  4: ['pay_bank', '20'],
+  1: ['pay_balance_open', '20'],
+  2: ['pay_wx', '20'],
+  3: ['pay_zfb', '20'],
+  4: ['pay_bank', '10'],
 };
 
 function paymentEnabled(type) {
