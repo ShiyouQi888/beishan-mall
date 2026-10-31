@@ -17,7 +17,17 @@ const AREA_DATE_OK = "(area_date IS NULL OR area_date = '' OR area_date = ?)";
 //      · 不属于任何日期的（平台持仓/不限日期），留到当天，第二天自然退场，不会越积越多
 // 注意第二个条件必须限定「area_date 为空」：否则昨天那场卖剩的货今天被改一下状态，
 // 就会被当成本场商品重新捞出来。
-const LIST_VISIBLE = `(IFNULL(recycled, 0) = 0 AND ((goods_status = 10 AND ${AREA_DATE_OK})
+// 场次被停用后，只挂在这一场里的商品不该继续出现在前台。
+// 注意要放行「一个场次都没关联」的自由商品 —— 它们本来就不受场次约束。
+const AREA_ENABLED = `(
+  NOT EXISTS (SELECT 1 FROM specialarea_goods sg0 WHERE sg0.goods_id = goods.goods_id)
+  OR EXISTS (
+    SELECT 1 FROM specialarea_goods sg1
+    JOIN specialarea s1 ON s1.specialarea_id = sg1.specialarea_id
+    WHERE sg1.goods_id = goods.goods_id AND IFNULL(s1.is_open, 10) = 10
+  )
+)`;
+const LIST_VISIBLE = `(IFNULL(recycled, 0) = 0 AND ${AREA_ENABLED} AND ((goods_status = 10 AND ${AREA_DATE_OK})
   OR (goods_status = 20 AND (area_date = ? OR (IFNULL(area_date, '') = '' AND date(update_time) = ?)))))`;
 // 在售的排在前面，已抢完的沉到后面，不影响「先看到能买的」
 const ON_SALE_FIRST = 'ORDER BY (goods_status = 10) DESC, goods_sort ASC, goods_id DESC';
@@ -222,10 +232,14 @@ r.get('/getLootGoodsList', (req, res) => {
   const pp = Number(limit);
   const cur = Number(p);
   // 不传场次时列出「所有已关联场次」的商品；传了则只看该场
+  // 停用的场次不列商品：子查询里直接带上 is_open 过滤
+  const enabledLink = `SELECT sg.goods_id FROM specialarea_goods sg
+      JOIN specialarea s ON s.specialarea_id = sg.specialarea_id
+      WHERE IFNULL(s.is_open, 10) = 10`;
   const where = [
     specialarea_id
-      ? 'goods_id IN (SELECT goods_id FROM specialarea_goods WHERE specialarea_id = ?)'
-      : 'goods_id IN (SELECT goods_id FROM specialarea_goods)',
+      ? `goods_id IN (${enabledLink} AND sg.specialarea_id = ?)`
+      : `goods_id IN (${enabledLink})`,
     LIST_VISIBLE,
   ];
   const args = specialarea_id

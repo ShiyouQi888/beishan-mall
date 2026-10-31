@@ -56,6 +56,8 @@ export function openAreaOf(areas, at = new Date(), leadSeconds = 0) {
   const lead = Math.max(0, Number(leadSeconds) || 0);
   const shifted = lead > 0 ? new Date(at.getTime() + lead * 1000) : at;
   for (const a of areas || []) {
+    // 停用的场次不参与交易：后台「启用状态」关掉之后，这场里的商品不能再被买
+    if (Number(a.is_open ?? 10) !== 10) continue;
     const w = sessionWindow(a, at);
     if (w.open) return { area: a, win: w };
     if (!lead || w.state !== 'upcoming') continue; // 已结束/今天不开放，提前也没用

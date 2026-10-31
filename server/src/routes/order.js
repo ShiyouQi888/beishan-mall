@@ -171,6 +171,10 @@ r.post('/toAddOrder', authMember, (req, res) => {
     const lead = advanceLeadOf(m);
     const opened = openAreaOf(areas, new Date(), lead);
     if (!opened) {
+      // 场次整体被后台停用：跟「时间没到 / 已结束」区分开，否则运营排查时会以为配错了时段
+      if (areas.every((a) => Number(a.is_open ?? 10) !== 10)) {
+        return res.json(fail('该商品所在场次已停用，暂不可购买'));
+      }
       // 给出最贴近的提示：今天不开放 / 还没到时间 / 今天已经结束
       const shown = displayAreaOf(areas);
       const w = shown.w;
