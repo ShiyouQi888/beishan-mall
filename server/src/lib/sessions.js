@@ -11,7 +11,7 @@
 //   4. 后台手填的 sort 值
 //   5. id
 import { all } from '../db.js';
-import { todayStr, addDays } from './sessionWindow.js';
+import { todayStr, addDays, sessionWindow } from './sessionWindow.js';
 
 const NAME_RANK = { forenoon: 1, afternoon: 2, evening: 3 };
 
@@ -56,20 +56,37 @@ export function activeSessions(stateOf) {
  * 之前只按 (idx+1) % length 环形轮转，不带日期，于是「晚上场转拍 → 落到今天上午场」
  * 当天就能再被抢一次，商品总在同一天里打转。
  *
+ * 只按顺序取下一项还不够：下午 5 点从上午场转拍，顺序上的下一项是「下午场」，
+ * 而下午场 13-17 点已经结束了 —— 货会落进一个今天再也开不了的场次，明天也不会自动跳出来。
+ * 所以排在「今天」时还要看每个候选场次今天是否已经结束，跳过结束的、取第一个还能开的。
+ *
  * @param {number} currentId 当前所在场次
  * @param {string} baseDate  基准日期（商品原 area_date，空=今天）；不允许落在过去
+ * @param {Date}   at        以什么时刻来算「今天还剩哪些场」（默认现在）
  * @returns {{area_id:number, date:string}|null}
  */
-export function nextSlot(currentId, baseDate = '') {
+export function nextSlot(currentId, baseDate = '', at = new Date()) {
   const list = activeSessions();
   if (!list.length) return null;
   const today = todayStr();
   // 基准日不能早于今天：昨天被抢的商品今天才转拍，要从今天开始排
   const base = baseDate && baseDate >= today ? baseDate : today;
   const idx = list.findIndex((s) => Number(s.specialarea_id) === Number(currentId));
+  const after = idx >= 0 ? list.slice(idx + 1) : [...list];
+
+  if (base === today) {
+    // 今天：跳过已经结束（或今天不开放）的场次，落在第一个还能开的
+    for (const s of after) {
+      const w = sessionWindow(s, at);
+      if (w.state === 'open' || w.state === 'upcoming') {
+        return { area_id: Number(s.specialarea_id), date: base };
+      }
+    }
+    return { area_id: Number(list[0].specialarea_id), date: addDays(base, 1) };
+  }
+  // 已经排到未来某天：按顺序取下一项即可，那天的时段还没到
   if (idx >= 0 && idx < list.length - 1) {
     return { area_id: Number(list[idx + 1].specialarea_id), date: base };
   }
-  // 当前已经是当天最后一场（或找不到当前场次）→ 明天第一场
   return { area_id: Number(list[0].specialarea_id), date: addDays(base, 1) };
 }
