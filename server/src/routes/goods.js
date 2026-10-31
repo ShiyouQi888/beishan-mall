@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, now } from '../db.js';
 import { ok, fail, authMember, maybeMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
+import { sessionLimitLeft } from '../lib/purchaseLimit.js';
 import { sessionWindow, todayStr } from '../lib/sessionWindow.js';
 import { areasOfGoods, areaMapOfGoods, displayAreaOf, openAreaOf, advanceLeadOf } from '../lib/areaGoods.js';
 
@@ -264,6 +265,12 @@ r.get('/getLootDetails', maybeMember, (req, res) => {
       advance_seconds: lead,
       // 与列表同一口径：open / upcoming / ended / closed / none
       session_state: w ? w.state : 'none',
+      // 本场每人限购：limit>0 才有效，bought 是这个会员本场今天已买的件数（跨商品合计）
+      ...(() => {
+        const target = open?.area || area;
+        const { limit, bought } = sessionLimitLeft(req.member?.member_id, target);
+        return { purchase_limit: limit, purchase_bought: bought };
+      })(),
       specialarea: area
         ? {
             specialarea_id: area.specialarea_id,
@@ -354,16 +361,11 @@ r.get('/getPurchaseNum', authMember, (req, res) => {
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
   const areas = areasOfGoods(g.goods_id);
-  // 限购次数取「此刻正在开放」的那场；都不开放时取代表场次（与下单提示保持一致）
+  // 限购取「此刻正在开放」的那场；都不开放时取代表场次（与下单提示保持一致）
   const area = openAreaOf(areas)?.area || displayAreaOf(areas)?.a || null;
-  // 与下单校验同一口径：只算「这个会员买过这个商品多少件」，不牵扯同场其它商品
-  const bought = Number(get(
-    'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
-    req.member.member_id, g.goods_id,
-  ).n);
-  const limit = area?.buy_num || 1;
-  const left = Math.max(0, limit - bought);
-  if (left <= 0) return res.json(fail(`每人限抢 ${limit} 件，你已经抢过了`));
+  // 与下单校验同一口径：本场次今天这个会员合计买了多少件（跨商品），见 lib/purchaseLimit.js
+  const { limit, bought, left } = sessionLimitLeft(req.member.member_id, area);
+  if (limit > 0 && left <= 0) return res.json(fail(`本场每人限购 ${limit} 件，你已经抢满了`));
   res.json(ok({ buy_num: bought, limit, left, can_buy: 1 }));
 });
 

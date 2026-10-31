@@ -27,6 +27,10 @@
         <span v-if="g.specialarea?.title_main" class="chip">{{ g.specialarea.title_main }}</span>
         <span v-if="g.specialarea" class="chip chip--time">{{ g.specialarea.start_end_time }} - {{ g.specialarea.start_end_time1 }}</span>
         <span class="chip chip--ghost">已转拍 {{ g.turn_beat_num || 0 }} 次</span>
+        <!-- 本场每人限购：按「本场次当天合计件数」算，不同商品合并 -->
+        <span v-if="Number(g.purchase_limit) > 0" class="chip chip--ghost">
+          本场限购 {{ g.purchase_limit }} 件<template v-if="Number(g.purchase_bought) > 0">（已买 {{ g.purchase_bought }} 件）</template>
+        </span>
         <!-- 名额：一件货有几个购买名额。抢完就不再显示剩余，只留「已抢完」 -->
         <span v-if="Number(g.stock_total) > 1" class="chip chip--stock">
           共 {{ g.stock_total }} 件 · 剩 {{ Math.max(0, Number(g.stock_num) || 0) }} 件
@@ -129,11 +133,18 @@ const soldOut = computed(() => (g.value.sold_out === undefined
   : Number(g.value.sold_out) === 1));
 // 别人下单锁着的时候也买不了 —— 抢购是提交即锁单
 const lockedByOther = computed(() => Number(g.value.locked) === 1);
-const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value && !soldOut.value && !lockedByOther.value);
+// 本场额度用尽：货还有，但这个会员这场已经买满了
+const limitFull = computed(() => Number(g.value.purchase_limit) > 0
+  && Number(g.value.purchase_bought) >= Number(g.value.purchase_limit));
+const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value && !soldOut.value
+  && !lockedByOther.value && !limitFull.value);
 // 不能买时给一句人话，别只把按钮弄灰 —— 按钮变灰很容易被当成「点一下试试」
 const closedTip = computed(() => {
   if (!g.value.goods_id || canBuy.value) return '';
   if (soldOut.value) return '这件货已经被抢走了，等下一场再来';
+  if (limitFull.value) {
+    return `本场每人限购 ${g.value.purchase_limit} 件，你已抢满，明天这场再来（换场次不占额度）`;
+  }
   if (lockedByOther.value) return '这件货刚被别人抢先下单，正在等他付款；超时未付会自动放出';
   const a = g.value.specialarea;
   if (buyClosed.value && a) return `当前不在抢购时间（本场 ${a.start_end_time}-${a.start_end_time1}）`;

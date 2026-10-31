@@ -7,6 +7,7 @@ import { deductStock, restoreStock, isPieceSale } from '../lib/stock.js';
 import { todayStr } from '../lib/sessionWindow.js';
 import { nextSlot } from '../lib/sessions.js';
 import { areasOfGoods, openAreaOf, displayAreaOf, setGoodsAreas, advanceLeadOf } from '../lib/areaGoods.js';
+import { sessionBoughtOf, sessionLimitOf } from '../lib/purchaseLimit.js';
 import { priceCapOf, clampToCap } from '../lib/priceCap.js';
 
 const r = Router();
@@ -164,14 +165,16 @@ r.post('/toAddOrder', authMember, (req, res) => {
       return res.json(fail(`该商品所在场次已结束（${w.text}）`));
     }
     orderArea = opened.area;
-    // 限购：只算「这个会员买过这个商品多少件」，不牵扯同场的其它商品。
-    const bought = get(
-      'SELECT IFNULL(SUM(num),0) n FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
-      m.member_id, g.goods_id,
-    ).n;
-    const limit = orderArea.buy_num || 1;
-    if (Number(bought) + numInt > limit) {
-      return res.json(fail(`每人限抢 ${limit} 件，你已经抢过 ${Number(bought)} 件了`));
+    // 限购：**本场次**每人合计多少件（不同商品合并算），不是「每个商品各算各的」。
+    // 见 lib/purchaseLimit.js —— 场次每天重复开放，所以还要按日期切分。
+    const limit = sessionLimitOf(orderArea);
+    if (limit > 0) {
+      const bought = sessionBoughtOf(m.member_id, orderArea.specialarea_id);
+      if (bought + numInt > limit) {
+        return res.json(fail(bought > 0
+          ? `本场每人限购 ${limit} 件，你已抢 ${bought} 件，本场还能再抢 ${Math.max(0, limit - bought)} 件`
+          : `本场每人限购 ${limit} 件`));
+      }
     }
   }
 

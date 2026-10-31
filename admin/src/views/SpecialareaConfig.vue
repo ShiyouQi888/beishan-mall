@@ -36,9 +36,11 @@
         </el-form-item>
 
         <!-- 限购 -->
-        <el-form-item label="每场每人限购次数" required>
+        <el-form-item label="每场每人限购件数" required>
           <el-input-number v-model="form.buy_num" :min="1" :max="999" controls-position="right" style="width: 200px" />
-          <span class="unit">次</span>
+          <span class="unit">件</span>
+          <div class="hint">本场次内每人最多买这么多件，<b>不同商品合并计算</b>（买 3 件 A + 7 件 B 就满了）。
+            同一场次第二天重新计数，换到别的场次不占用这里的额度。</div>
         </el-form-item>
 
         <!-- 转拍时限 -->

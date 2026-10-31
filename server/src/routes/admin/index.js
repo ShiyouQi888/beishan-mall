@@ -96,7 +96,7 @@ const M = {
       { k: 'open_days', t: '开放日期', type: 'days', w: 96 },
       { k: 'start_time', t: '开始时间', type: 'timesec', w: 88 },
       { k: 'end_time', t: '结束时间', type: 'timesec', w: 88 },
-      { k: 'buy_num', t: '限购次数', type: 'number', w: 84 },
+      { k: 'buy_num', t: '限购件数', type: 'number', w: 84 },
       { k: 'area_goods_count', t: '商品数', type: 'count', readonly: true, w: 80, tip: '本场次已关联多少件商品。点「配置」进去可以增减。' },
       { k: 'transposition_hours', t: '转拍时限(小时)', type: 'number', w: 96 },
       { k: 'is_subscribe', t: '开放预约', type: 'switch', opts: { 10: '是', 0: '否' }, w: 100 },
