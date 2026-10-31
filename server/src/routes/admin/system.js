@@ -8,12 +8,13 @@ const r = Router();
 
 r.get('/system/reset/plan', authAdmin, (req, res) => {
   const scopes = String(req.query.scopes || '').split(',').map((s) => s.trim()).filter(Boolean);
-  const { total, detail } = planReset(scopes.length ? scopes : null);
+  const { total, totals, detail } = planReset(scopes.length ? scopes : null);
   res.json(ok({
     scopes: SCOPES,
     confirm_text: CONFIRM_TEXT,
     summary: summary(),
     total,
+    totals,
     detail,
   }));
 });

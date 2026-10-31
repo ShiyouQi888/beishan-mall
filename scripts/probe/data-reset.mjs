@@ -126,6 +126,17 @@ async function main() {
     ok(plan.data.total > 0, '合计行数 > 0', String(plan.data.total));
     ok(plan.data.confirm_text === '我已知晓风险并确认清除', '下发了确认文字', plan.data.confirm_text);
 
+    // 卡片上的行数必须一直看得到：只勾一项时，其余三项不能变成 0
+    const planTradeOnly = await api('/admin/api/system/reset/plan?scopes=trade', { token: at });
+    ok(
+      (planTradeOnly.data.detail.member || []).length > 0
+      && (planTradeOnly.data.detail.goods || []).length > 0
+      && (planTradeOnly.data.detail.media || []).length > 0,
+      '只勾一项时，其余范围仍返回真实行数',
+      JSON.stringify(Object.keys(planTradeOnly.data.detail || {})),
+    );
+    eq(planTradeOnly.data.total, planTradeOnly.data.totals.trade, '合计只算勾选的范围');
+
     // ---------- 校验 ----------
     section('[3] 执行前校验');
     const badConfirm = await api('/admin/api/system/reset', { method: 'POST', token: at, body: { scopes: ['trade'], confirm: '随便写' } });
@@ -167,6 +178,14 @@ async function main() {
     eq(Number(g.turns), 0, '流转次数归零');
     eq(Number(g.sales), 0, '销量归零');
     eq(db.prepare('SELECT COUNT(*) c FROM goods WHERE member_id <> ?', off.member_id).get().c, 0, '商品持有人都是官方');
+
+    // 复位只动流转字段：名额复原、封顶标记清掉、回到不限日期、价格回到基准价
+    const restock = db.prepare('SELECT COUNT(*) c FROM goods WHERE stock_num <> MAX(IFNULL(stock_total, 1), 1)').get().c;
+    eq(restock, 0, '名额复原（stock_num = stock_total）');
+    eq(db.prepare('SELECT COUNT(*) c FROM goods WHERE IFNULL(recycled,0) <> 0').get().c, 0, '封顶标记已清');
+    eq(db.prepare("SELECT COUNT(*) c FROM goods WHERE IFNULL(area_date,'') <> ''").get().c, 0, '场次日期已清空');
+    const priceBack = db.prepare('SELECT COUNT(*) c FROM goods WHERE base_price > 0 AND ABS(goods_min_price - base_price) > 0.004').get().c;
+    eq(priceBack, 0, '价格回到基准价');
 
     const after = {
       cat: db.prepare('SELECT COUNT(*) c FROM goods_category').get().c,
@@ -214,6 +233,109 @@ async function main() {
     eq(stillUsed, 1, '被商品引用的 demo-1 仍保留');
     const uploadedGone = db.prepare("SELECT COUNT(*) c FROM media_file WHERE name = '待清理'").get().c;
     eq(uploadedGone, 0, '没人用的测试图已被删');
+
+    // 详情里引用的图不能被当成「没人用」删掉（以前只查 good_thumb/images，详情是漏洞）
+    const upFd2 = new FormData();
+    upFd2.append('file', new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')], { type: 'image/png' }), '详情专用.png');
+    const up2 = await fetch(`${BASE}/admin/api/media/upload`, { method: 'POST', headers: { token: at }, body: upFd2 }).then((r) => r.json());
+    ok(up2.code === 1, '上传一张「只在详情里用」的图', up2.msg);
+    const detailPath = up2.data.path;
+    db.prepare('UPDATE goods SET detail = ? WHERE goods_id = (SELECT goods_id FROM goods ORDER BY goods_id LIMIT 1)')
+      .run(`<p>图文详情</p><img src="${detailPath}" alt="" />`);
+    const cleanAgain = await api('/admin/api/system/reset', {
+      method: 'POST', token: at, body: { scopes: ['media'], confirm: '我已知晓风险并确认清除' },
+    });
+    ok(cleanAgain.code === 1, '再清一次未引用素材', cleanAgain.msg);
+    eq(db.prepare('SELECT COUNT(*) c FROM media_file WHERE path = ?').get(detailPath).c, 1, '商品详情里引用的图没被误删');
+
+    // ---------- 恢复出厂口径 ----------
+    // 用户要的是「只清用户 / 订单 / 财务资金」，商品连详情都不许动。
+    section('[7] 恢复出厂：只清会员+订单+资金，商品与详情原样保留');
+    const testMember = db.prepare('SELECT * FROM member WHERE mobile = ?').get('13900001111');
+    ok(!!testMember, '前置：库里有一个非官方会员');
+
+    const gid = db.prepare('SELECT goods_id FROM goods ORDER BY goods_id LIMIT 1').get().goods_id;
+    const DETAIL = '<p>详情占位</p><img src="/uploads/demo-1.svg" alt="" />';
+    const DIMGS = '["/uploads/demo-2.svg"]';
+    db.prepare(
+      `UPDATE goods SET member_id = ?, detail = ?, detail_images = ?, good_thumb = ?, images = ?,
+         goods_min_price = 888, base_price = 100, stock_total = 5, stock_num = 2,
+         turn_beat_num = 4, goods_status = 20, recycled = 1
+       WHERE goods_id = ?`,
+    ).run(testMember.member_id, DETAIL, DIMGS, '/uploads/demo-3.svg', '["/uploads/demo-4.svg"]', gid);
+    const snap = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(gid);
+
+    const factory = await api('/admin/api/system/reset', {
+      method: 'POST', token: at,
+      body: { scopes: ['trade', 'member'], confirm: '我已知晓风险并确认清除' },
+    });
+    ok(factory.code === 1, '恢复出厂（会员 + 订单资金）执行成功', factory.msg);
+
+    eq(db.prepare('SELECT COUNT(*) c FROM member').get().c, 1, '会员只剩官方账号');
+    eq(db.prepare('SELECT COUNT(*) c FROM orders').get().c, 0, '订单清空');
+    eq(db.prepare('SELECT COUNT(*) c FROM finance_energy').get().c, 0, '资金流水清空');
+    eq(db.prepare('SELECT COUNT(*) c FROM finance_withdraw').get().c, 0, '提现申请清空');
+    eq(db.prepare('SELECT COUNT(*) c FROM settle_pay').get().c, 0, '结算账目清空');
+    eq(db.prepare('SELECT COUNT(*) c FROM member_address').get().c, 0, '会员地址清空');
+
+    const a = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(gid);
+    eq(db.prepare('SELECT COUNT(*) c FROM goods').get().c, before.goods, '商品一个都没少');
+    eq(a.detail, DETAIL, '商品详情原样保留');
+    eq(a.detail_images, DIMGS, '详情长图原样保留');
+    eq(a.good_thumb, snap.good_thumb, '主图原样保留');
+    eq(a.images, snap.images, '图集原样保留');
+    eq(Number(a.goods_min_price), 888, '售卖价没被改');
+    eq(Number(a.base_price), 100, '基准价没被改');
+    eq(Number(a.goods_status), 20, '上下架状态没被改');
+    eq(Number(a.stock_num), 2, '库存没被改');
+    eq(Number(a.turn_beat_num), 4, '转拍次数没被改');
+    eq(Number(a.recycled), 1, '封顶标记没被改');
+
+    const off2 = db.prepare('SELECT * FROM member LIMIT 1').get();
+    eq(Number(a.member_id), Number(off2.member_id), '持有人悬空的商品自动回到官方（只改这一个字段）');
+
+    eq(db.prepare('SELECT COUNT(*) c FROM goods_category').get().c, before.cat, '分类没动');
+    eq(db.prepare('SELECT COUNT(*) c FROM specialarea').get().c, before.area, '场次没动');
+    eq(db.prepare('SELECT COUNT(*) c FROM setting_config').get().c, before.cfg, '系统设置没动');
+    eq(db.prepare('SELECT COUNT(*) c FROM store_user').get().c, userBeforeReset, '后台账号没动');
+
+    // ---------- 恢复出厂：四项全带 ----------
+    section('[8] 恢复出厂四项全带：商品复位，但详情/图片/素材引用都不受损');
+    const upFd3 = new FormData();
+    upFd3.append('file', new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')], { type: 'image/png' }), '详情长图.png');
+    const up3 = await fetch(`${BASE}/admin/api/media/upload`, { method: 'POST', headers: { token: at }, body: upFd3 }).then((r) => r.json());
+    ok(up3.code === 1, '上传一张只被详情引用的图', up3.msg);
+    const keepPath = up3.data.path;
+    const DETAIL2 = `<p>恢复出厂前的详情</p><img src="${keepPath}" alt="" />`;
+    db.prepare('UPDATE goods SET detail = ?, detail_images = ?, area_date = ?, sales_actual = 3 WHERE goods_id = ?')
+      .run(DETAIL2, '["/uploads/demo-2.svg"]', '2026-11-01', gid);
+    const snap2 = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(gid);
+
+    const allIn = await api('/admin/api/system/reset', {
+      method: 'POST', token: at,
+      body: { scopes: ['trade', 'member', 'goods', 'media'], confirm: '我已知晓风险并确认清除' },
+    });
+    ok(allIn.code === 1, '四项全带的恢复出厂执行成功', allIn.msg);
+    eq(Object.keys(allIn.data?.removed || {}).length, 4, '四个范围都执行了');
+
+    const b = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(gid);
+    eq(b.detail, snap2.detail, '商品详情原样保留');
+    eq(b.detail_images, snap2.detail_images, '详情长图原样保留');
+    eq(b.good_thumb, snap2.good_thumb, '主图原样保留');
+    eq(b.images, snap2.images, '图集原样保留');
+    eq(Number(b.goods_status), 10, '商品重新上架');
+    eq(Number(b.is_sell), 10, '在售标记已恢复');
+    eq(Number(b.stock_num), Number(b.stock_total), '名额复原（stock_num = stock_total）');
+    eq(Number(b.turn_beat_num), 0, '转拍次数归零');
+    eq(Number(b.sales_actual), 0, '销量归零');
+    eq(Number(b.recycled), 0, '封顶标记已清');
+    eq(String(b.area_date || ''), '', '场次日期已清空');
+    eq(Number(b.goods_min_price), Number(b.base_price), '价格回到基准价');
+    eq(
+      db.prepare('SELECT COUNT(*) c FROM media_file WHERE path = ?').get(keepPath).c,
+      1,
+      '详情里引用的素材没被当成垃圾删掉',
+    );
   } finally {
     srv.kill('SIGTERM');
     await sleep(300);

@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>数据清除</h2>
-        <div class="desc">给真人全量测试用的清库工具：把测试过程产生的订单、资金、会员清掉，回到干净起点</div>
+        <div class="desc">给真人全量测试用的清库工具：把测试过程产生的订单、资金、会员清掉，商品复位，回到干净起点</div>
       </div>
       <el-button @click="load">刷新数据量</el-button>
     </div>
@@ -15,7 +15,8 @@
       </svg>
       <div>
         <b>删除后无法撤销。</b>执行前系统会自动把数据库备份到 <code>server/data/backup/</code>，
-        真出问题可以拿备份文件回滚。后台账号、权限、系统配置、分类、场次、商品、广告、公告都不会被动。
+        真出问题可以拿备份文件回滚。后台账号、权限、系统配置、分类、场次、广告、公告都不会被动；
+        商品只复位、不删除。
       </div>
     </div>
 
@@ -39,10 +40,24 @@
           <li>后台账号、角色与权限节点</li>
           <li>系统设置（费率、导航、支付、须知等全部配置）</li>
           <li>商品分类、抢购场次、商品本身（只复位，不删除）</li>
+          <li>商品详情文字、详情长图、主图与图集（复位时一律不动）</li>
           <li>广告、导航、公告、运费模板、会员等级</li>
           <li>官方账号（邀请码来源 + 商品初始持有人）</li>
         </ul>
       </div>
+    </div>
+
+    <div class="panel mt14 factory">
+      <div class="factory-main">
+        <div class="factory-t">恢复出厂</div>
+        <div class="factory-d">
+          一次做完四件事：清空<b>会员、订单、财务与资金流水</b>；<b>复位商品</b>（持有人回官方、名额复原、转拍与销量归零、解除封顶并重新上架）；
+          <b>清理没人用的素材</b>。只留下官方账号，回到刚部署好的状态。
+          <br />
+          <b>商品不删除：详情文字、详情长图、主图与图集、分类、场次关联、系统设置全部保留。</b>
+        </div>
+      </div>
+      <el-button type="danger" @click="factoryReset">恢复出厂设置</el-button>
     </div>
 
     <div class="panel mt14">
@@ -57,7 +72,9 @@
 
       <div class="scope-grid">
         <div v-for="(cfg, key) in scopeMeta" :key="key" class="scope" :class="{ on: scopes.includes(key) }" @click="toggle(key)">
-          <el-checkbox :model-value="scopes.includes(key)" @click.stop />
+          <!-- 勾选框自己也要能点：以前这里挂了 @click.stop 但没有处理函数，
+               点方框本身完全没反应，只能点卡片空白处，看起来就是「选不动」 -->
+          <el-checkbox :model-value="scopes.includes(key)" @click.stop.prevent="toggle(key)" />
           <div class="scope-main">
             <div class="scope-t">{{ cfg.label }}</div>
             <div class="scope-d">{{ cfg.desc }}</div>
@@ -72,6 +89,7 @@
       <div class="foot">
         <div class="foot-tip">
           本次将清除约 <b>{{ total }}</b> 行数据
+          <span v-if="!scopes.length" class="muted">（还没选任何范围）</span>
           <span v-if="scopes.includes('member') && !scopes.includes('trade')" class="bad">（清除会员必须同时清除订单，否则会产生孤儿订单）</span>
         </div>
         <el-button type="danger" :disabled="!scopes.length" @click="openConfirm">清除选中数据</el-button>
@@ -106,6 +124,10 @@
         <div class="risk-safe">
           会自动备份数据库；后台账号、权限、系统设置、商品、分类、场次、广告、公告不受影响。
         </div>
+        <div v-if="scopes.includes('member')" class="risk-safe goods">
+          商品原本挂在被清理的会员名下时，会自动回到官方账号名下。只改「现持有人」这一个字段，
+          价格、状态、销量、详情、图片都不动。
+        </div>
       </div>
 
       <div class="confirm-box">
@@ -138,7 +160,6 @@ import { adminApi } from '../api.js';
 const scopes = ref([]);
 const scopeMeta = ref({});
 const detail = ref({});
-const total = ref(0);
 const summary = ref({});
 const confirmText = ref('');
 const confirmDlg = ref(false);
@@ -158,14 +179,19 @@ const statCards = computed(() => [
   { k: '素材文件', v: summary.value.media ?? 0 },
 ]);
 
-const rowsOf = (key) => (detail.value[key] || []).reduce((s, x) => s + Number(x.rows || 0), 0);
+/** 某个范围会影响多少行。detail 由后端按「全部范围」统计，跟选没选中无关 */
+function rowsOf(key) {
+  return (detail.value[key] || []).reduce((s, x) => s + Number(x.rows || 0), 0);
+}
+
+/** 本次要清多少行：只算勾上的，跟着勾选实时变 */
+const total = computed(() => scopes.value.reduce((s, k) => s + rowsOf(k), 0));
 
 async function load() {
   try {
     const r = await adminApi.resetPlan(scopes.value);
     scopeMeta.value = r.data?.scopes || {};
     detail.value = r.data?.detail || {};
-    total.value = Number(r.data?.total || 0);
     summary.value = r.data?.summary || {};
     confirmText.value = r.data?.confirm_text || '';
   } catch {}
@@ -173,14 +199,35 @@ async function load() {
 
 function toggle(key) {
   const i = scopes.value.indexOf(key);
-  if (i >= 0) scopes.value.splice(i, 1);
-  else scopes.value.push(key);
+  if (i >= 0) {
+    scopes.value.splice(i, 1);
+    load();
+    return;
+  }
+  scopes.value.push(key);
+  // 只清会员会留下指向不存在会员的孤儿订单，后端也会拦。
+  // 与其让用户点完被报错拦下，不如勾会员时自动把订单资金一起带上，并说清楚。
+  if (key === 'member' && !scopes.value.includes('trade')) {
+    scopes.value.push('trade');
+    ElMessage.warning('已同时勾选「订单与资金」：只清会员会留下孤儿订单');
+  }
   load();
 }
 
 function selectAll() {
   scopes.value = Object.keys(scopeMeta.value);
   load();
+}
+
+/** 恢复出厂 = 四项全带：会员、订单资金、商品复位、没人用的素材 */
+const FACTORY_SCOPES = ['trade', 'member', 'goods', 'media'];
+
+/** 恢复出厂：四个范围全选，直接进确认弹窗 */
+function factoryReset() {
+  const keys = Object.keys(scopeMeta.value);
+  scopes.value = keys.length ? keys.filter((k) => FACTORY_SCOPES.includes(k)) : [...FACTORY_SCOPES];
+  load();
+  openConfirm();
 }
 
 async function copyPhrase() {
@@ -243,6 +290,19 @@ onMounted(load);
 .panel-head .link:hover { text-decoration: underline; }
 .panel-head .sep { margin: 0 6px; opacity: 0.4; }
 
+/* 恢复出厂：一整块独立卡片，和下面的细粒度勾选分开，避免被当成普通选项 */
+.factory {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid #ffd9d2;
+  background: linear-gradient(180deg, #fffaf9, #fff);
+}
+.factory-main { flex: 1; min-width: 0; }
+.factory-t { font-size: 14px; font-weight: 700; color: #c9351f; }
+.factory-d { margin-top: 5px; font-size: 12.5px; color: #626a76; line-height: 1.75; }
+.factory-d b { color: #22252b; }
+
 .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .stat { background: #fafbfc; border-radius: 10px; padding: 11px 12px; }
 .stat .v { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -274,6 +334,7 @@ onMounted(load);
 .foot-tip { font-size: 12.5px; color: #626a76; }
 .foot-tip b { color: #c9351f; font-size: 15px; }
 .foot-tip .bad { color: #c9351f; margin-left: 6px; }
+.foot-tip .muted { color: #a8adb7; margin-left: 4px; }
 
 .result .res-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
 .res { display: flex; align-items: baseline; justify-content: space-between; background: #fafbfc; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; }
@@ -287,6 +348,8 @@ onMounted(load);
 .risk ul { margin: 0 0 10px; padding-left: 18px; line-height: 1.9; }
 .risk .num { color: #a8adb7; margin-left: 4px; white-space: nowrap; }
 .risk-safe { padding: 10px 12px; background: #f5faf7; border-radius: 9px; color: #3d7a58; font-size: 12px; line-height: 1.7; }
+.risk-safe.goods { margin-top: 8px; background: #f4f7fd; color: #3f5f92; }
+.risk-safe.goods b { color: #2b4a7d; }
 
 .confirm-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid #f2f4f7; }
 .cb-t { font-size: 12.5px; color: #626a76; margin-bottom: 8px; }

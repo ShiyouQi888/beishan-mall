@@ -10,7 +10,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, all, get, run } from '../db.js';
 import { hashPwd } from './auth.js';
-import { usagesOf } from './mediaRefs.js';
+import { normPath, referencedPathSet } from './mediaRefs.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.MALL_DB && (process.env.MALL_DB.includes('/') || process.env.MALL_DB.includes('\\'))
@@ -38,46 +38,55 @@ const TRADE_TABLES = [
 const MEMBER_TABLES = ['member_address', 'member_card', 'member_certification', 'member_msg'];
 
 export const SCOPES = {
-  trade: { label: '订单与资金', desc: '订单、订单日志、资金流水、提现、结算账目' },
+  trade: { label: '订单与资金', desc: '订单、订单日志、资金流水、提现、结算账目、系统回收台账' },
   member: { label: '会员与团队', desc: '除官方账号外全部会员，及其地址、收款卡、实名、站内消息' },
-  goods: { label: '商品复位', desc: '商品不删除，只把持有人改回官方、流转次数与销量归零、全部重新上架' },
-  media: { label: '未引用的素材', desc: '只删没人用的图片，商品/广告/配置正在用的会保留' },
+  goods: {
+    label: '商品复位',
+    desc: '商品不删除：持有人改回官方、价格回到基准价、名额复原、转拍与销量归零、清掉封顶标记并全部上架。商品详情、图片、分类、场次关联一律不动',
+  },
+  media: { label: '未引用的素材', desc: '只删没人用的图片，商品主图/图集/详情图、广告、配置正在用的都会保留' },
 };
 
 const countOf = (t) => Number(get(`SELECT COUNT(*) c FROM ${t}`)?.c || 0);
 const officialOf = () =>
   get("SELECT * FROM member WHERE invitation_code = ? OR mobile = ? ORDER BY member_id LIMIT 1", OFFICIAL.code, OFFICIAL.mobile);
 
-/** 预览：每个范围会影响多少行 */
+/**
+ * 预览：每个范围会影响多少行
+ *
+ * 注意：detail / totals 永远按「全部范围」统计，只有 total 跟随选中项。
+ * 原来按选中项过滤，结果勾一个、其余三个数字变 0，看着像数据没了或者点不动。
+ */
 export function planReset(scopes) {
-  const pick = new Set(scopes?.length ? scopes : Object.keys(SCOPES));
   const detail = {};
-  let total = 0;
 
-  if (pick.has('trade')) {
-    detail.trade = TRADE_TABLES.map((t) => ({ table: t, rows: countOf(t) }));
-    total += detail.trade.reduce((s, x) => s + x.rows, 0);
-  }
-  if (pick.has('member')) {
-    const members = countOf('member');
-    const keep = officialOf() ? 1 : 0;
-    const rows = Math.max(0, members - keep);
-    detail.member = [
-      { table: 'member（除官方）', rows },
-      ...MEMBER_TABLES.map((t) => ({ table: t, rows: countOf(t) })),
-    ];
-    total += detail.member.reduce((s, x) => s + x.rows, 0);
-  }
-  if (pick.has('goods')) {
-    detail.goods = [{ table: 'goods（复位，不删除）', rows: countOf('goods') }];
-    total += detail.goods[0].rows;
-  }
-  if (pick.has('media')) {
-    const rows = all('SELECT file_id, path FROM media_file').filter((f) => usagesOf(f.path).length === 0);
-    detail.media = [{ table: '未引用素材', rows: rows.length }];
-    total += rows.length;
-  }
-  return { total, detail };
+  detail.trade = TRADE_TABLES.map((t) => ({ table: t, rows: countOf(t) }));
+
+  const members = countOf('member');
+  const keep = officialOf() ? 1 : 0;
+  detail.member = [
+    { table: 'member（除官方）', rows: Math.max(0, members - keep) },
+    ...MEMBER_TABLES.map((t) => ({ table: t, rows: countOf(t) })),
+  ];
+
+  detail.goods = [{ table: 'goods（复位，不删除）', rows: countOf('goods') }];
+
+  // 一次扫全库引用，别再逐文件查十张表 —— 素材一多这里会把页面拖住
+  const refs = referencedPathSet();
+  detail.media = [
+    {
+      table: '未引用素材',
+      rows: all('SELECT file_id, path, private FROM media_file').filter(
+        (f) => !Number(f.private) && !refs.has(normPath(f.path)),
+      ).length,
+    },
+  ];
+
+  const sumOf = (k) => (detail[k] || []).reduce((s, x) => s + Number(x.rows || 0), 0);
+  const totals = Object.fromEntries(Object.keys(SCOPES).map((k) => [k, sumOf(k)]));
+  const picked = scopes?.length ? scopes.filter((s) => SCOPES[s]) : Object.keys(SCOPES);
+  const total = picked.reduce((s, k) => s + (totals[k] || 0), 0);
+  return { total, totals, detail };
 }
 
 /** 备份数据库到 data/backup/，返回文件名 */
@@ -145,23 +154,44 @@ export function resetData(scopes) {
            WHERE member_id = ?`,
           OFFICIAL.nick, OFFICIAL.mobile, OFFICIAL.code, keptMemberId,
         );
+        // 会员被删了，商品上的「现持有人」就成了悬空 id：前台会显示空持有人、转拍也会出错。
+        // 这里只把悬空的改回官方，正常的商品数据一行都不动（不改价格、不改状态、不动详情）。
+        // 不计入 n：这不是删除，是引用清理。
+        run(
+          `UPDATE goods SET member_id = ?
+           WHERE IFNULL(member_id, 0) > 0 AND member_id NOT IN (SELECT member_id FROM member)`,
+          keptMemberId,
+        );
       } else if (scope === 'goods') {
         let holder = keptMemberId || officialOf()?.member_id || 0;
         if (!holder) {
           const first = get('SELECT member_id FROM member ORDER BY member_id LIMIT 1');
           holder = first?.member_id || 0;
         }
+        // 复位 = 回到刚建好的状态，但**只动流转相关的列**。
+        // 明确不碰：detail / detail_images / images / good_thumb / line_price / price_cap /
+        //           category_id / specialarea_goods 关联 —— 运营辛苦填的详情和图片不能被清库带走。
+        // 价格回到基准价（首次上架价），否则转拍涨上去的价会留在原位，水位一上来就是红的。
         n = Number(run(
-          `UPDATE goods SET member_id = ?, goods_status = 10, stock_num = 1,
-             turn_beat_num = 0, sales_actual = 0, is_sell = 10
+          `UPDATE goods SET
+             member_id = ?,
+             goods_status = 10,
+             is_sell = 10,
+             stock_num = MAX(IFNULL(stock_total, 1), 1),
+             turn_beat_num = 0,
+             sales_actual = 0,
+             recycled = 0,
+             area_date = '',
+             goods_min_price = CASE WHEN IFNULL(base_price, 0) > 0 THEN base_price ELSE goods_min_price END
            WHERE 1 = 1`,
           holder,
         ).changes || 0);
       } else if (scope === 'media') {
-        const rows = all('SELECT * FROM media_file');
-        for (const f of rows) {
-          if (usagesOf(f.path).length) continue; // 还在用的留着
-          if (f.private) continue;               // 会员私有文件不在这里删
+        // 引用关系要重新算：前面 trade 已把订单删了，之前「被订单引用」的素材现在确实没人用了
+        const refs = referencedPathSet();
+        for (const f of all('SELECT * FROM media_file')) {
+          if (refs.has(normPath(f.path))) continue; // 还在用的留着
+          if (f.private) continue;                  // 会员私有文件不在这里删
           const abs = join(UPLOAD_DIR, basename(f.path));
           if (existsSync(abs)) {
             try { unlinkSync(abs); } catch { continue; }
