@@ -50,6 +50,15 @@ async function main() {
   // 系统默认只开线下转账；本套用例全程用余额支付验证扣款与分账，测试库显式打开
   db.exec("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'");
 
+  /**
+   * 测试专用：把所有未支付订单关掉，释放被锁的商品。
+   * 抢购改成「提交即锁单」后，前面用例下单不付款会把货锁死，
+   * 后面的用例就再也选不到可买商品 —— 这里主动释放。
+   */
+  const releaseUnpaidLocks = () => {
+    db.exec("UPDATE orders SET status = 40 WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0");
+  };
+
   const baseline = {
     balSum: db.prepare('SELECT IFNULL(SUM(amount),0) v FROM member').get().v,
     flowSum: db.prepare("SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE type = 2").get().v,
@@ -253,12 +262,16 @@ async function main() {
     const rcCfg = (await api('/admin/api/setting/trade', { token: at })).data?.values?.require_receiving_account;
     ok(Number(rcCfg) === 20, '收款账户强制开关默认关闭（未开启）', `实际 ${JSON.stringify(rcCfg)}`);
 
+    // 抢购是提交即锁单：这件货可能被前面的用例占着，先释放再测
+    releaseUnpaidLocks();
     const npOff = await api('/api/order/toAddOrder', { method: 'POST', token: poor, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
     ok(npOff.code === 1, '开关关闭时未绑定收款账户也可下单', npOff.msg);
 
     await api('/admin/api/setting/save', {
       method: 'POST', token: at, body: { group: 'trade', values: { require_receiving_account: '10' } },
     });
+    // 上一单还锁着这件货，先释放，才能测到「被收款方式拦住」而不是「被锁单拦住」
+    releaseUnpaidLocks();
     const np = await api('/api/order/toAddOrder', { method: 'POST', token: poor, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
     ok(np.code === 0 && /收款方式/.test(np.msg), '开启开关后未绑定收款账户被拦截', np.msg);
     await api('/admin/api/setting/save', {
@@ -312,8 +325,11 @@ async function main() {
     const jsDay = new Date().getDay();
     const todayNum = jsDay === 0 ? 7 : jsDay;
     const otherDay = todayNum === 1 ? 2 : 1;
+    releaseUnpaidLocks();
     const gArea1 = db.prepare(
-      "SELECT * FROM goods WHERE specialarea_id = 1 AND goods_status = 10 AND member_id <> ? LIMIT 1",
+      `SELECT * FROM goods WHERE specialarea_id = 1 AND goods_status = 10 AND member_id <> ?
+         AND goods_id NOT IN (SELECT goods_id FROM orders WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0)
+       LIMIT 1`,
     ).get(bid);
 
     await api('/admin/api/specialarea/save', {
@@ -608,8 +624,13 @@ async function main() {
 
     // 找一个买家不是持有人的可抢购商品
     const buyerId2 = db.prepare("SELECT member_id id FROM member WHERE mobile='13822367845'").get().id;
+    // 已经被「待付款订单」锁住的货不能再选：抢购是提交即锁单，会直接把下单接口拒掉
+    releaseUnpaidLocks();
     const goods2 = db.prepare(
-      'SELECT goods_id, goods_min_price FROM goods WHERE goods_status = 10 AND type = 1 AND member_id <> ? LIMIT 1',
+      `SELECT goods_id, goods_min_price FROM goods
+       WHERE goods_status = 10 AND type = 1 AND member_id <> ?
+         AND goods_id NOT IN (SELECT goods_id FROM orders WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0)
+       LIMIT 1`,
     ).get(buyerId2);
     ok(!!goods2, '找到可用于服务费测试的商品');
     const gp = Number(goods2.goods_min_price);
@@ -661,8 +682,11 @@ async function main() {
     // 恢复默认 0，确认不会残留、也不会破坏「抢购不收费」的实证口径
     await scSet(0);
     eq(await scGet(), 0, '恢复默认费率 0');
+    releaseUnpaidLocks();
     const goods3 = db.prepare(
-      'SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND member_id <> ? LIMIT 1',
+      `SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND member_id <> ?
+         AND goods_id NOT IN (SELECT goods_id FROM orders WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0)
+       LIMIT 1`,
     ).get(buyerId2);
     if (goods3) {
       const b3 = await api('/api/order/toAddOrder', {
@@ -695,9 +719,11 @@ async function main() {
       });
     }
 
+    releaseUnpaidLocks();
     const gw = db.prepare(
       `SELECT goods_id, goods_min_price FROM goods
        WHERE goods_status = 10 AND type = 1 AND member_id NOT IN (?, ?)
+         AND goods_id NOT IN (SELECT goods_id FROM orders WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0)
        ORDER BY goods_id LIMIT 1`,
     ).get(idA, idB);
     ok(!!gw, '找到可用商品（持有人既非 A 也非 B）');
@@ -776,9 +802,11 @@ async function main() {
     await api('/admin/api/member/adjust', {
       method: 'POST', token: at, body: { member_id: shopOwner.id, field: 'amount', value: 300000, remark: '店铺测试注资' },
     });
+    releaseUnpaidLocks();
     const shopGoods = db.prepare(
       `SELECT g.goods_id, g.goods_min_price FROM goods g
        WHERE g.goods_status = 10 AND g.type = 1 AND g.member_id <> ?
+         AND g.goods_id NOT IN (SELECT goods_id FROM orders WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0)
        ORDER BY g.goods_id DESC LIMIT 1`,
     ).get(shopOwner.id);
     ok(!!shopGoods, '找到可用于店铺测试的商品');
@@ -947,8 +975,11 @@ async function main() {
     await api('/admin/api/member/adjust', {
       method: 'POST', token: at, body: { member_id: yId, field: 'amount', value: 200000, remark: '分销测试注资' },
     });
+    releaseUnpaidLocks();
     const buyGid = db.prepare(
-      'SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND member_id <> ? LIMIT 1',
+      `SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND member_id <> ?
+         AND goods_id NOT IN (SELECT goods_id FROM orders WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0)
+       LIMIT 1`,
     ).get(yId)?.goods_id;
     ok(!!buyGid, '找到分销测试商品');
     const yOrder = await api('/api/order/toAddOrder', {

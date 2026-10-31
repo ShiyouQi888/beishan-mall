@@ -53,6 +53,14 @@ async function main() {
   await runSeed();
   const { db } = await import('../../server/src/db.js');
 
+  // 安全阀：确认真的连在测试库上。
+  // 这个用例会真的清库，一旦连错（比如环境变量没生效、默认落回 mall.db），
+  // 演示数据会被整锅端掉 —— 宁可在这里直接退出。
+  const dbFile = String(db.prepare('PRAGMA database_list').get()?.file || '');
+  if (!dbFile.includes(DB)) {
+    throw new Error(`安全阀拦住：实际连的是 ${dbFile}，不是测试库 ${DB}，已中止（未执行任何清除）`);
+  }
+
   // 系统默认只开线下转账；本用例要走余额支付，测试库显式把余额支付打开
   {
     try {

@@ -88,7 +88,7 @@ async function main() {
     }
 
     // ---------------- 1. 同一件货两人下单后各自付款 ----------------
-    section('[1] 同一件货两人下单：只有先付的能成交');
+    section('[1] 同一件货两人下单：只有一个人能锁到');
     const g = db.prepare(
       "SELECT goods_id, goods_min_price, member_id FROM goods WHERE type = 1 AND goods_status = 10 AND IFNULL(area_date,'') = '' AND member_id NOT IN (?,?) ORDER BY goods_id LIMIT 1",
     ).get(midA, midB);
@@ -97,21 +97,23 @@ async function main() {
     const price = Number(g.goods_min_price);
     const sellerBefore = Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(sellerId).amount);
 
+    // 抢购是提交即锁单：同时下单时只能有一个人锁到，另一个人连单都下不了
     const oA = await api('/api/order/toAddOrder', { method: 'POST', token: A, body: { goods_id: g.goods_id, num: 1, pay_type: 1 } });
     const oB = await api('/api/order/toAddOrder', { method: 'POST', token: B, body: { goods_id: g.goods_id, num: 1, pay_type: 1 } });
-    ok(oA.code === 1 && oB.code === 1, '两人都成功下单（商品仍在上架）', `${oA.msg} / ${oB.msg}`);
+    ok(oA.code === 1, 'A 抢到了');
+    ok(oB.code !== 1, 'B 抢不到（货已被 A 锁定）', oB.msg);
+    ok(/锁定|抢先/.test(oB.msg || ''), '拒绝原因指向已被抢先锁定', oB.msg);
 
     const pA = await api('/api/order/toPay', { method: 'POST', token: A, body: { order_id: oA.data.order_id, pay_type: 1 } });
-    ok(pA.code === 1, 'A 先付款成功', pA.msg);
+    ok(pA.code === 1, 'A 付款成功', pA.msg);
 
-    const pB = await api('/api/order/toPay', { method: 'POST', token: B, body: { order_id: oB.data.order_id, pay_type: 1 } });
-    ok(pB.code !== 1, 'B 后付款被拒（货已被买走）', pB.msg);
-    ok(/已被他人买走|无法成交/.test(pB.msg || ''), '拒绝原因指向货物已转手', pB.msg);
+    // B 手里没有订单，试着付 A 的单也必须失败
+    const pB = await api('/api/order/toPay', { method: 'POST', token: B, body: { order_id: oA.data.order_id, pay_type: 1 } });
+    ok(pB.code !== 1, 'B 无法支付别人的订单', pB.msg);
 
     const sellerAfter = Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(sellerId).amount);
     ok(Math.abs(sellerAfter - sellerBefore - price) < 0.01, '卖家只收到一份货款', `${sellerBefore} → ${sellerAfter}，单价 ${price}`);
-    ok(Number(db.prepare('SELECT member_id FROM goods WHERE goods_id = ?').get(g.goods_id).member_id) === midA, '货归先付款的 A');
-    ok(Number(db.prepare('SELECT pay_status FROM orders WHERE order_id = ?').get(oB.data.order_id).pay_status) === 0, 'B 的订单仍是未支付，没有被扣钱');
+    ok(Number(db.prepare('SELECT member_id FROM goods WHERE goods_id = ?').get(g.goods_id).member_id) === midA, '货归抢到的 A');
 
     // 线下支付同样要拦
     const g2 = db.prepare(
@@ -121,20 +123,21 @@ async function main() {
       await api('/admin/api/setting/save', { method: 'POST', token: at, body: { group: 'pay', values: { pay_bank: '10', pay_voucher_required: '20' } } });
       const o1 = await api('/api/order/toAddOrder', { method: 'POST', token: A, body: { goods_id: g2.goods_id, num: 1, pay_type: 4 } });
       const o2 = await api('/api/order/toAddOrder', { method: 'POST', token: B, body: { goods_id: g2.goods_id, num: 1, pay_type: 4 } });
-      if (o1.code === 1 && o2.code === 1) {
+      if (o1.code === 1) {
+        ok(o2.code !== 1, '线下单同样只有一个人能锁到', o2.msg);
         const pay1 = await api('/api/order/toPay', { method: 'POST', token: A, body: { order_id: o1.data.order_id, pay_type: 4 } });
-        ok(pay1.code === 1, '线下单先提交成功', pay1.msg);
-        // 后台确认收款会真的成交，此时货已经归 A
+        ok(pay1.code === 1, '线下单提交成功', pay1.msg);
         const c1 = await api('/admin/api/orders/confirm-pay', { method: 'POST', token: at, body: { order_id: o1.data.order_id } });
-        ok(c1.code === 1, '后台确认第一笔收款', c1.msg);
-        const c2 = await api('/admin/api/orders/confirm-pay', { method: 'POST', token: at, body: { order_id: o2.data.order_id } });
-        ok(c2.code !== 1, '后台确认第二笔收款被拒（货已过户）', c2.msg);
+        ok(c1.code === 1, '后台确认收款后成交', c1.msg);
+        ok(Number(db.prepare('SELECT member_id FROM goods WHERE goods_id = ?').get(g2.goods_id).member_id) === midA, '货归 A');
       } else {
+        ok(true, '跳过（没有第二件可用商品）');
         ok(true, '跳过（没有第二件可用商品）');
         ok(true, '跳过（没有第二件可用商品）');
         ok(true, '跳过（没有第二件可用商品）');
       }
     } else {
+      ok(true, '跳过线下场景（没有第二件可用商品）');
       ok(true, '跳过线下场景（没有第二件可用商品）');
       ok(true, '跳过线下场景（没有第二件可用商品）');
       ok(true, '跳过线下场景（没有第二件可用商品）');

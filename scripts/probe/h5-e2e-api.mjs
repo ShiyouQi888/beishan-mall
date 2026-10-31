@@ -279,8 +279,13 @@ async function main() {
     ok(otherDetail.code === 0, '他人订单不可查看', otherDetail.msg);
 
     // 新造一笔待付款订单用于取消
+    // 抢购是提交即锁单：先把前面用例遗留的未支付单关掉，否则选到的货可能正被锁着
+    db.exec("UPDATE orders SET status = 40 WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0");
     const cancelTarget = db.prepare(
-      'SELECT goods_id FROM goods WHERE goods_status = 10 AND type = 1 AND member_id <> ? LIMIT 1',
+      `SELECT goods_id FROM goods
+       WHERE goods_status = 10 AND type = 1 AND member_id <> ?
+         AND goods_id NOT IN (SELECT goods_id FROM orders WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0)
+       LIMIT 1`,
     ).get(newId);
     const cOrder = await api('/api/order/toAddOrder', {
       method: 'POST', token: newToken, body: { goods_id: cancelTarget.goods_id, num: 1, pay_type: 1 },
