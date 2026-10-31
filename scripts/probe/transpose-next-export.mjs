@@ -147,6 +147,10 @@ async function main() {
   check('A 行带上「下一场次」', csvA.includes(second.title_main), csvA.slice(0, 90));
   check('B 行下一场日期是明天', csvB.includes(addDays(today, 1)), csvB.slice(0, 90));
   check('金额两位小数', /,\d+\.\d{2},/.test(csvA), csvA.slice(0, 60));
+  // 时间/日期列都包成 ="..."，Excel 打开不会显示成 ####
+  check('挂牌/下单/确认时间是文本格式',
+    (csvA.match(/="\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"/g) || []).length >= 3, csvA.slice(0, 100));
+  check('场次日期也是文本格式', /="\d{4}-\d{2}-\d{2}"/.test(csvA), csvA.slice(0, 100));
   check('买家手机号带出来了', csvA.includes('13911000051'), csvA.slice(0, 90));
 
   // ---------- 3. 页面 ----------

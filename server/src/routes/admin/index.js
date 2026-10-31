@@ -10,7 +10,7 @@ import { areasOfGoods, areaMapOfGoods, setGoodsAreas, addGoodsToArea, removeGood
 import { priceCapOf } from '../../lib/priceCap.js';
 import { todayStr, addDays } from '../../lib/sessionWindow.js';
 import { rangeClause } from '../../lib/dateRange.js';
-import { toCsv, sendCsv } from '../../lib/csv.js';
+import { toCsv, sendCsv, csvTime } from '../../lib/csv.js';
 import { scanCappedGoods, settlePending, recycleSummary } from '../../lib/recycle.js';
 import extraRouter from './extra.js';
 import mediaRouter from './media.js';
@@ -973,8 +973,9 @@ r.get('/orders/export', authAdmin, (req, res) => {
     Number(o.pay_status) === 10 ? '已确认' : '待确认',
     o.buyer_name || '',
     o.seller_name || '',
-    o.create_time,
-    o.pay_time || '',
+    // 时间列单独走 csvTime，避免 Excel 认成日期后整列 ####
+    csvTime(o.create_time),
+    o.pay_time ? csvTime(o.pay_time) : '',
     o.remark || '',
   ]);
   sendCsv(res, `orders-${todayStr().replace(/-/g, '')}.csv`, toCsv(header, body));

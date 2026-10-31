@@ -91,6 +91,9 @@ async function main() {
   check('表头正确', lines[0] === '订单号,商品,类型,单价,数量,总额,服务费,状态,买家,卖家,下单时间,确认时间,备注', lines[0]);
   check('行数 = 今日订单数 + 表头', lines.filter(Boolean).length === dbToday + 1, `${lines.filter(Boolean).length} vs ${dbToday + 1}`);
   check('金额保留两位小数', lines.length < 2 || /,\d+\.\d{2},\d+,/.test(lines[1] || ''), lines[1] || '(今日无单)');
+  // 时间列包成 ="..."，Excel 才不会把它当日期压成 ####
+  check('下单时间是文本格式', lines.length < 2 || /="\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"/.test(lines[1] || ''),
+    (lines[1] || '').slice(0, 80));
 
   const emptyRes = await fetch(`${API}/admin/api/orders/export?range=custom&date_start=2020-01-01&date_end=2020-01-31`, { headers: { token } });
   const emptyText = (await emptyRes.text()).replace(/^\ufeff/, '');

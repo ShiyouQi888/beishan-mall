@@ -17,7 +17,7 @@ import { ok, fail, authAdmin } from '../../lib/helper.js';
 import { resolveRange } from '../../lib/dateRange.js';
 import { priceCapOf } from '../../lib/priceCap.js';
 import { nextSlot } from '../../lib/sessions.js';
-import { toCsv, sendCsv } from '../../lib/csv.js';
+import { toCsv, sendCsv, csvTime } from '../../lib/csv.js';
 import { todayStr } from '../../lib/sessionWindow.js';
 
 const r = Router();
@@ -237,16 +237,17 @@ r.get('/transpose/export', authAdmin, (req, res) => {
     x.listing_fee.toFixed(2),
     x.sell_price.toFixed(2),
     x.gain.toFixed(2),
-    x.transposition_time,
+    // 时间/日期列都走 csvTime，Excel 里才不会被压成 ####
+    csvTime(x.transposition_time),
     x.online_minutes === null ? '' : x.online_minutes,
     x.turn_beat_num,
-    x.create_time,
-    x.pay_time,
+    csvTime(x.create_time),
+    csvTime(x.pay_time),
     x.area_name || '未关联场次',
-    x.area_date,
+    csvTime(x.area_date),
     x.area_start ? `${x.area_start}-${x.area_end}` : '',
     x.next_slot?.area_name || '',
-    x.next_slot?.date || '',
+    csvTime(x.next_slot?.date || ''),
     x.next_slot ? `${x.next_slot.start}-${x.next_slot.end}` : '',
     x.cap_price > 0 ? x.cap_price.toFixed(2) : '不限',
     x.cap_price > 0 ? x.cap_ratio : '',
