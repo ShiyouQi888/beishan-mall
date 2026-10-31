@@ -225,7 +225,6 @@
                 <el-button v-if="row.status === 10 && !row.transferred" size="small" type="primary" @click="openDeliver(row)">发货</el-button>
                 <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认收款</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
-                <el-button v-if="Number(row.pay_status) === 10" size="small" type="success" plain @click="grantAward(row)">补发直推奖</el-button>
               </template>
               <template v-else-if="modKey === 'scoreExchange'">
                 <el-button v-if="row.status === 10" size="small" type="primary" @click="openScoreDeliver(row)">发货</el-button>
@@ -273,8 +272,9 @@
                 <el-button size="small" @click="openEdit(row)">查看</el-button>
               </template>
               <template v-else-if="modKey === 'specialarea'">
+                <!-- 「配置」页已经把标题、时段、限购、转拍时限、图片、启用、排序都包了，
+                     不再另开一个「编辑」弹窗，否则两处都能改、容易改出不一致 -->
                 <el-button size="small" type="primary" @click="$router.push(`/specialarea/${row.specialarea_id}`)">配置</el-button>
-                <el-button size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button size="small" type="danger" plain @click="removeOne(row)">删除</el-button>
               </template>
               <template v-else-if="modKey === 'goods'">
@@ -1383,14 +1383,6 @@ async function clearCommission(row) {
   catch { return; }
   await http.post('/member/clear-commission', { member_id: row.member_id });
   ElMessage.success('佣金已清除');
-  load();
-}
-
-async function grantAward(row) {
-  try { await ElMessageBox.confirm(`为订单 ${row.order_no} 补发直推奖？`, '补发直推奖', { type: 'warning' }); }
-  catch { return; }
-  await adminApi.grantAward({ order_id: row.order_id });
-  ElMessage.success('直推奖已补发');
   load();
 }
 

@@ -74,7 +74,6 @@ export const adminApi = {
   duplicateGoods: (goods_id) => http.post('/goods/duplicate', { goods_id }),
   teamOrders: (memberId) => http.get('/member/team-orders', { params: { member_id: memberId } }),
   advanceMember: (d) => http.post('/member/advance', d),
-  grantAward: (d) => http.post('/award/grant', d),
   createShopOrder: (d) => http.post('/orders/set-goods-order', d),
   cancelOrder: (d) => http.post('/orders/cancel', d),
   confirmPay: (d) => http.post('/orders/confirm-pay', d),
