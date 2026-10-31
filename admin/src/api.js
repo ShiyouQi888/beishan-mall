@@ -49,6 +49,9 @@ export const adminApi = {
   // ---- 数据清除 ----
   resetPlan: (scopes) => http.get('/system/reset/plan', { params: { scopes: (scopes || []).join(',') } }),
   resetData: (d) => http.post('/system/reset', d),
+  // 转拍订单：正在挂牌等下一手买走的单子，支持今日/昨日/周/月/自定义
+  transposeList: (params) => http.get('/transpose/list', { params }),
+  transposeDetail: (id) => http.get('/transpose/detail', { params: { id } }),
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
   orderNotifications: (params) => http.get('/notifications/orders', { params, silent: true }),

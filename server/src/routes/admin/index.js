@@ -14,6 +14,7 @@ import extraRouter from './extra.js';
 import mediaRouter from './media.js';
 import systemRouter from './system.js';
 import financeBoardRouter from './finance.js';
+import transposeRouter from './transpose.js';
 
 const r = Router();
 // 补充业务接口优先匹配，避免被通用 /:module/* 路由拦截
@@ -22,6 +23,8 @@ r.use(extraRouter);
 r.use(mediaRouter);
 // 数据清除：/system/* 同理
 r.use(systemRouter);
+// 转拍订单：/transpose/* 也要排在通用路由前面（否则会被当成 module=transpose 的列表）
+r.use(transposeRouter);
 // 财务大盘要在通用 /:module/* 之前挂载
 r.use(financeBoardRouter);
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;

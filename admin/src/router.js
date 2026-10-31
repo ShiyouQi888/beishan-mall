@@ -23,6 +23,8 @@ export default [
       list('/score-goods', 'scoreGoods', 'scoreItem', '积分商品'),
       { path: '/specialarea/:id', name: 'specialareaConfig', component: () => import('./views/SpecialareaConfig.vue'), meta: { title: '抢购专场配置', permissionPath: '/specialarea' } },
       list('/orders', 'orders', 'orders', '全部订单'),
+      // 转拍订单是专门页面（要按今日/昨日/周/月/自定义筛选），不走通用 ListPage
+      { path: '/transpose', name: 'transpose', component: () => import('./views/TransposeOrders.vue'), meta: { title: '转拍订单', permissionPath: '/transpose' } },
       list('/orders/shop', 'ordersShop', 'orders', '商城订单', { fixed: { type: 3 }, title: '商城订单' }),
       list('/score-exchange', 'scoreExchange', 'scoreExchange', '积分兑换'),
       list('/recycle', 'recycle', 'recycle', '系统回收'),
