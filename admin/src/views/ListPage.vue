@@ -979,6 +979,14 @@ function openEdit(row) {
 }
 
 async function save() {
+  // 场次时段：结束必须晚于开始（后端也拦，这里先给即时提示，省得提交了才报错）
+  if (modKey.value === 'specialarea') {
+    const st = Number(form.start_time) || 0;
+    const et = Number(form.end_time) || 0;
+    if (et > 0 && et <= st) {
+      return ElMessage.warning('结束时间必须晚于开始时间（跨天时段不支持，请拆成两个场次）');
+    }
+  }
   saving.value = true;
   try {
     await adminApi.save(modKey.value, { ...form });

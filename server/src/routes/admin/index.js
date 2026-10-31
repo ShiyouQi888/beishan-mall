@@ -1227,6 +1227,21 @@ r.post('/:module/save', authAdmin, (req, res) => {
 
   const id = body[mod.pk];
   let relisted = false;   // 本次保存是否把「已回收封顶」的商品重新上架
+  // 场次时段：结束必须晚于开始。前端配置页有校验，但列表页弹窗和直接调接口都能绕过；
+  // end < start 时 sessionWindow 的 timeOk 恒为 false，整场静默失效（永远不可买）。
+  if (mod.table === 'specialarea') {
+    const cur = id ? get('SELECT start_time, end_time FROM specialarea WHERE specialarea_id = ?', Number(id)) : null;
+    // 只改一个字段时，要用「库里的值 + 本次提交」合并后判断，否则局部更新能绕过校验
+    const st = 'start_time' in body ? Number(body.start_time) || 0 : Number(cur?.start_time) || 0;
+    const et = 'end_time' in body ? Number(body.end_time) || 0 : Number(cur?.end_time) || 0;
+    if (st < 0 || st > 86399) return res.json(fail('开始时间超出范围（00:00 ~ 23:59）'));
+    if (et < 0 || et > 86399) return res.json(fail('结束时间超出范围（00:00 ~ 23:59）'));
+    // end = 0 表示「不限」，是合法的
+    if (et > 0 && et <= st) {
+      return res.json(fail('结束时间必须晚于开始时间（跨天时段不支持，请拆成两个场次）'));
+    }
+  }
+
   // 商品：「库存」是还能抢几个，「名额」是一共几个，两个字段各管各的。
   // 运营把库存调大时名额跟着涨；调小时名额不动 —— 已经卖出去的名额不能凭空消失，
   // 否则剩余名额会被算错，取消订单归还时还会被错误地截断。
