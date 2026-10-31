@@ -2,7 +2,6 @@
   <div class="page page--tab loot">
     <div class="loot__head">
       <div class="loot__title">限时抢购</div>
-      <div class="loot__sub">每日三场 · 好物限量</div>
     </div>
 
     <!-- 场次切换 -->
@@ -184,7 +183,6 @@ onUnmounted(() => clearInterval(timer));
   background: #fff;
 }
 .loot__title { font-size: 20px; font-weight: 700; letter-spacing: 1px; }
-.loot__sub { font-size: 12px; color: var(--text-3); margin-top: 3px; }
 
 .loot__tabs {
   display: flex;
