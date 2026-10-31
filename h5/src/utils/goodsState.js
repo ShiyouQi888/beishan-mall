@@ -6,9 +6,8 @@
 
 /**
  * 卡片状态
- * @returns {'sold'|'quota'|'ended'|'upcoming'|''}
+ * @returns {'sold'|'ended'|'upcoming'|''}
  *   sold     = 已抢完（库存卖光 / 被买走）
- *   quota    = 本场放量抢满（库存可能还有，只是这一场不放了）
  *   ended    = 本场已结束（时间到）
  *   upcoming = 未开始
  *   ''       = 正常可买
@@ -18,11 +17,7 @@ export function cardState(g = {}) {
   const sold = g.sold_out !== undefined
     ? Number(g.sold_out) === 1
     : Number(g.goods_status ?? 10) !== 10;
-  if (sold) {
-    // 还挂在架上却显示售罄，说明是「本场放量抢满了」，而不是货真的没了 —— 文案要分清
-    const isQuota = Number(g.session_full) === 1 && Number(g.goods_status) === 10;
-    return isQuota ? 'quota' : 'sold';
-  }
+  if (sold) return 'sold';
 
   // 被别人下单锁着：还没付款，但此刻谁也抢不了（抢购是提交即锁单）
   if (Number(g.locked) === 1) return 'locked';
@@ -42,11 +37,10 @@ export function cardState(g = {}) {
 /** 卡片上压的标签文字，空串表示不压 */
 export const cardLabel = (state) => ({
   sold: '已抢完',
-  quota: '本场已满',
   ended: '本场已结束',
   upcoming: '未开始',
   locked: '抢购中',
 }[state] || '');
 
 /** 是否整张卡置灰（未开始只是暂时不能买，不置灰，否则一进首页全是灰的） */
-export const isGreyState = (state) => state === 'sold' || state === 'quota' || state === 'ended' || state === 'locked';
+export const isGreyState = (state) => state === 'sold' || state === 'ended' || state === 'locked';

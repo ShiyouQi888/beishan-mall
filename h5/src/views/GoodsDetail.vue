@@ -28,10 +28,7 @@
         <span v-if="g.specialarea" class="chip chip--time">{{ g.specialarea.start_end_time }} - {{ g.specialarea.start_end_time1 }}</span>
         <span class="chip chip--ghost">已转拍 {{ g.turn_beat_num || 0 }} 次</span>
         <!-- 名额：一件货有几个购买名额。抢完就不再显示剩余，只留「已抢完」 -->
-        <span v-if="Number(g.session_quota) > 0" class="chip chip--stock">
-          本场限量 {{ g.session_quota }} 件 · 剩 {{ Math.max(0, Number(g.session_quota) - Number(g.session_sold || 0)) }} 件
-        </span>
-        <span v-else-if="Number(g.stock_total) > 1" class="chip chip--stock">
+        <span v-if="Number(g.stock_total) > 1" class="chip chip--stock">
           共 {{ g.stock_total }} 件 · 剩 {{ Math.max(0, Number(g.stock_num) || 0) }} 件
         </span>
       </div>
@@ -136,11 +133,6 @@ const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value && !soldOut
 // 不能买时给一句人话，别只把按钮弄灰 —— 按钮变灰很容易被当成「点一下试试」
 const closedTip = computed(() => {
   if (!g.value.goods_id || canBuy.value) return '';
-  // 本场放量抢满：货可能还有，只是这一场不放了。文案必须和「货没了」分开，
-  // 否则用户以为卖光了，明天也不会再来
-  if (soldOut.value && Number(g.value.session_full) === 1 && Number(g.value.goods_status) === 10) {
-    return `本场 ${g.value.session_quota} 件已经抢满，下一场再来`;
-  }
   if (soldOut.value) return '这件货已经被抢走了，等下一场再来';
   if (lockedByOther.value) return '这件货刚被别人抢先下单，正在等他付款；超时未付会自动放出';
   const a = g.value.specialarea;

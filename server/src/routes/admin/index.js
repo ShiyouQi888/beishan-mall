@@ -60,7 +60,6 @@ const M = {
       // 划线价（前台「市场价」）随转拍自动上调，不再手填
       { k: 'line_price', t: '划线价', type: 'money', w: 100, hide: true, readonly: true, tip: '前台展示的「市场价」，转拍时会自动跟涨；不用手填。' },
       { k: 'stock_num', t: '库存', type: 'number', w: 72, tip: '还能被抢几个名额。填 1 = 唯一的一件货，成交后整件归买家并下架，等买家转拍；填 >1 = 一批货，抢一个减一个名额，抢光才下架，整件始终归原持有人。' },
-      { k: 'session_quota', t: '每场放量', type: 'number', w: 92, hide: true, tip: '这一场只拿出多少件来卖。0 = 不限，整批库存都能卖。例如库存 100 件、这里填 10：本场最多卖 10 件，卖满立刻结束变灰，剩下 90 件留到下一场。注意是「名额数」不是「人数」—— 10 个名额 + 每人限购 2 件 = 5 个人就抢完了。' },
       { k: 'turn_beat_num', t: '转拍次数', type: 'number', w: 88, hide: true },
       { k: 'sales_actual', t: '销量', type: 'number', w: 72, hide: true },
       { k: 'goods_sort', t: '排序', type: 'number', w: 72, hide: true },
@@ -790,15 +789,14 @@ r.post('/goods/duplicate', authAdmin, (req, res) => {
   const info = run(
     `INSERT INTO goods (goods_name, goods_no, good_thumb, images, detail, category_id, specialarea_id, area_date,
        member_id, goods_min_price, base_price, price_cap, line_price, stock_num, stock_total, sales_actual,
-       goods_status, is_sell, session_quota, turn_beat_num, goods_sort, type, score_price, create_time, update_time)
-     VALUES (?,?,?,?,?,?,?,'',0,?,?,?,?,?,?,0,?,?,?,0,?,?,?,?,?)`,
+       goods_status, is_sell, turn_beat_num, goods_sort, type, score_price, create_time, update_time)
+     VALUES (?,?,?,?,?,?,?,'',0,?,?,?,?,?,?,0,?,?,0,?,?,?,?,?)`,
     `${g.goods_name}（副本）`, goodsNo, g.good_thumb || '', g.images || '', g.detail || '',
     Number(g.category_id) || 0, Number(g.specialarea_id) || 0,
     // 副本是全新的挂牌：基准价取它自己的售价（涨幅从 0 起算），上限沿用源商品
     Number(g.goods_min_price) || 0, Number(g.goods_min_price) || 0, Number(g.price_cap) || 0,
     Number(g.line_price) || 0,
     Number(g.stock_num) || 0, Math.max(1, Number(g.stock_num) || 0), status, isSell,
-    Number(g.session_quota) || 0,
     Number(g.goods_sort) || 100, Number(g.type) || 1, Number(g.score_price) || 0,
     t, t,
   );

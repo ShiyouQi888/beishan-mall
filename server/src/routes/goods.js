@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { all, get, run, now } from '../db.js';
 import { ok, fail, authMember, maybeMember, page, money, serviceChargeRate, assetUrl } from '../lib/helper.js';
 import { sessionWindow, todayStr } from '../lib/sessionWindow.js';
-import { soldTodayByGoods, soldTodayOf, quotaFull, quotaLeft } from '../lib/quota.js';
 import { areasOfGoods, areaMapOfGoods, displayAreaOf, openAreaOf, advanceLeadOf } from '../lib/areaGoods.js';
 
 // 商品与场次的关系自本版起只由关联表 specialarea_goods 决定（一件商品可挂多场）。
@@ -47,10 +46,9 @@ function isLockedByOrder(goodsId, stockTotal) {
 /**
  * 商品统一出参格式
  * @param {object} g goods 行
- * @param {number} soldToday 本场已卖出件数
  * @param {Array} areas 该商品关联的场次（由调用方批量查好后传入，避免 N+1）
  */
-export const fmtGoods = (g, soldToday = 0, areas = []) => {
+export const fmtGoods = (g, areas = []) => {
   const list = areas || [];
   return {
     goods_id: g.goods_id,
@@ -67,19 +65,13 @@ export const fmtGoods = (g, soldToday = 0, areas = []) => {
     stock_num: g.stock_num,
     // 名额：这件商品一共几个。>1 表示「一批货，抢一个减一个」，=1 表示「唯一一件货，成交即归买家」
     stock_total: Number(g.stock_total) || Number(g.stock_num) || 1,
-    // 每场放量：这一场只拿出多少件来卖（0 = 不限，整批库存都能卖）
-    session_quota: Number(g.session_quota) || 0,
-    session_sold: Number(soldToday) || 0,
-    // 本场放量已经卖满 —— 注意这和「库存卖光」是两回事：库存可能还有 90 件，只是这场不放了
-    session_full: quotaFull(g, soldToday) ? 1 : 0,
-    session_left: quotaLeft(g, soldToday) === null ? null : quotaLeft(g, soldToday),
     goods_status: g.goods_status,
     // 1 抢购语义（关联了场次）/ 2 商城语义（没关联场次）。**必须返回**：H5 详情页靠它区分
     // 「要不要等抢购场次」，漏返会让抢购商品在非抢购时段也显示「立即抢购」
     type: list.length ? 1 : 2,
-    // 已抢完：下架态（成交/售罄都会落到 20），或「本场放量已经卖满」。
+    // 已抢完就看下架态（成交 / 售罄都会落到 20）。
     // 不看 stock_num —— 未关联场次的商品常常不维护库存，用它判断会全标成售罄
-    sold_out: Number(g.goods_status) === 10 && !quotaFull(g, soldToday) ? 0 : 1,
+    sold_out: Number(g.goods_status) === 10 ? 0 : 1,
     turn_beat_num: g.turn_beat_num,
     // 1 = 已经有别人下单锁着（还没付款），前台要显示「抢购中」并禁用按钮
     locked: isLockedByOrder(g.goods_id, Number(g.stock_total) || Number(g.stock_num) || 1),
@@ -112,15 +104,14 @@ export function areaStates() {
  * 只给抢购页加灰卡、别的入口还是彩色卡片，用户点进去才发现买不了，等于没做。
  * 没关联任何场次的商品拿不到场次，状态是 none，前端不会置灰。
  */
-export const fmtList = (rows, states = null, soldMap = null) => {
+export const fmtList = (rows, states = null) => {
   const stateMap = states || areaStates();
-  const sold = soldMap || soldTodayByGoods();
   const areaMap = areaMapOfGoods(rows.map((g) => g.goods_id));
   return rows.map((g) => {
     const areas = areaMap.get(Number(g.goods_id)) || [];
     const shown = displayAreaOf(areas);
     return {
-      ...fmtGoods(g, sold.get(Number(g.goods_id)) || 0, areas),
+      ...fmtGoods(g, areas),
       // 代表场次的状态（开放中优先，其次未开始、已结束）
       session_state: shown ? shown.w.state : 'none',
       session_state_area: shown ? Number(shown.a.specialarea_id) : 0,
@@ -264,7 +255,7 @@ r.get('/getLootDetails', maybeMember, (req, res) => {
   const adv = !open && lead > 0 ? openAreaOf(areas, now, lead) : null;
   res.json(
     ok({
-      ...fmtGoods(g, soldTodayOf(g.goods_id), areas),
+      ...fmtGoods(g, areas),
       // 只要这件商品关联的场次里有一个正在开放，此刻就能抢
       is_ordinary_order: open ? 1 : 0,
       // 已开通提前抢购、且此刻正处在提前窗口里
@@ -340,7 +331,7 @@ r.get('/shopgoods/getDetails', maybeMember, (req, res) => {
   const adv = !opened && lead > 0 ? openAreaOf(areas, now, lead) : null;
 
   res.json(ok({
-    ...fmtGoods(g, soldTodayOf(g.goods_id), areas),
+    ...fmtGoods(g, areas),
     specialarea: area,
     // 本场此刻是否真的开放（前端靠它决定按钮能不能点）
     is_ordinary_order: opened ? 1 : 0,
@@ -381,7 +372,7 @@ r.get('/getShopPosterDetails', (req, res) => {
   if (!goods_id) return res.json(fail('method param miss:goods_id'));
   const g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
-  res.json(ok({ ...fmtGoods(g, soldTodayOf(g.goods_id), areasOfGoods(g.goods_id)), poster_bg: get("SELECT `value` FROM setting_config WHERE `key`='poster_bg'")?.value || '' }));
+  res.json(ok({ ...fmtGoods(g, areasOfGoods(g.goods_id)), poster_bg: get("SELECT `value` FROM setting_config WHERE `key`='poster_bg'")?.value || '' }));
 });
 
 // 积分商城已拆到独立控制器 score.js（对齐原站 /api/score/ 路径）

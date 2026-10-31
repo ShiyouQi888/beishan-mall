@@ -17,7 +17,7 @@ const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const PORT = 9401;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const REMOVED = ['商品编码', '现持有人', '基准价', '划线价'];
+const REMOVED = ['商品编码', '现持有人', '基准价', '划线价', '每场放量'];
 const KEPT = ['商品名称', '分类', '售卖价', '价格上限(元)', '库存', '状态'];
 
 const results = [];
@@ -108,9 +108,17 @@ async function main() {
     check('打开新增商品弹窗', !!labels && labels.title.includes('商品'), JSON.stringify(labels?.title));
 
     const missing = REMOVED.filter((t) => labels.labels.includes(t));
-    check('四项已从表单移除', missing.length === 0, missing.length ? `仍在：${missing.join('、')}` : `现有 ${labels.labels.length} 项`);
+    check('已下线的字段都不在表单里', missing.length === 0, missing.length ? `仍在：${missing.join('、')}` : `现有 ${labels.labels.length} 项`);
     const keptMissing = KEPT.filter((t) => !labels.labels.includes(t));
     check('其余字段仍在（没有误删）', keptMissing.length === 0, keptMissing.length ? `缺少：${keptMissing.join('、')}` : JSON.stringify(labels.labels));
+
+    // 弹窗开着的时候先拍一张，方便看字段排布（有没有因为删字段留下空格）
+    try {
+      const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+      mkdirSync(join(process.cwd(), '_probe'), { recursive: true });
+      writeFileSync(join(process.cwd(), '_probe', 'goods-form-fields.png'), Buffer.from(shot.data, 'base64'));
+      console.log('截图: _probe/goods-form-fields.png');
+    } catch {}
 
     // 填一个最小商品并保存：只填名称 + 售价
     const filled = await evaluate(`(() => {
