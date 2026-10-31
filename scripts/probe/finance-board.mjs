@@ -319,6 +319,15 @@ async function main() {
     ok(ovE.trend_monthly.every((x) => typeof x.net === 'number' && !Number.isNaN(x.net)), '月趋势无 NaN');
     ok(Object.values(ovE.today).every((v) => typeof v === 'number' && !Number.isNaN(v)), '今日各项均为有效数字');
 
+    // 提现模块整体下线：大盘里不该再出现任何提现指标
+    section('[8] 提现指标已下线');
+    const ovW = (await adminAt('/admin/api/finance/overview', { token: at })).data;
+    ok(!('pending_withdraw' in (ovW.liability || {})), '负债里没有 pending_withdraw');
+    ok(!('paid_withdraw' in (ovW.liability || {})), '负债里没有 paid_withdraw');
+    ok(!('withdraw_paid' in (ovW.total || {})), '累计统计里没有 withdraw_paid');
+    ok(!JSON.stringify(ovW.risks || []).includes('提现'), '风险提示里没有提现');
+    ok(!/withdraw/i.test(JSON.stringify(ovW)), '整份数据不含 withdraw 字段');
+
     console.log(`\n${'─'.repeat(56)}`);
     if (fails.length) {
       console.log(`✗ 失败 ${fails.length} 项 / 通过 ${pass} 项`);

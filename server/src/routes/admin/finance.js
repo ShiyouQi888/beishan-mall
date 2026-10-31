@@ -18,7 +18,8 @@ const today = () => todayStr();
  *   经营净利 = 收入 − 支出
  *   回收支出 = 平台接盘付给会员的钱（流拍回收历史数据 + 到顶系统回收，资产转换，不计入经营损益，单列）
  *   现金净流 = 经营净利 − 回收支出
- *   会员负债 = 会员余额合计 + 可提现佣金合计（平台需要兑付的钱）
+ *   会员负债 = 会员余额合计 + 佣金账户合计（平台需要兑付的钱）
+ *   提现模块已整体下线，大盘不再统计任何提现指标（历史单据与接口保留，不展示）
  */
 function rangeStats(from, to) {
   const o = get(
@@ -40,12 +41,6 @@ function rangeStats(from, to) {
      WHERE type_name IN ('平台回收', '系统回收') AND create_time >= ? AND create_time <= ?`,
     from, to,
   )?.v;
-  const withdraw = get(
-    `SELECT IFNULL(SUM(amount),0) v FROM finance_withdraw
-     WHERE status = 10 AND create_time >= ? AND create_time <= ?`,
-    from, to,
-  )?.v;
-
   const service_fee = num(o.svc);
   const listing_fee = num(o.listing);
   const drive_award = num(award);
@@ -61,7 +56,6 @@ function rangeStats(from, to) {
     drive_award,
     net,
     recycle_cost,
-    withdraw_paid: num(withdraw),
     cash_net: money(net - recycle_cost),
   };
 }
@@ -134,8 +128,6 @@ r.get('/finance/overview', authAdmin, (req, res) => {
   // 负债与待办
   const balance = num(get('SELECT IFNULL(SUM(amount),0) v FROM member').v);
   const commission = num(get('SELECT IFNULL(SUM(e_card_number),0) v FROM member').v);
-  const pendingWithdraw = num(get('SELECT IFNULL(SUM(amount),0) v FROM finance_withdraw WHERE status = 0').v);
-  const paidWithdraw = num(get('SELECT IFNULL(SUM(amount),0) v FROM finance_withdraw WHERE status = 10').v);
   const liability = money(balance + commission);
 
   // 风险判定
@@ -195,13 +187,6 @@ r.get('/finance/overview', authAdmin, (req, res) => {
       });
     }
   }
-  if (pendingWithdraw > 0) {
-    risks.push({
-      level: 'info',
-      title: `待审核提现 ¥${pendingWithdraw}`,
-      detail: '这些钱已经冻结在会员余额之外，审核通过后即真实流出，请预留资金。',
-    });
-  }
   if (negativeMembers > 0) {
     risks.push({
       level: 'high',
@@ -221,8 +206,6 @@ r.get('/finance/overview', authAdmin, (req, res) => {
       balance,
       commission,
       total: liability,
-      pending_withdraw: pendingWithdraw,
-      paid_withdraw: paidWithdraw,
     },
     rate: {
       service_charge: svcRate,
