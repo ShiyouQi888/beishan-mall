@@ -41,6 +41,8 @@ const M = {
     orderBy: 'goods_id DESC',
     fields: [
       { k: 'goods_id', t: 'ID', type: 'text', readonly: true, w: 64 },
+      // 来源只读列：会员持有的 = 转拍货（价格系统锁死），平台自持 = 平台货
+      { k: '_kind', t: '来源', type: 'text', readonly: true, w: 78 },
       { k: 'good_thumb', t: '商品图片', type: 'image', w: 84 },
       { k: 'images', t: '图集', type: 'images', hide: true },
       { k: 'goods_name', t: '商品名称', type: 'text', w: 140 },
@@ -889,6 +891,17 @@ r.get('/specialarea/:id/pick-goods', authAdmin, (req, res) => {
         .filter((a) => Number(a.specialarea_id) !== areaId)
         .map((a) => a.title_main || a.name || `#${a.specialarea_id}`)
         .join('、'),
+      // 转拍货（会员持有）的场次由系统按轮转自动排，后台不能挪来挪去，
+      // 否则同一件货会在两场同时出现、按两份价格被抢
+      ...(() => {
+        if (!isTransposedGoods(g.goods_id)) return { blocked: false, blocked_reason: '' };
+        const own = areas.map((a) => a.title_main || a.name || '').filter(Boolean);
+        if (own.length) return { blocked: true, blocked_reason: `已属「${own.join('、')}」` };
+        if (g.area_date && g.area_date !== todayStr()) {
+          return { blocked: true, blocked_reason: `排在 ${g.area_date} 开抢` };
+        }
+        return { blocked: false, blocked_reason: '' };
+      })(),
     };
   });
   res.json(ok(list));
@@ -901,9 +914,33 @@ r.post('/specialarea/goods/add', authAdmin, (req, res) => {
   if (!get('SELECT 1 FROM specialarea WHERE specialarea_id = ?', areaId)) return res.json(fail('场次不存在'));
   const ids = (Array.isArray(req.body?.goods_ids) ? req.body.goods_ids : [req.body?.goods_id]).map(Number).filter(Boolean);
   if (!ids.length) return res.json(fail('请选择要关联的商品'));
-  const out = addGoodsToArea(areaId, ids);
+
+  // 转拍货（会员持有）不能手动挂场次：它的场次是转拍上架时 nextSlot 算好的，
+  // 手动挪走会让同一件货在两场按两份价格被抢，也会让「下一场」的轮转失效。
+  const rejected = [];
+  const allow = [];
+  for (const id of ids) {
+    const g = get('SELECT goods_id, goods_name, area_date FROM goods WHERE goods_id = ?', id);
+    if (!g || !isTransposedGoods(id)) { allow.push(id); continue; }
+    const own = areasOfGoods(id).map((a) => a.title_main || a.name || '').filter(Boolean);
+    if (own.length) {
+      rejected.push(`${g.goods_name}（已属「${own.join('、')}」）`);
+      continue;
+    }
+    if (g.area_date && g.area_date !== todayStr()) {
+      rejected.push(`${g.goods_name}（排在 ${g.area_date} 开抢）`);
+      continue;
+    }
+    allow.push(id);
+  }
+
+  if (!allow.length) {
+    return res.json(fail(`这些是转拍商品，场次由系统自动维护，不能手动关联：${rejected.join('、')}`));
+  }
+  const out = addGoodsToArea(areaId, allow);
   if (!out.added) return res.json(fail('所选的商品都已经在本场了'));
-  res.json(ok(out, out.skipped ? `已关联 ${out.added} 件，${out.skipped} 件已存在或无效` : `已关联 ${out.added} 件商品`));
+  const extra = rejected.length ? `；${rejected.length} 件转拍商品未关联：${rejected.join('、')}` : '';
+  res.json(ok({ ...out, rejected }, `已关联 ${out.added} 件商品${extra}`));
 });
 
 /** 场次取消关联商品（只解除关联，不删商品） */
@@ -1026,6 +1063,11 @@ r.get('/:module/list', authAdmin, (req, res) => {
     where.push('kind = ?');
     args.push(req.query.kind);
   }
+  // 商品按「来源」筛选：转拍货（会员持有）/ 平台货（自己上架）
+  if (req.params.module === 'goods' && req.query.kind) {
+    if (req.query.kind === 'transpose') where.push(TRANSPOSED_SQL);
+    else if (req.query.kind === 'own') where.push(`NOT ${TRANSPOSED_SQL}`);
+  }
   // 商品按「关联场次」筛选：件品与场次是多对多，走关联表判断
   if (req.params.module === 'goods' && req.query.area_id) {
     where.push('goods_id IN (SELECT goods_id FROM specialarea_goods WHERE specialarea_id = ?)');
@@ -1069,6 +1111,19 @@ function isTransferredOut(o) {
   return Number(g.member_id) !== Number(o.member_id);
 }
 
+/**
+ * 是否是「转拍货」：这件货被买走过（有支付成功的抢购单），说明它在会员之间流转过。
+ *
+ * 不能用「有没有关联场次」判断 —— 平台自己铺的货也会挂到场次里卖；
+ * 也不能用 member_id > 0 —— 演示库/不少运营场景把平台货挂在官方账号名下。
+ * 「卖过一次」才是价格被系统接管的分界线：一旦有了买入价，后面每一手都要按涨幅累加。
+ */
+const isTransposedGoods = (goodsId) => !!get(
+  'SELECT 1 FROM orders WHERE goods_id = ? AND type = 1 AND pay_status = 10 LIMIT 1',
+  Number(goodsId) || 0,
+);
+const TRANSPOSED_SQL = 'EXISTS (SELECT 1 FROM orders o WHERE o.goods_id = goods.goods_id AND o.type = 1 AND o.pay_status = 10)';
+
 function enrich(mod, row) {
   const out = { ...row };
   if (mod === 'goods' || mod === 'orders') {
@@ -1082,6 +1137,7 @@ function enrich(mod, row) {
     out._category = row.category_id
       ? get('SELECT name FROM goods_category WHERE category_id = ?', row.category_id)?.name || ''
       : '';
+    out._kind = isTransposedGoods(row.goods_id) ? '转拍货' : '平台货';
     // 关联场次由关联表决定（可能多个），不再读 goods.specialarea_id 镜像列
     const areas = areasOfGoods(row.goods_id);
     out._areas = areas.map((a) => a.title_main || a.name || `#${a.specialarea_id}`).join('、');
@@ -1180,6 +1236,19 @@ r.post('/:module/save', authAdmin, (req, res) => {
     if (!id) {
       body.base_price = Number(body.base_price) > 0 ? Number(body.base_price) : (Number(body.goods_min_price) || 0);
       if (!keys.includes('base_price')) keys.push('base_price');
+    }
+
+    // 转拍货（货在会员手上）的价格由系统按涨幅规则算，后台不能手改 ——
+    // 一改就打乱会员的收益预期，也会让「涨价 = 标价 − 买入价」这条链路对不上。
+    // 上下架、标题、图片、分类、库存这些照常可改。
+    if (id) {
+      if (isTransposedGoods(Number(id))) {
+        for (const k of ['goods_min_price', 'price_cap', 'line_price', 'base_price']) {
+          const i = keys.indexOf(k);
+          if (i >= 0) keys.splice(i, 1);
+          delete body[k];
+        }
+      }
     }
   }
   if (id) {

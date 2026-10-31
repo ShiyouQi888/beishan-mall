@@ -66,6 +66,10 @@
           <el-option label="正常" :value="10" />
           <el-option label="禁用" :value="20" />
         </el-select>
+        <el-select v-if="modKey === 'goods'" v-model="filters.source" placeholder="来源" clearable style="width: 118px" @change="reload">
+          <el-option label="转拍货" value="transpose" />
+          <el-option label="平台货" value="own" />
+        </el-select>
         <el-select v-if="modKey === 'goods'" v-model="filters.area_id" placeholder="关联场次" clearable style="width: 140px" @change="reload">
           <el-option v-for="o in (optsCache.specialarea || [])" :key="o.id" :label="o.name" :value="o.id" />
         </el-select>
@@ -437,9 +441,13 @@
             v-model="form[f.k]"
             :precision="f.type === 'money' ? 2 : 0"
             :min="0"
+            :disabled="priceLocked(f)"
             style="width: 100%"
             controls-position="right"
           />
+          <div v-if="priceLocked(f)" class="price-lock-tip">
+            转拍商品的价格由系统按涨幅自动计算，这里不能改；上下架、标题、图片仍可修改
+          </div>
           <el-select
             v-else-if="f.type === 'parent'"
             v-model="form[f.k]"
@@ -659,7 +667,7 @@ const loading = ref(false);
 const sel = ref([]);
 const optsCache = reactive({});
 
-const filters = reactive({ pay_status: '', kind: '', disabled: '', area_id: '', range: '', date_start: '', date_end: '' });
+const filters = reactive({ pay_status: '', kind: '', disabled: '', area_id: '', source: '', range: '', date_start: '', date_end: '' });
 // 自定义日期区间（el-date-picker 用数组，提交时拆成 date_start / date_end）
 const customRange = ref([]);
 const EXPORTING = ref(false);
@@ -691,6 +699,14 @@ const formFields = computed(() =>
   (mod.value.fields || []).filter((f) => !f.readonly && f.k !== mod.value.pk),
 );
 const formTitle = computed(() => (editing.value ? `编辑${mod.value.label}` : `新增${mod.value.label}`));
+
+// 转拍货（货在会员手上）的价格由系统算，后台锁死。
+// 只锁价格相关的三个字段，上下架 / 标题 / 图片 / 分类 / 库存照常可改。
+const PRICE_KEYS = ['goods_min_price', 'price_cap', 'line_price'];
+// 「转拍货」由后端在 _kind 里给出（被别人买过、价格由系统接管的那种）
+const priceLocked = (f) => modKey.value === 'goods'
+  && form._kind === '转拍货'
+  && PRICE_KEYS.includes(f.k);
 
 /**
  * 只把「真图片地址」交给 <img>。
@@ -859,6 +875,11 @@ async function load(opt = {}) {
     if (keyword.value) params.keyword = keyword.value;
     for (const [k, v] of Object.entries(filters)) {
       if (v !== '' && v !== undefined && v !== null) params[k] = v;
+    }
+    // 商品的「来源」筛选后端参数叫 kind（结算页的 kind 是账目类型，所以前端换个名字避免撞车）
+    if (modKey.value === 'goods' && filters.source) {
+      params.kind = filters.source;
+      delete params.source;
     }
     Object.assign(params, fixed.value);
     const r = await adminApi.list(modKey.value, params);
@@ -1499,6 +1520,7 @@ watch(() => route.fullPath, () => {
   filters.status = '';
   filters.kind = '';
   filters.disabled = '';
+  filters.source = '';
   // 换模块时时间范围也要归零，否则从订单页跳到商品页会带着 range 参数
   filters.range = '';
   filters.date_start = '';
@@ -1542,6 +1564,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.price-lock-tip { font-size: 11.5px; color: #c88a1e; margin-top: 4px; line-height: 1.5; }
+
 .page-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .team-summary { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-bottom: 14px; color: #596273; font-size: 13px; }
 .total-hint { font-size: 12.5px; color: #8c93a0; }

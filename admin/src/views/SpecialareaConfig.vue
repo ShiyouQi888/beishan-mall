@@ -169,6 +169,7 @@
         />
         <el-button @click="loadCandidates">搜索</el-button>
         <div class="spacer" />
+        <span class="muted pick-tip">转拍商品的场次由系统按轮转自动维护，不能手动关联</span>
         <span class="muted">已选 {{ picked.length }} 件</span>
       </div>
 
@@ -181,7 +182,8 @@
         empty-text="没有找到商品"
         @selection-change="picked = $event"
       >
-        <el-table-column type="selection" width="44" :selectable="(row) => !row.in_area" />
+        <!-- 转拍货的场次由系统自动维护，这里直接禁选，避免手动挪场 -->
+        <el-table-column type="selection" width="44" :selectable="(row) => !row.in_area && !row.blocked" />
         <el-table-column label="图片" width="66">
           <template #default="{ row }">
             <img v-if="row.good_thumb" :src="row.good_thumb" class="rel-thumb" />
@@ -205,11 +207,12 @@
             <span class="tag-status" :class="statusClass(row.goods_status)">{{ statusText(row.goods_status) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="归属" min-width="150">
+        <el-table-column label="归属" min-width="180">
           <template #default="{ row }">
             <span v-if="row.in_area" class="tag-status tag-ok">已在本场</span>
+            <span v-else-if="row.blocked" class="tag-status tag-warn">转拍货 · {{ row.blocked_reason }}</span>
             <span v-else-if="row.other_areas" class="muted">已在 {{ row.other_areas }}</span>
-            <span v-else class="muted">未关联</span>
+            <span v-else class="muted">可关联</span>
           </template>
         </el-table-column>
       </el-table>
@@ -430,7 +433,8 @@ async function confirmPick() {
       goods_ids: picked.value.map((g) => g.goods_id),
     });
     if (r.code === 1) {
-      ElMessage.success(r.msg || '已关联');
+      if (r.data?.rejected?.length) ElMessage.warning(r.msg || '已关联，部分转拍商品被跳过');
+      else ElMessage.success(r.msg || '已关联');
       pickerDlg.value = false;
       picked.value = [];
       loadGoods();
@@ -465,6 +469,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.pick-tip { font-size: 11.5px; color: #c88a1e; margin-right: 12px; }
+
 /* 开抢日期：未来那天才上架，用橙色提醒，别让运营以为漏显示了 */
 .open-date { font-size: 12px; font-variant-numeric: tabular-nums; }
 .open-date.is-today { color: #1f9d5f; }
