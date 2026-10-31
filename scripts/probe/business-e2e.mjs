@@ -222,7 +222,9 @@ async function main() {
     const rec = db.prepare('SELECT * FROM goods_recycle WHERE goods_id = ? ORDER BY recycle_id DESC LIMIT 1').get(gid);
     eq(rec?.buy_price, 1092.73, '回收单记录买入价 1092.73');
     eq(rec?.recycle_price, 1092.73, '回收价 = 当前实际价格（原价接盘）');
-    eq(rec?.profit, 0, '这一手没有涨幅收益');
+    // 收益按实际成本算：买入 1092.73 + 抢单服务费 21.85（2%）= 1114.58
+    eq(rec?.buy_cost, 1114.58, '回收单记录实际成本 1114.58（含服务费）');
+    eq(rec?.profit, -21.85, '这一手没有涨幅，扣掉服务费后净亏 21.85');
     eq(balanceOf(buyers[3].mid) - lastBuyerBefore, 1092.73, '回收款到账 1092.73');
     eq(goods().recycled, 1, '商品打上「封顶」标记');
     eq(goods().member_id, 0, '商品转平台持仓');

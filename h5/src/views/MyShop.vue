@@ -25,7 +25,7 @@
           </div>
         </div>
         <div class="sum__tip">
-          预计收益 = 下一轮标价 − 我的买入价 − 上架费（涨价率 {{ summary.increase_rate }}%）。
+          预计收益 = 下一轮标价 − 买入价 − 抢单服务费 − 上架费（涨价率 {{ summary.increase_rate }}%）。
           商品被下一轮买走后会从这里消失，收益随即到账。
         </div>
       </div>
@@ -48,6 +48,10 @@
         <div class="item__rows">
           <div class="kv"><span>我的买入价</span><span>{{ Number(g.my_price) > 0 ? money(g.my_price) : '—' }}</span></div>
           <template v-if="g.transferable">
+            <!-- 抢单服务费是买家实付的一部分，不算进来会把利润算高 -->
+            <div class="kv" v-if="Number(g.my_service_charge) > 0">
+              <span>抢单服务费</span><span>-{{ money(g.my_service_charge) }}</span>
+            </div>
             <div class="kv"><span>下一轮标价</span><span class="brand">{{ money(g.next_price) }}</span></div>
             <div class="kv"><span>上架费</span><span>-{{ money(g.listing_fee) }}</span></div>
             <div class="kv kv--sum">
@@ -57,7 +61,7 @@
               </span>
             </div>
             <div class="kv kv--net" v-if="g.est_net !== null">
-              <span>扣除买入价与上架费后净赚</span>
+              <span>扣除买入价、服务费与上架费后净赚</span>
               <span :class="Number(g.est_net) >= 0 ? 'brand' : 'loss'">
                 {{ Number(g.est_net) >= 0 ? '+' : '' }}{{ money(g.est_net) }}
               </span>

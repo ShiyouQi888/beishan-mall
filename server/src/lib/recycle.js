@@ -68,11 +68,13 @@ function holderOrderOf(g) {
  */
 function settle(g, o, rate, remark = '') {
   const buyPrice = money(o?.total_price || g.goods_min_price);
+  // 实际成本要含买家当时付的抢单服务费 —— 只扣商品金额会把「持有人收益」报高
+  const buyCost = money(buyPrice + Number(o?.service_charge || 0));
   // 封顶价只是围栏：结算按商品「当前实际价格」接盘 ——
-  //   · 刚买下（下架待转拍）的商品，当前价就是买入价 → 原价接盘
+  //   · 刚买下（下架待转拍）的商品，当前价就是买入价 → 原价接盘（持有人净亏一笔服务费）
   //   · 已转拍挂牌的商品，当前价是持有人挂出的价 → 按挂牌价接盘，不白丢这一轮涨幅
   const recyclePrice = money(Number(g.goods_min_price) || buyPrice);
-  const profit = money(recyclePrice - buyPrice);
+  const profit = money(recyclePrice - buyCost);
   const cap = priceCapOf(g);
   const t = now();
   let recycleId = 0;
@@ -95,10 +97,10 @@ function settle(g, o, rate, remark = '') {
 
     const info = run(
       `INSERT INTO goods_recycle (goods_id, order_id, member_id, goods_name, good_thumb,
-        base_price, cap_price, buy_price, increase_rate, recycle_price, profit, status, remark, create_time, settle_time)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        base_price, cap_price, buy_price, buy_cost, increase_rate, recycle_price, profit, status, remark, create_time, settle_time)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       g.goods_id, Number(o?.order_id) || 0, g.member_id, g.goods_name, g.good_thumb || '',
-      cap.base_price, cap.cap_price, buyPrice, rate, recyclePrice, profit, 10, remark, t, t,
+      cap.base_price, cap.cap_price, buyPrice, buyCost, rate, recyclePrice, profit, 10, remark, t, t,
     );
     recycleId = Number(info.lastInsertRowid);
 
@@ -119,15 +121,16 @@ function settle(g, o, rate, remark = '') {
 /** 记一笔「待处理」：开关关闭或超出日限额时用，商品保持原样等人处理 */
 function markPending(g, o, rate, reason) {
   const buyPrice = money(o?.total_price || g.goods_min_price);
+  const buyCost = money(buyPrice + Number(o?.service_charge || 0));
   const recyclePrice = money(Number(g.goods_min_price) || buyPrice);
   const cap = priceCapOf(g);
   const t = now();
   const info = run(
     `INSERT INTO goods_recycle (goods_id, order_id, member_id, goods_name, good_thumb,
-      base_price, cap_price, buy_price, increase_rate, recycle_price, profit, status, remark, create_time, settle_time)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      base_price, cap_price, buy_price, buy_cost, increase_rate, recycle_price, profit, status, remark, create_time, settle_time)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     g.goods_id, Number(o?.order_id) || 0, g.member_id, g.goods_name, g.good_thumb || '',
-    cap.base_price, cap.cap_price, buyPrice, rate, recyclePrice, money(recyclePrice - buyPrice),
+    cap.base_price, cap.cap_price, buyPrice, buyCost, rate, recyclePrice, money(recyclePrice - buyCost),
     20, reason, t, '',
   );
   return { recycle_id: Number(info.lastInsertRowid), goods_id: g.goods_id, pending: true, reason };
@@ -194,8 +197,10 @@ export function settlePending(recycleId, operator = 'admin') {
   }
 
   const buyPrice = Number(rec.buy_price) || 0;
+  // 老台账没有 buy_cost（迁移时按买入价回填过），这里再兜一次底
+  const buyCost = Number(rec.buy_cost) > 0 ? Number(rec.buy_cost) : buyPrice;
   const recyclePrice = money(Number(rec.recycle_price) || Number(g.goods_min_price) || buyPrice);
-  const profit = money(recyclePrice - buyPrice);
+  const profit = money(recyclePrice - buyCost);
   const t = now();
 
   tx(() => {

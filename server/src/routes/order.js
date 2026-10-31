@@ -403,6 +403,10 @@ r.get('/express', authMember, (req, res) => {
  */
 function quoteConsignment(o, g, clientPrice) {
   const prevPrice = money2(o.total_price);
+  // 买家实付 = 商品金额 + 抢单服务费。算套利时服务费一样是成本，
+  // 只扣商品金额会把利润算高（9800 买、10094 卖，实际只赚 98，不是 294）。
+  const prevService = money2(Number(o.service_charge) || 0);
+  const prevCost = money2(prevPrice + prevService);
   const rate = priceIncreaseRate();
   const cap = priceCapOf(g);
   const raw = rate > 0
@@ -413,12 +417,14 @@ function quoteConsignment(o, g, clientPrice) {
   const listingFee = calcListingFee(prevPrice);
   return {
     prev_price: prevPrice,
+    prev_service_charge: prevService,
+    prev_cost: prevCost,
     increase_rate: rate,
     increase_amount: money2(nextPrice - prevPrice),
     next_price: nextPrice,
     listing_fee: listingFee,
-    // 持有人的实际套利 = 下一轮收回价 − 上一手成本 − 上架费
-    net_income: money2(nextPrice - prevPrice - listingFee),
+    // 持有人的实际套利 = 下一轮收回价 − 上一手实际成本（含服务费） − 上架费
+    net_income: money2(nextPrice - prevCost - listingFee),
     // 价格水位（供前端展示「还能涨多少」）
     base_price: cap.base_price,
     cap_price: cap.cap_price,

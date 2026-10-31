@@ -430,7 +430,8 @@ r.get('/certification/getIsRealName', authMember, (req, res) => {
 // ---------------- 我的店铺 ----------------
 /**
  * 当前持有的在售商品 + 预计收益
- * 预计净收益 = 下一轮标价 − 我的买入价 − 上架费
+ * 预计净收益 = 下一轮标价 − 我的实际成本 − 上架费
+ *   我的实际成本 = 买入价 + 我当时付的抢单服务费
  *   已挂牌：下一轮标价取商品现标价（已涨过），上架费已实际扣除
  *   未挂牌：下一轮标价按涨价率预估，上架费按预估
  * 商品被下一轮买走后 goods.member_id 变更，自然从列表消失，无需额外处理
@@ -448,7 +449,7 @@ r.get('/myShop', authMember, (req, res) => {
 
   const list = goodsList.map((g) => {
     const o = get(
-      `SELECT order_id, order_no, total_price, consignment_status, listing_fee FROM orders
+      `SELECT order_id, order_no, total_price, service_charge, consignment_status, listing_fee FROM orders
        WHERE goods_id = ? AND member_id = ? AND type = 1 AND pay_status = 10 AND status <> 40
        ORDER BY order_id DESC LIMIT 1`,
       g.goods_id, me,
@@ -459,18 +460,25 @@ r.get('/myShop', authMember, (req, res) => {
     const pieceSale = Number(g.stock_total) > 1;
     const transferable = !pieceSale && !cap.reached;
     const myPrice = Number(o?.total_price || 0);
+    // 抢单服务费是买家实付的一部分，算收益时必须算进成本 ——
+    // 否则「10094 − 9800 − 0 = 294」会把实际只有 98 的利润虚报三倍。
+    const myService = Number(o?.service_charge || 0);
+    const myCost = money(myPrice + myService);
     const listed = Number(o?.consignment_status) === 10;
     // 已挂牌：商品标价就是下一轮成交价；未挂牌：按涨价率预估（并受价格上限约束）
     const rawNext = listed ? Number(g.goods_min_price) : calcNextPrice(g.goods_min_price);
     const nextPrice = cap.cap_price > 0 ? Math.min(rawNext, cap.cap_price) : rawNext;
     const listingFee = listed ? Number(o?.listing_fee || 0) : calcListingFee(myPrice || g.goods_min_price);
     // 没有买入订单（平台指派/赠送）时无法算收益，返回 null 让前端显示「—」
-    const estNet = transferable && myPrice > 0 ? money(nextPrice - myPrice - listingFee) : null;
+    const estNet = transferable && myPrice > 0 ? money(nextPrice - myCost - listingFee) : null;
     return {
       goods_id: g.goods_id,
       goods_name: g.goods_name,
       good_thumb: g.good_thumb,
       my_price: money(myPrice),
+      my_service_charge: money(myService),
+      // 实际支出 = 买入价 + 抢单服务费
+      my_cost: myCost,
       current_price: money(g.goods_min_price),
       next_price: money(nextPrice),
       listing_fee: money(listingFee),

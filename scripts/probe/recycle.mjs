@@ -130,7 +130,9 @@ async function main() {
     eq(rec1?.status, 10, '回收单状态 = 已结算');
     eq(rec1?.buy_price, 1100, '记录买入价 1100');
     eq(rec1?.recycle_price, 1100, '回收价 = 当前实际价格 1100（刚买下即到顶）');
-    eq(rec1?.profit, 0, '这一手没有涨幅，收益 0');
+    // 收益按「实际成本」算：买入 1100 + 抢单服务费 22（2%）= 1122，原价接盘就是净亏 22
+    eq(rec1?.buy_cost, 1122, '记录实际成本 1122（买入价 + 服务费）');
+    eq(rec1?.profit, -22, '这一手没有涨幅，扣掉服务费后净亏 22');
     eq(rec1?.cap_price, 1100, '记录当时上限价');
     eq(rec1?.order_id, o1.order_id, '关联持有人买入订单');
     eq(balance(b1.mid) - before1, 1100, '持有人余额 +1100（原价接盘）');

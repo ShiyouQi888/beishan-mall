@@ -78,7 +78,7 @@
           <b>¥{{ Number(quote.next_price || 0).toFixed(2) }}</b>
         </div>
         <div class="tr-row">
-          <span>扣除上架费后净收益</span>
+          <span>扣除买入成本（含服务费）与上架费后净收益</span>
           <b :class="{ 'tr-loss': Number(quote.net_income) < 0 }">
             {{ Number(quote.net_income) >= 0 ? '+' : '' }}¥{{ Number(quote.net_income || 0).toFixed(2) }}
           </b>

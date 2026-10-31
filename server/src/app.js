@@ -82,6 +82,13 @@ if (!db.prepare('PRAGMA table_info(member)').all().some((c) => c.name === 'advan
   db.exec('ALTER TABLE member ADD COLUMN advance_seconds INTEGER DEFAULT 0');
   console.log('[migrate] member.advance_seconds 已添加（提前抢购的提前量，单位秒）');
 }
+// 回收台账记「持有人实际成本」：原来只存买入价，算收益时漏掉买家自己付的抢单服务费，
+// 会把收益报高。老记录按买入价回填（当时服务费信息已不可考，只能保持原值）。
+if (!db.prepare('PRAGMA table_info(goods_recycle)').all().some((c) => c.name === 'buy_cost')) {
+  db.exec('ALTER TABLE goods_recycle ADD COLUMN buy_cost REAL DEFAULT 0');
+  run('UPDATE goods_recycle SET buy_cost = buy_price WHERE IFNULL(buy_cost, 0) = 0');
+  console.log('[migrate] goods_recycle.buy_cost 已添加（持有人实际成本，含抢购服务费）');
+}
 // 「名额」一旦定下就不随成交变化，用来区分「唯一一件货」（成交即归买家）和「一批货」（抢一个减一个）。
 const initStockTotal = run(
   `UPDATE goods SET stock_total = MAX(IFNULL(stock_num, 1), 1) WHERE IFNULL(stock_total, 0) = 0`,

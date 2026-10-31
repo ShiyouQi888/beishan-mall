@@ -256,9 +256,10 @@ CREATE TABLE IF NOT EXISTS goods_recycle (
   base_price    REAL DEFAULT 0,          -- 基准价
   cap_price     REAL DEFAULT 0,          -- 价格上限
   buy_price     REAL DEFAULT 0,          -- 持有人买入价（订单成交价）
+  buy_cost      REAL DEFAULT 0,          -- 持有人实际成本 = 买入价 + 抢单服务费
   increase_rate REAL DEFAULT 0,          -- 结算时使用的涨幅（%）
   recycle_price REAL DEFAULT 0,          -- 结算给持有人的金额
-  profit        REAL DEFAULT 0,          -- 持有人拿到的收益（回收价 − 买入价）
+  profit        REAL DEFAULT 0,          -- 持有人拿到的收益（回收价 − 实际成本）
   status        INTEGER DEFAULT 10,      -- 10已结算 20待处理（开关关闭/超日限额）
   remark        TEXT DEFAULT '',
   create_time   TEXT,
