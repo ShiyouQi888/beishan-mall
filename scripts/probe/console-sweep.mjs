@@ -1,6 +1,6 @@
 // 后台/H5 全路由控制台错误扫描：逐个访问路由，收集 JS 异常、console.error、失败请求
 // 用法: node _probe/console-sweep.mjs <baseUrl> <tokenKey> <token> [路由文件] [--hash]
-// --hash：H5 用 createWebHashHistory，必须走 /#/path
+// --hash：H5 用 createWebHashHistory，必须走 /path
 const argv = process.argv.slice(2);
 const HASH = argv.includes('--hash');
 const idArg = argv.find((a) => a.startsWith('--id='));
@@ -25,7 +25,7 @@ const paths = [...new Set(raw)]
   .map((p) => p.replace(/:id\b/g, SUBST).replace(/:group\b/g, 'trade'))
   .filter((p) => p.startsWith('/') && !p.includes(':'));
 
-// H5 用 createWebHashHistory，必须走 /#/path（由 --hash 控制）
+// H5 用 createWebHashHistory，必须走 /path（由 --hash 控制）
 
 
 const PORT = 9333;

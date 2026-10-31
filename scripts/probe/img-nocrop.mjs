@@ -114,7 +114,7 @@ async function main() {
     source: `try{localStorage.setItem('ADMIN_TOKEN', ${JSON.stringify(token)})}catch(e){}`,
   });
 
-  await send('Page.navigate', { url: `${WEB}/#/goods` });
+  await send('Page.navigate', { url: `${WEB}/goods` });
   await sleep(4500);
 
   // 超大图必须走「等比缩小」分支：尺寸变小、比例不变、内容不被切掉

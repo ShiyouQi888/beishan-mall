@@ -69,7 +69,11 @@ function ok(cond, name, detail = '') {
 }
 
 async function go(hash, wait = 1500) {
-  await ev(`location.hash = ${JSON.stringify(hash)}`);
+  // 路由已改成 history 模式：pushState 不会触发 popstate，要手动派发一次让 vue-router 跟上
+  await ev(`(() => {
+    history.pushState(null, '', ${JSON.stringify(hash)});
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  })()`);
   await sleep(wait);
 }
 
@@ -97,7 +101,7 @@ async function section(title, fn) {
 }
 
 // 必须先真正打开页面
-await send('Page.navigate', { url: BASE + '/#/' }, sessionId);
+await send('Page.navigate', { url: BASE + '/' }, sessionId);
 await sleep(3000);
 if ((await ev('location.origin')) === 'null') throw new Error('页面未加载：' + BASE);
 
@@ -116,7 +120,7 @@ try {
     await send('Page.enable', {}, ls);
     await send('Runtime.enable', {}, ls);
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }, ls);
-    await send('Page.navigate', { url: `${BASE}/#/login` }, ls);
+    await send('Page.navigate', { url: `${BASE}/login` }, ls);
     await sleep(2800);
     const lev = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, ls)).result.value;
 

@@ -159,8 +159,9 @@ async function main() {
     // ---- 提现（模块已下线，入口与路由都封了）----
     console.log('\n[3] 申请提现（已下线）');
     const wd = await open('/withdraw');
-    const wdHash = await evaluate('location.hash');
-    check('提现页已下线，路由被兜回首页', wdHash !== '#/withdraw', `hash=${wdHash}`);
+    // 路由已改 history 模式，用 pathname 判断有没有被兜回首页
+    const wdPath = await evaluate('location.pathname');
+    check('提现页已下线，路由被兜回首页', wdPath !== '/withdraw', `path=${wdPath}`);
     check('兜回后不再出现「可提现余额」', !wd.includes('可提现余额'), wd.slice(0, 120));
     check('不出现余额数字 5000.00', !wd.includes('5000.00'), wd.slice(0, 120));
     check('没有提现输入框与「全部提现」', !wd.includes('全部提现'));

@@ -128,7 +128,7 @@ async function main() {
 
   try {
     // ---------------- 后台 ----------------
-    await send('Page.navigate', { url: `${WEB}/#/goods` });
+    await send('Page.navigate', { url: `${WEB}/goods` });
     await sleep(4500);
 
     // 必须点中目标那一行：列表按 goods_id DESC 排，第一行是 id 最大的，不一定是目标。
@@ -248,7 +248,7 @@ async function main() {
     const h5api = await call(`/api/goods/shopgoods/getDetails?goods_id=${targetId}`);
     check('H5 详情接口返回 detail_images', Array.isArray(h5api.data?.detail_images) && h5api.data.detail_images.length >= 1, JSON.stringify(h5api.data?.detail_images));
 
-    await send('Page.navigate', { url: `${H5}/#/goods/${targetId}` });
+    await send('Page.navigate', { url: `${H5}/goods/${targetId}` });
     await sleep(4000);
     const h5dom = await evaluate(`(() => {
       const imgs = [...document.querySelectorAll('.detail__long img')];

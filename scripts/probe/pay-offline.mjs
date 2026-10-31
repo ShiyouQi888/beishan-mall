@@ -195,7 +195,7 @@ async function main() {
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `try{localStorage.setItem('TOKEN', ${JSON.stringify(token2)})}catch(e){}`,
       });
-      await send('Page.navigate', { url: `${H5}/#/submit/1` });
+      await send('Page.navigate', { url: `${H5}/submit/1` });
       await sleep(4800);
 
       const dom = await evaluate(`(() => {

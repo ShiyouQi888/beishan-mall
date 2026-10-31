@@ -103,7 +103,7 @@ async function main() {
   const go = async (hash) => {
     await send('Page.navigate', { url: 'about:blank' });
     await sleep(300);
-    await send('Page.navigate', { url: `${WEB}/#${hash}` });
+    await send('Page.navigate', { url: `${WEB}${hash}` });
     await sleep(4200);
   };
 
@@ -187,13 +187,14 @@ async function main() {
     check('侧边栏不再出现「结算账目」', !sidebar.includes('结算账目'));
     check('侧边栏不再出现「提现审核」', !sidebar.includes('提现审核'));
 
+    // 路由已改 history 模式，用 pathname 判断有没有被重定向回首页
     await go('/withdraw');
-    const wdHash = await evaluate('location.hash');
-    check('直接访问 /withdraw 会被重定向走', wdHash !== '#/withdraw', wdHash);
+    const wdPath = await evaluate('location.pathname');
+    check('直接访问 /withdraw 会被重定向走', wdPath !== '/withdraw', wdPath);
 
     await go('/settle');
-    const settleHash = await evaluate('location.hash');
-    check('直接访问 /settle 会被重定向走', settleHash !== '#/settle', settleHash);
+    const settlePath = await evaluate('location.pathname');
+    check('直接访问 /settle 会被重定向走', settlePath !== '/settle', settlePath);
 
     check('页面无 JS 报错', errs.length === 0, errs.slice(0, 3).join(' | '));
   } finally {

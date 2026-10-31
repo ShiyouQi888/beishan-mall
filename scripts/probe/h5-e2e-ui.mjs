@@ -63,13 +63,17 @@ async function ev(expression) {
 }
 
 // 必须先真正打开页面，否则后续只改 hash 不会加载应用
-await send('Page.navigate', { url: BASE + '/#/' }, sessionId);
+await send('Page.navigate', { url: BASE + '/' }, sessionId);
 await sleep(3000);
 const onApp = (await ev('location.origin')) !== 'null';
 if (!onApp) throw new Error('页面未加载：' + BASE);
 
 async function go(hash, wait = 1600) {
-  await ev(`location.hash = ${JSON.stringify(hash)}`);
+  // 路由已改成 history 模式：pushState 不会触发 popstate，要手动派发一次让 vue-router 跟上
+  await ev(`(() => {
+    history.pushState(null, '', ${JSON.stringify(hash)});
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  })()`);
   await sleep(wait);
 }
 
@@ -107,7 +111,7 @@ async function section(title, fn) {
 try {
   // ---------- 登录 ----------
   await section('[1] 登录页与登录流程', async () => {
-    await go('#/login', 2000);
+    await go('/login', 2000);
     ok(await has('欢迎回来'), '登录页渲染');
     ok((await count('input')) >= 2, '登录页有手机号与密码输入框', `${await count('input')} 个`);
     ok(await has('注册新账号'), '登录页有注册入口');
@@ -122,7 +126,7 @@ try {
   } else {
     // ---------- 首页 ----------
     await section('[2] 首页渲染与底部导航', async () => {
-      await go('#/', 2600);
+      await go('/', 2600);
       ok(await has('限量发售') || await has('抢购'), '首页渲染促销/抢购区');
       const cards = await count('.goods-card');
       ok(cards > 0, '首页渲染商品卡', `${cards} 张`);
@@ -131,15 +135,15 @@ try {
       // 「全部」分类标签已按需求下线（再点一次已选分类即取消筛选），这里反向断言
       ok(!(await has('全部')), '首页不再出现「全部」分类标签');
       ok(await has('首页'), '底部导航存在');
-      await go('#/loot', 1800);
+      await go('/loot', 1800);
       ok(await has('场') || await has('抢购'), '抢购页可切换');
-      await go('#/invite', 1800);
+      await go('/invite', 1800);
       ok(await has('邀请'), '邀请页可切换');
     });
 
     // ---------- 商品详情 ----------
     await section('[3] 商品详情与抢购入口', async () => {
-      await go('#/', 2200);
+      await go('/', 2200);
       const clicked = await ev(`(() => {
         const card = document.querySelector('.goods-card, .g-card, .product, .card');
         const el = [...document.querySelectorAll('div, a')].find((e) => e.className && /goods|product/.test(e.className) && e.onclick !== null);
@@ -186,7 +190,7 @@ try {
 
     // ---------- 订单列表与转拍弹窗 ----------
     await section('[5] 订单列表与转拍弹窗', async () => {
-      await go('#/order', 2200);
+      await go('/order', 2200);
       ok(await has('我的订单'), '订单列表渲染');
       ok(await has('全部'), '订单状态筛选存在');
       const t = await clickText('转拍');
@@ -207,7 +211,7 @@ try {
 
     // ---------- 我的 ----------
     await section('[6] 我的页面与功能入口', async () => {
-      await go('#/mine', 2200);
+      await go('/mine', 2200);
       ok(await has('我的订单'), '我的页渲染');
       ok(await has('我的店铺'), '我的店铺入口存在');
       ok(await has('我的佣金') || await has('积分'), '资产区块存在（余额已隐藏）');
@@ -218,7 +222,7 @@ try {
 
     // ---------- 我的店铺 ----------
     await section('[7] 我的店铺页', async () => {
-      await go('#/my-shop', 2200);
+      await go('/my-shop', 2200);
       ok(await has('我的店铺'), '店铺页渲染');
       ok(await has('在售商品'), '展示在售件数');
       ok(await has('预计收益'), '展示预计收益');
@@ -230,27 +234,27 @@ try {
 
     // ---------- 钱包 / 提现 ----------
     await section('[8] 钱包与提现页（提现已下线）', async () => {
-      await go('#/wallet', 2000);
+      await go('/wallet', 2000);
       ok(await has('我的钱包'), '钱包页渲染');
       ok(await has('佣金明细'), '钱包页保留佣金明细入口');
       ok(!(await has('申请提现')), '钱包页没有申请提现入口');
-      await go('#/withdraw', 2000);
+      await go('/withdraw', 2000);
       ok(!(await has('可提现余额')), '提现页已下线（路由兜回首页）');
     });
 
     // ---------- 地址 ----------
     await section('[9] 收货地址', async () => {
-      await go('#/address', 2000);
+      await go('/address', 2000);
       ok(await has('收货地址'), '地址页渲染');
       ok(await has('新增收货地址') || await has('新增'), '有新增地址入口');
-      await go('#/address/edit', 1800);
+      await go('/address/edit', 1800);
       ok(await has('收货人'), '地址编辑页渲染');
       ok(await has('所在地区'), '地区选择存在');
     });
 
     // ---------- 实名 ----------
     await section('[10] 实名认证页', async () => {
-      await go('#/identify', 2000);
+      await go('/identify', 2000);
       ok(await has('实名认证'), '实名页渲染');
       const txt = await ev('document.body.innerText.slice(0, 200)');
       ok(/已完成实名认证|审核中|未完成实名认证/.test(txt), '展示实名状态', txt.split('\n')[1] || '');
@@ -258,35 +262,35 @@ try {
 
     // ---------- 积分商城 ----------
     await section('[11] 积分商城', async () => {
-      await go('#/score', 2000);
+      await go('/score', 2000);
       ok(await has('积分商城'), '积分页渲染');
       ok(await has('我的积分'), '显示我的积分');
     });
 
     // ---------- 团队 / 佣金 ----------
     await section('[12] 团队与佣金', async () => {
-      await go('#/team', 2000);
+      await go('/team', 2000);
       ok(await has('我的团队'), '团队页渲染');
-      await go('#/commission', 2000);
+      await go('/commission', 2000);
       ok(await has('我的佣金'), '佣金页渲染');
     });
 
     // ---------- 设置 / 公告 ----------
     await section('[13] 设置与公告', async () => {
-      await go('#/setting', 2000);
+      await go('/setting', 2000);
       ok(await has('设置'), '设置页渲染');
       ok(await has('登录密码'), '有修改登录密码入口');
       ok(await has('支付密码'), '有支付密码入口');
-      await go('#/notice', 1800);
+      await go('/notice', 1800);
       ok(await has('公告'), '公告页渲染');
     });
 
     // ---------- 分类与搜索 ----------
     await section('[14] 分类与搜索', async () => {
-      await go('#/category', 2000);
+      await go('/category', 2000);
       ok(await has('商品分类'), '分类页渲染');
       ok((await count('img, svg')) > 0, '分类图标渲染');
-      await go('#/search', 1800);
+      await go('/search', 1800);
       ok(await has('搜索'), '搜索页渲染');
     });
   }

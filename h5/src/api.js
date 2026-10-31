@@ -20,8 +20,10 @@ http.interceptors.response.use(
     if (d && d.code === -1) {
       localStorage.removeItem('TOKEN');
       showToast(d.msg || '请先登录');
-      if (location.hash !== '#/login') {
-        setTimeout(() => (location.hash = '#/login'), 600);
+      // 登录页路径要跟着 base 走（dev 是 /login，部署到子目录时自动带前缀）
+      const loginPath = `${import.meta.env.BASE_URL}login`.replace(/\/+/g, '/');
+      if (location.pathname !== loginPath) {
+        setTimeout(() => location.replace(loginPath), 600);
       }
       return Promise.reject(d);
     }

@@ -183,7 +183,7 @@ async function main() {
     await send('Emulation.setDeviceMetricsOverride', { width: 420, height: 900, deviceScaleFactor: 2, mobile: true });
 
     console.log('\n[1] 确认前');
-    await go(`${H5}/#/order/detail/${orderId}`);
+    await go(`${H5}/order/detail/${orderId}`);
     const before = await readDetail();
     check('状态是「待确认」', before.title === '待确认', before.title);
     check('按钮是「已提交，等待确认」', before.btn.includes('已提交'), before.btn);

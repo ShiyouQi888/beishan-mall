@@ -136,7 +136,7 @@ async function main() {
 
     // ---------- 后台订单列表 ----------
     console.log('[1] 后台全部订单');
-    await go(`${WEB}/#/orders`);
+    await go(`${WEB}/orders`);
     const adm = await evaluate(`(() => {
       const head = [...document.querySelectorAll('.el-table__header th')].map((t) => t.innerText.trim());
       const rows = [...document.querySelectorAll('.el-table__body-wrapper .el-table__row')];
@@ -164,7 +164,7 @@ async function main() {
     // ---------- 会员端订单列表 ----------
     console.log('\n[2] 会员端订单列表');
     await send('Emulation.setDeviceMetricsOverride', { width: 420, height: 900, deviceScaleFactor: 2, mobile: true });
-    await go(`${H5}/#/order`);
+    await go(`${H5}/order`);
     const h5list = await evaluate(`(() => {
       const tabs = [...document.querySelectorAll('.otab, .tabs__item, [class*="tab"]')].map((x) => x.innerText.trim()).filter(Boolean);
       const body = document.body.innerText;
@@ -176,7 +176,7 @@ async function main() {
 
     // ---------- 会员端订单详情 ----------
     console.log('\n[3] 会员端订单详情');
-    await go(`${H5}/#/order/detail/${orderId}`);
+    await go(`${H5}/order/detail/${orderId}`);
     const h5detail = await evaluate(`(() => document.body.innerText.replace(/\\s+/g, ' ').slice(0, 400))()`);
     check('详情没有「快递」行', !h5detail.includes('快递'), h5detail.slice(0, 120));
     check('详情没有「确认收货」', !h5detail.includes('确认收货'), h5detail.slice(0, 120));

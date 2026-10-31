@@ -152,13 +152,13 @@ async function main() {
     await send('Emulation.setDeviceMetricsOverride', { width: 420, height: 900, deviceScaleFactor: 2, mobile: true });
 
     console.log('\n[3] 页面')
-    await go(`${H5}/#/withdraw`);
+    await go(`${H5}/withdraw`);
     const wd = await evaluate(`(() => ({
-      hash: location.hash,
+      path: location.pathname,
       text: document.body.innerText.replace(/\\s+/g,' ').slice(0, 120),
       hasWithdrawPage: !!document.querySelector('.wpage, .withdraw, .wall__card'),
     }))()`);
-    check('#/withdraw 被兜回首页', wd.hash === '#/' || wd.hash === '', `hash=${wd.hash}`);
+    check('/withdraw 被兜回首页', wd.path === '/' || wd.path === '', `path=${wd.path}`);
     check('没有渲染出提现页', wd.hasWithdrawPage === false, wd.text);
     await mkdirSafe();
     try {
@@ -166,7 +166,7 @@ async function main() {
       writeFileSync(join(process.cwd(), '_probe', 'withdraw-closed-redirect.png'), Buffer.from(s.data, 'base64'));
     } catch {}
 
-    await go(`${H5}/#/wallet`);
+    await go(`${H5}/wallet`);
     const wallet = await evaluate(`(() => ({
       btns: [...document.querySelectorAll('.wall__btns button')].map((b) => b.textContent.trim()),
       body: document.body.innerText.replace(/\\s+/g,' '),
@@ -179,7 +179,7 @@ async function main() {
       console.log('截图: _probe/withdraw-closed-*.png');
     } catch {}
 
-    await go(`${H5}/#/mine`);
+    await go(`${H5}/mine`);
     const mine = await evaluate(`(() => document.body.innerText.replace(/\\s+/g,' '))()`);
     check('我的页面没有「提现」字样', !mine.includes('提现'), mine.slice(0, 100));
 

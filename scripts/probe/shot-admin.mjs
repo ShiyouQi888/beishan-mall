@@ -99,7 +99,7 @@ async function main() {
   await send('Page.addScriptToEvaluateOnNewDocument', {
     source: `try{localStorage.setItem('ADMIN_TOKEN', ${JSON.stringify(token)})}catch(e){}`,
   });
-  await send('Page.navigate', { url: `${BASE}/admin/#${ROUTE}` });
+  await send('Page.navigate', { url: `${BASE}/${ROUTE}` });
   await sleep(5000);
 
   // 后台是「侧边栏 + 内部滚动容器」布局，documentElement 不会随内容变高，

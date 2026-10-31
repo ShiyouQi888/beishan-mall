@@ -1,13 +1,21 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
-import { createRouter, createWebHashHistory } from 'vue-router';
+import { createRouter, createWebHistory } from 'vue-router';
 import Vant from 'vant';
 import 'vant/lib/index.css';
 import './styles/main.css';
 import App from './App.vue';
 import routes from './router.js';
 
-const router = createRouter({ history: createWebHashHistory(), routes });
+// 老链接兼容：以前是 /#/loot 这种 hash 路由，改成 history 模式后，
+// 旧书签/二维码/分享链接里带 #/ 的会被直接转成新路径，不会白页。
+// 必须在 createRouter 之前执行 —— router 初始化时就会读一次 location。
+if (location.hash.startsWith('#/')) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  history.replaceState(null, '', base + location.hash.slice(1));
+}
+
+const router = createRouter({ history: createWebHistory(), routes });
 
 router.beforeEach((to, from, next) => {
   const needAuth = to.meta.auth !== false;

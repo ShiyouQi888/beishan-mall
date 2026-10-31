@@ -50,7 +50,7 @@ ws.addEventListener('message', (ev) => {
 await send('Page.enable');
 await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 420, height: 900, deviceScaleFactor: 2, mobile: true });
-await send('Page.navigate', { url: `${H5}/#/loot` });
+await send('Page.navigate', { url: `${H5}/loot` });
 await sleep(5200);
 
 const info = await send('Runtime.evaluate', {

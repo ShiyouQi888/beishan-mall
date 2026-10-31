@@ -210,7 +210,7 @@ async function main() {
     // ---------- 3. H5 详情页 ----------
     console.log('\n[3] H5 订单详情：已提交就点不动');
     await send('Emulation.setDeviceMetricsOverride', { width: 420, height: 900, deviceScaleFactor: 2, mobile: true });
-    await go(`${H5}/#/order/detail/${orderA}`);
+    await go(`${H5}/order/detail/${orderA}`);
     const detailUi = await evaluate(`(() => {
       const btn = document.querySelector('.odetail__bar button');
       return {
@@ -225,7 +225,7 @@ async function main() {
     await shot('apply-once-detail');
 
     // 未提交过的订单 B：按钮仍可点
-    await go(`${H5}/#/order/detail/${orderB}`);
+    await go(`${H5}/order/detail/${orderB}`);
     const detailB = await evaluate(`(() => {
       const btn = document.querySelector('.odetail__bar button');
       return { text: btn?.textContent?.trim() || '', disabled: !!btn?.disabled };
@@ -235,7 +235,7 @@ async function main() {
 
     // ---------- 4. H5 订单列表 ----------
     console.log('\n[4] H5 订单列表：已提交的行置灰');
-    await go(`${H5}/#/order`);
+    await go(`${H5}/order`);
     const listUi = await evaluate(`(() => {
       const cards = [...document.querySelectorAll('.ocard')];
       const pick = (no) => {
@@ -254,7 +254,7 @@ async function main() {
     // ---------- 5. 后台订单页 ----------
     console.log('\n[5] 后台订单：没有审核/拒绝，能批量取消');
     await send('Emulation.clearDeviceMetricsOverride');
-    await go(`${WEB}/#/orders`);
+    await go(`${WEB}/orders`);
     const admUi = await evaluate(`(() => {
       const head = [...document.querySelectorAll('.el-table__header th')].map((t) => t.innerText.trim());
       const ops = [...document.querySelectorAll('.el-table__body .ops')].map((x) => x.innerText.replace(/\\s+/g, ' ').trim());
@@ -314,7 +314,7 @@ async function main() {
     const aRow = get('SELECT pay_status FROM orders WHERE order_id = ?', orderA);
     check('订单 A 已确认', Number(aRow?.pay_status) === 10, JSON.stringify(aRow));
 
-    await go(`${H5}/#/order/detail/${orderA}`);
+    await go(`${H5}/order/detail/${orderA}`);
     const confirmedUi = await evaluate(`(() => ({
       t: document.querySelector('.status__t')?.textContent?.trim() || '',
       d: document.querySelector('.status__d')?.textContent?.trim() || '',

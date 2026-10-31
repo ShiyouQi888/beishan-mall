@@ -185,7 +185,7 @@ async function main() {
     await send('Page.addScriptToEvaluateOnNewDocument', {
       source: `try{localStorage.setItem('ADMIN_TOKEN', ${JSON.stringify(at)})}catch(e){}`,
     });
-    await send('Page.navigate', { url: `${WEB}/#/transpose` });
+    await send('Page.navigate', { url: `${WEB}/transpose` });
     await sleep(4300);
 
     const dom = await evaluate(`(() => {

@@ -148,7 +148,7 @@ async function main() {
     // 先跳 about:blank 再回来，保证是全新文档 + 重新发一次详情请求。
     await send('Page.navigate', { url: 'about:blank' });
     await sleep(400);
-    await send('Page.navigate', { url: `${H5}/#/goods/${GOODS_ID}` });
+    await send('Page.navigate', { url: `${H5}/goods/${GOODS_ID}` });
     await sleep(4500);
     return pageState();
   };

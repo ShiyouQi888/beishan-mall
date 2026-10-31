@@ -108,7 +108,7 @@ async function main() {
     });
 
     console.log('\n[2] 侧边栏')
-    await go(`${ADMIN}/#/orders`);
+    await go(`${ADMIN}/orders`);
     const side = await evaluate(`(() => ({
       nav: document.querySelector('.sidebar, .el-menu, aside')?.innerText || '',
       title: document.querySelector('.page-head h2')?.textContent?.trim() || '',
@@ -124,16 +124,16 @@ async function main() {
     check('「新建寄买单」已移除', !side.actions.some((t) => t.includes('寄买')), JSON.stringify(side.actions));
 
     console.log('\n[3] 直接敲地址')
-    await go(`${ADMIN}/#/delivery`, 3200);
-    const del = await evaluate(`(() => ({ hash: location.hash, title: document.querySelector('.page-head h2')?.textContent?.trim() || '' }))()`);
-    check('#/delivery 被兜回控制面板', del.hash !== '#/delivery', `hash=${del.hash} 标题=${del.title}`);
+    await go(`${ADMIN}/delivery`, 3200);
+    const del = await evaluate(`(() => ({ path: location.pathname, title: document.querySelector('.page-head h2')?.textContent?.trim() || '' }))()`);
+    check('/delivery 被兜回控制面板', del.path !== '/delivery', `path=${del.path} 标题=${del.title}`);
 
-    await go(`${ADMIN}/#/orders/shop`, 3200);
-    const shop = await evaluate(`(() => ({ hash: location.hash, title: document.querySelector('.page-head h2')?.textContent?.trim() || '' }))()`);
-    check('#/orders/shop 被兜回控制面板', shop.hash !== '#/orders/shop', `hash=${shop.hash} 标题=${shop.title}`);
+    await go(`${ADMIN}/orders/shop`, 3200);
+    const shop = await evaluate(`(() => ({ path: location.pathname, title: document.querySelector('.page-head h2')?.textContent?.trim() || '' }))()`);
+    check('/orders/shop 被兜回控制面板', shop.path !== '/orders/shop', `path=${shop.path} 标题=${shop.title}`);
 
     try {
-      await go(`${ADMIN}/#/orders`, 3600);
+      await go(`${ADMIN}/orders`, 3600);
       const s = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
       mkdirSync(join(process.cwd(), '_probe'), { recursive: true });
       writeFileSync(join(process.cwd(), '_probe', 'remove-shop-orders.png'), Buffer.from(s.data, 'base64'));

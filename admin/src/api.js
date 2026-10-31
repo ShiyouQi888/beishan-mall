@@ -2,6 +2,8 @@ import axios from 'axios';
 import { ElMessage } from 'element-plus';
 
 const http = axios.create({ baseURL: '/admin/api', timeout: 20000 });
+// 登录页路径跟着 base 走：dev 是 /login，生产构建（VITE_BASE=/admin/）是 /admin/login
+const LOGIN_PATH = `${import.meta.env.BASE_URL}login`.replace(/\/+/g, '/');
 http.interceptors.request.use((cfg) => {
   const t = localStorage.getItem('ADMIN_TOKEN');
   if (t) cfg.headers.token = t;
@@ -16,7 +18,7 @@ http.interceptors.response.use(
     if (d && d.code === 1) return d;
     if (d && d.code === -1) {
       localStorage.removeItem('ADMIN_TOKEN');
-      if (location.hash !== '#/login') location.hash = '#/login';
+      if (location.pathname !== LOGIN_PATH) location.replace(LOGIN_PATH);
       ElMessage.error(d.msg || '登录已失效');
       return Promise.reject(d);
     }
@@ -26,7 +28,7 @@ http.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('ADMIN_TOKEN');
-      location.hash = '#/login';
+      location.replace(LOGIN_PATH);
     }
     if (!err.config?.silent) ElMessage.error(err.response?.data?.msg || '网络异常');
     return Promise.reject(err);

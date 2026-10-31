@@ -1,6 +1,6 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
-import { createRouter, createWebHashHistory } from 'vue-router';
+import { createRouter, createWebHistory } from 'vue-router';
 import ElementPlus from 'element-plus';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
 import 'element-plus/dist/index.css';
@@ -9,7 +9,14 @@ import App from './App.vue';
 import routes from './router.js';
 import { adminApi } from './api.js';
 
-const router = createRouter({ history: createWebHashHistory(), routes });
+// 老链接兼容：/#/orders（hash 路由时代）自动转成 /orders。
+// base 由构建时的 VITE_BASE 决定（生产是 /admin/），createWebHistory 会自动带上。
+if (location.hash.startsWith('#/')) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  history.replaceState(null, '', base + location.hash.slice(1));
+}
+
+const router = createRouter({ history: createWebHistory(), routes });
 
 router.beforeEach(async (to) => {
   const token = localStorage.getItem('ADMIN_TOKEN');

@@ -87,7 +87,7 @@ async function main() {
     await send('Page.addScriptToEvaluateOnNewDocument', {
       source: `try{localStorage.setItem('ADMIN_TOKEN', ${JSON.stringify(token)})}catch(e){}`,
     });
-    await send('Page.navigate', { url: `${WEB}/#/goods` });
+    await send('Page.navigate', { url: `${WEB}/goods` });
     await sleep(4500);
 
     // 打开「新增商品」弹窗

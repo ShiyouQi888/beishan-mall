@@ -155,7 +155,7 @@ async function main() {
     });
     await send('Page.navigate', { url: 'about:blank' });
     await sleep(300);
-    await send('Page.navigate', { url: `${ADMIN}/#/orders` });
+    await send('Page.navigate', { url: `${ADMIN}/orders` });
     await sleep(4600);
 
     const ui = await evaluate(`(() => {

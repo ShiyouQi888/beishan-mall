@@ -178,7 +178,7 @@ async function main() {
 
     // 后台
     console.log('\n[2] 后台');
-    await go(`${WEB}/#/orders`);
+    await go(`${WEB}/orders`);
     const adm = await evaluate(`(() => {
       const head = [...document.querySelectorAll('.el-table__header th')].map((t) => t.innerText.trim());
       const nav = document.querySelector('.sidebar, .el-menu')?.innerText || '';
@@ -196,7 +196,7 @@ async function main() {
     // H5 确认订单页
     console.log('\n[3] H5 确认订单页');
     await send('Emulation.setDeviceMetricsOverride', { width: 420, height: 900, deviceScaleFactor: 2, mobile: true });
-    await go(`${H5}/#/submit/${goodsId}`);
+    await go(`${H5}/submit/${goodsId}`);
     const submit = await evaluate(`(() => {
       // 用 DOM 判断而不是文本匹配 —— 测试商品名里就带「支付方式」四个字
       const body = document.body.innerText.replace(/\\s+/g, ' ');
@@ -216,7 +216,7 @@ async function main() {
 
     // H5 订单详情
     console.log('\n[4] H5 订单详情');
-    await go(`${H5}/#/order/detail/${orderId}`);
+    await go(`${H5}/order/detail/${orderId}`);
     const detail = await evaluate(`(() => {
       const body = document.body.innerText.replace(/\\s+/g, ' ');
       const btn = document.querySelector('.odetail__bar button')?.textContent?.trim() || '';

@@ -95,8 +95,8 @@ try {
   ok(!errs.length, '后台无控制台错误', errs.slice(0, 3).join(' | '));
   await shot('admin');
 
-  console.log(`\n[3] 后台深链接 ${BASE}/admin/#/member`);
-  await visit(`${BASE}/admin/#/member`, 2500);
+  console.log(`\n[3] 后台深链接 ${BASE}/admin/member`);
+  await visit(`${BASE}/admin/member`, 2500);
   ok(await ev("location.hash.includes('/member')"), '后台 hash 路由可用', await ev('location.hash'));
   ok(await ev("document.body.innerText.includes('会员列表')"), '后台页面切换正常');
   await shot('admin-member');

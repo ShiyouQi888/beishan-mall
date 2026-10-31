@@ -167,7 +167,7 @@ async function main() {
     });
     await send('Page.navigate', { url: 'about:blank' });
     await sleep(300);
-    await send('Page.navigate', { url: `${ADMIN}/#/` });
+    await send('Page.navigate', { url: `${ADMIN}/` });
     await sleep(4600);
 
     const ui = await evaluate(`(() => ({
@@ -208,8 +208,8 @@ async function main() {
       if (card) card.click();
     })()`);
     await sleep(1800);
-    const hash = await evaluate('location.hash');
-    check('点「在挂转拍」跳到转拍订单页', hash === '#/transpose', hash);
+    const path = await evaluate('location.pathname');
+    check('点「在挂转拍」跳到转拍订单页', path === '/transpose', path);
 
     check('页面无 JS 报错', errs.length === 0, errs.slice(0, 3).join(' | '));
   } finally {

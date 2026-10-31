@@ -219,7 +219,7 @@ async function main() {
       await send('Page.addScriptToEvaluateOnNewDocument', {
         source: `try{localStorage.setItem('ADMIN_TOKEN', ${JSON.stringify(token)})}catch(e){}`,
       });
-      await send('Page.navigate', { url: `${WEB}/#/transpose` });
+      await send('Page.navigate', { url: `${WEB}/transpose` });
       await sleep(4500);
 
       const head = await evaluate(`(document.querySelector('.page-head h2') || {}).textContent || ''`);

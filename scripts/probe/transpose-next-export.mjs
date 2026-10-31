@@ -207,7 +207,7 @@ async function main() {
     });
     await send('Page.navigate', { url: 'about:blank' });
     await sleep(300);
-    await send('Page.navigate', { url: `${WEB}/#/transpose` });
+    await send('Page.navigate', { url: `${WEB}/transpose` });
     await sleep(4600);
 
     // 切到「全部」并搜 TAG，只留造出来的两条
