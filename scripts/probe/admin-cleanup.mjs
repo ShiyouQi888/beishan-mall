@@ -160,6 +160,20 @@ async function main() {
       console.log('截图: _probe/specialarea-config.png');
     } catch {}
 
+    // ---------- 结算账目 / 提现审核已下线 ----------
+    console.log('\n[4] 结算账目与提现审核已下线');
+    const sidebar = await evaluate(`document.querySelector('.sidebar, .el-menu')?.innerText || document.body.innerText`);
+    check('侧边栏不再出现「结算账目」', !sidebar.includes('结算账目'));
+    check('侧边栏不再出现「提现审核」', !sidebar.includes('提现审核'));
+
+    await go('/withdraw');
+    const wdHash = await evaluate('location.hash');
+    check('直接访问 /withdraw 会被重定向走', wdHash !== '#/withdraw', wdHash);
+
+    await go('/settle');
+    const settleHash = await evaluate('location.hash');
+    check('直接访问 /settle 会被重定向走', settleHash !== '#/settle', settleHash);
+
     check('页面无 JS 报错', errs.length === 0, errs.slice(0, 3).join(' | '));
   } finally {
     ws.close();

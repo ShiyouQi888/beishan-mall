@@ -76,19 +76,9 @@ export const MENU = [
         icon: `<path d="M3.5 20.5h17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6.5 20V13M12 20V6.5M17.5 20v-4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m4.5 9.5 5-4 4 2.5 5.5-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
       },
       {
-        path: '/settle',
-        title: '结算账目',
-        icon: `<rect x="3" y="5.5" width="18" height="13" rx="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M3 10h18" stroke="currentColor" stroke-width="1.7"/><circle cx="7.5" cy="14.5" r="1.2" fill="currentColor"/>`,
-      },
-      {
         path: '/energy',
         title: '资金流水',
         icon: `<path d="M4 19V9M9.5 19V5M15 19v-7M20.5 19v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
-      },
-      {
-        path: '/withdraw',
-        title: '提现审核',
-        icon: `<path d="M12 4v11M7.8 11l4.2 4.2 4.2-4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 19.5h15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
       },
     ],
   },

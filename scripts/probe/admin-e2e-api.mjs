@@ -411,7 +411,9 @@ async function main() {
     section('[10] 权限：菜单下发 / 节点树 / 角色授权');
     const menu = await api('/admin/api/menu', { token: at });
     const menuCount = (menu.data?.menus || []).reduce((s, g) => s + g.items.length, 0);
-    ok(menu.code === 1 && menuCount >= 30, '超管菜单全量下发', `${(menu.data?.menus || []).length} 组 / ${menuCount} 项`);
+    // 不写死条数：菜单会随业务增删，这里只要求「全量下发且结构完整」
+    ok(menu.code === 1 && menuCount >= 20 && (menu.data?.menus || []).length >= 6,
+      '超管菜单全量下发', `${(menu.data?.menus || []).length} 组 / ${menuCount} 项`);
     const myPaths = await api('/admin/api/my-paths', { token: at });
     ok(myPaths.data?.unrestricted === true, '超管不受权限限制');
     const tree = await api('/admin/api/node/tree', { token: at });
