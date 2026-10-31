@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@vant/area-data": "^2.2.0",
+    "compression": "^1.8.2",
     "cors": "^2.8.5",
     "express": "^5.0.1",
     "jsonwebtoken": "^9.0.2",

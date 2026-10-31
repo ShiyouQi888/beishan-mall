@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -380,12 +381,18 @@ if (get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'recharge_p
 ensureBuiltinAdmin();
 
 const app = express();
+// 云端带宽是这里最贵的资源：admin 的主包有 1.1MB，不压缩就是明文传输。
+// 压完之后约 300KB，首屏和弱网差别非常大。只压 >1KB 且可压缩的类型（JS/CSS/JSON/HTML/SVG）。
+app.use(compression({ threshold: 1024 }));
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 // 上传目录与 upload.js 保持一致，可用 UPLOAD_DIR 覆盖
 const UPLOAD_DIR = process.env.UPLOAD_DIR || join(__dirname, '..', 'data', 'uploads');
 app.use('/uploads', express.static(UPLOAD_DIR, {
+  // 文件名是「时间戳+随机串」，同一个 URL 的内容永远不变，可以放心让浏览器缓存一年
+  maxAge: '1y',
+  immutable: true,
   setHeaders: (res) => {
     // 上传目录里一律不让浏览器猜类型：即使混进一段可执行内容，
     // nosniff 也会让它按声明的 Content-Type（图片）处理，而不是当页面跑起来
@@ -456,13 +463,14 @@ if (hasAdmin) {
   // 后台构建时 base=/admin/，资源在 /admin/assets/*
   // 精确匹配 /admin 才补斜杠，避免非严格路由把 /admin/ 也重定向到自己
   app.get(/^\/admin$/, (req, res) => res.redirect(301, '/admin/'));
-  app.use('/admin', express.static(ADMIN_DIR, { index: false, maxAge: '7d' }));
+  // 产物文件名带 hash，内容变了 URL 就变，可以缓存一年且不用回源验证
+  app.use('/admin', express.static(ADMIN_DIR, { index: false, maxAge: '1y', immutable: true }));
   // 注意排除 /admin/api：接口走 JSON，不能被 SPA 回落吞掉
   app.get(/^\/admin(?!\/api(?:\/|$))(\/.*)?$/, (req, res) => res.sendFile(join(ADMIN_DIR, 'index.html')));
 }
 
 if (hasH5) {
-  app.use(express.static(H5_DIR, { index: false, maxAge: '7d' }));
+  app.use(express.static(H5_DIR, { index: false, maxAge: '1y', immutable: true }));
   // 前端用 hash 路由，深链接不经过服务端；其余路径回落到首页
   app.get(/^(?!\/(api|admin|uploads))(\/.*)?$/, (req, res) => res.sendFile(join(H5_DIR, 'index.html')));
 }
