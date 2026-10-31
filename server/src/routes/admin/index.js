@@ -160,15 +160,16 @@ const M = {
       { k: 'num', t: '数量', type: 'number', w: 70, hide: true },
       { k: 'total_price', t: '总额', type: 'money', w: 110 },
       { k: 'service_charge', t: '服务费', type: 'money', w: 90, hide: true },
-      { k: 'status', t: '状态', type: 'select', opts: ORDER_STATUS, w: 100 },
+      // 状态只看「付没付」：这套玩法没有发货环节，别再显示待发货/待收货误导运营
+      { k: 'pay_status', t: '状态', type: 'select', opts: { 10: '已支付', 0: '未支付' }, w: 96 },
+      { k: 'status', t: '内部状态', type: 'select', opts: ORDER_STATUS, w: 100, hide: true },
       { k: 'pay_type', t: '支付方式', type: 'select', opts: { 0: '未支付', 1: '余额', 2: '微信', 3: '支付宝', 4: '线下凭证' }, w: 110 },
       { k: 'pay_voucher', t: '支付凭证', type: 'image', w: 80, hide: true, readonly: true },
       { k: 'buyer', t: '买家', type: 'member', w: 110 },
       { k: 'seller_id', t: '卖家ID', type: 'text', w: 90, hide: true },
-      { k: 'express_no', t: '快递单号', type: 'text', w: 140, hide: true },
       { k: 'create_time', t: '下单时间', type: 'text', readonly: true, w: 160 },
     ],
-    actions: ['detail', 'deliver', 'audit', 'cancel'],
+    actions: ['detail', 'audit', 'cancel'],
   },
   certification: {
     table: 'member_certification', pk: 'certification_id', label: '实名认证',
@@ -884,6 +885,11 @@ r.get('/:module/list', authAdmin, (req, res) => {
       where.push('status = ?');
       args.push(Number(req.query.status));
     }
+    // 前台按「支付状态」筛选（全部订单页现在只看付没付）
+    if (req.query.pay_status !== undefined && req.query.pay_status !== '') {
+      where.push('pay_status = ?');
+      args.push(Number(req.query.pay_status));
+    }
   }
   if (req.params.module === 'settle' && req.query.kind) {
     where.push('kind = ?');
@@ -1247,20 +1253,6 @@ r.post('/:module/remove', authAdmin, (req, res) => {
 });
 
 // ---------------- 订单操作 ----------------
-r.post('/orders/deliver', authAdmin, (req, res) => {
-  const { order_id, express_no, express_company } = req.body;
-  const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
-  if (!o) return res.json(fail('订单不存在'));
-  if (o.status !== 10) return res.json(fail('当前状态不可发货'));
-  // 买家已经把货转拍给别人了，实物不在他手上，发不了也不该发
-  if (isTransferredOut(o)) return res.json(fail('该商品已被买家转拍给他人，无需发货'));
-  run('UPDATE orders SET status = 20, express_no = ?, express_company = ?, send_time = ? WHERE order_id = ?',
-    express_no || '', express_company || '顺丰速运', now(), o.order_id);
-  run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
-    o.order_id, '发货', 'admin', `${express_company || ''} ${express_no || ''}`, now());
-  res.json(ok([], '发货成功'));
-});
-
 // ---------------- 积分兑换：发货 / 取消退分 ----------------
 r.post('/score-exchange/deliver', authAdmin, (req, res) => {
   const { exchange_id, express_no, express_company } = req.body;

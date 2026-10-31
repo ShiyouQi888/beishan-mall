@@ -42,7 +42,6 @@
             <div class="ocard__acts" @click.stop>
               <button v-if="o.status === 0" class="mini mini--main" @click="pay(o)">去支付</button>
               <button v-if="o.status === 0" class="mini" @click="cancel(o)">取消</button>
-              <button v-if="o.status === 20" class="mini mini--main" @click="receipt(o)">确认收货</button>
               <button v-if="(o.status === 10 || o.status === 30) && !o.consignment_status && !o.transferred" class="mini mini--main" :disabled="loadingQuoteId === o.order_id" @click="openTransfer(o)">{{ loadingQuoteId === o.order_id ? '计算中…' : '转拍' }}</button>
               <button v-if="o.consignment_status" class="mini" disabled>已上架</button>
             </div>
@@ -105,12 +104,12 @@ const route = useRoute();
 const router = useRouter();
 const tabs = [
   { v: 'all', label: '全部' },
-  { v: 0, label: '待付款' },
-  { v: 10, label: '待发货' },
-  { v: 20, label: '待收货' },
-  { v: 30, label: '已完成' },
+  { v: 0, label: '未支付' },
+  { v: 10, label: '已支付' },
 ];
-const status = ref(route.query.status !== undefined ? (route.query.status === 'all' ? 'all' : Number(route.query.status)) : 'all');
+const status = ref(route.query.pay_status !== undefined
+  ? (route.query.pay_status === 'all' ? 'all' : Number(route.query.pay_status))
+  : 'all');
 const list = ref([]);
 const loading = ref(true);
 
@@ -119,7 +118,7 @@ async function load() {
   try {
     const params = { page: 1, limit: 30 };
     if (route.query.consign_order_id) params.order_id = route.query.consign_order_id;
-    if (status.value !== 'all') params.status = status.value;
+    if (status.value !== 'all') params.pay_status = status.value;
     const r = await api.orders(params);
     list.value = r.data.data || [];
   } catch {
@@ -147,19 +146,6 @@ async function cancel(o) {
   try {
     await api.cancelOrder({ order_id: o.order_id });
     showToast('已取消');
-    load();
-  } catch {}
-}
-
-async function receipt(o) {
-  try {
-    await showConfirmDialog({ title: '确认收货', message: '确认已收到商品？' });
-  } catch {
-    return;
-  }
-  try {
-    await api.receipt({ order_id: o.order_id });
-    showToast('已确认收货');
     load();
   } catch {}
 }

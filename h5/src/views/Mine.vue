@@ -60,7 +60,7 @@
         <span class="more" @click="$router.push('/order')">全部订单 ›</span>
       </div>
       <div class="order-quick">
-        <div class="q" v-for="q in orderQuick" :key="q.status" @click="$router.push(`/order?status=${q.status}`)">
+        <div class="q" v-for="q in orderQuick" :key="q.pay_status" @click="$router.push(`/order?pay_status=${q.pay_status}`)">
           <span class="q-icon" v-html="q.icon" />
           <span class="q-label">{{ q.label }}</span>
         </div>
@@ -118,11 +118,10 @@ const logged = computed(() => !!localStorage.getItem('TOKEN'));
 const stats = reactive({ orders: 0, team: 0, teamOrders: 0 });
 const shop = reactive({ count: 0, listedCount: 0, totalNet: 0 });
 
+// 订单只分「未支付 / 已支付」—— 这套玩法没有发货与收货环节
 const orderQuick = [
-  { status: 0, label: '待付款', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="var(--brand)" stroke-width="1.7"/><path d="M3 10h18" stroke="var(--brand)" stroke-width="1.7"/></svg>` },
-  { status: 10, label: '待发货', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M3.5 8.5 12 4l8.5 4.5v7L12 20l-8.5-4.5v-7Z" stroke="#ff8a3d" stroke-width="1.7" stroke-linejoin="round"/><path d="M3.5 8.5 12 13l8.5-4.5M12 13v7" stroke="#ff8a3d" stroke-width="1.7"/></svg>` },
-  { status: 20, label: '待收货', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><rect x="2.5" y="7" width="12" height="10" rx="1.6" stroke="#3d9cff" stroke-width="1.7"/><path d="M14.5 10h4l3 3v4h-7v-7Z" stroke="#3d9cff" stroke-width="1.7" stroke-linejoin="round"/><circle cx="7" cy="18" r="1.8" stroke="#3d9cff" stroke-width="1.7"/><circle cx="17.5" cy="18" r="1.8" stroke="#3d9cff" stroke-width="1.7"/></svg>` },
-  { status: 30, label: '已完成', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="#2eb872" stroke-width="1.7"/><path d="m8.3 12.2 2.6 2.6 4.8-5" stroke="#2eb872" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>` },
+  { pay_status: 0, label: '未支付', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="var(--brand)" stroke-width="1.7"/><path d="M3 10h18" stroke="var(--brand)" stroke-width="1.7"/></svg>` },
+  { pay_status: 10, label: '已支付', icon: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="#2eb872" stroke-width="1.7"/><path d="m8.3 12.2 2.6 2.6 4.8-5" stroke="#2eb872" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>` },
 ];
 
 const allFuncs = [

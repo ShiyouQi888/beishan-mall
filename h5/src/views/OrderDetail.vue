@@ -52,7 +52,6 @@
         <div class="kv" v-if="o.pay_time"><span>支付时间</span><span>{{ o.pay_time }}</span></div>
         <div class="kv" v-if="o.pay_type_text"><span>支付方式</span><span>{{ o.pay_type_text }}</span></div>
         <div class="kv" v-if="o.seller_name"><span>卖家</span><span>{{ o.seller_name }}</span></div>
-        <div class="kv" v-if="o.express_no"><span>快递</span><span>{{ o.express_company }} {{ o.express_no }}</span></div>
       </div>
 
       <div class="card payment" v-if="o.status === 0 && Number(o.pay_status) !== 10">
@@ -90,12 +89,11 @@
       </div>
     </div>
 
-    <div class="odetail__bar" v-if="o.status === 0 || o.status === 20 || (Number(o.pay_status) === 10 && Number(o.order_type) === 1)">
+    <div class="odetail__bar" v-if="o.status === 0 || (Number(o.pay_status) === 10 && Number(o.order_type) === 1)">
       <button v-if="o.status === 0 && Number(o.pay_status) !== 10" class="btn-main" :disabled="!availablePayTypes.length || paying" @click="pay">
         {{ paying ? '提交中…' : selectedPayType === 1 ? '立即支付' : (needVoucher ? '提交支付凭证' : '我已付款，提交') }}
       </button>
       <button v-if="Number(o.pay_status) === 10 && Number(o.order_type) === 1" class="btn-main" @click="goToMyShop">查看我的店铺</button>
-      <button v-if="o.status === 20" class="btn-main" @click="receipt">确认收货</button>
     </div>
   </div>
 </template>
@@ -143,17 +141,13 @@ const availablePayTypes = computed(() => payOptions.value.filter((item) =>
 ));
 const paymentQr = computed(() => selectedPayType.value === 2 ? sys.value.wx_image : selectedPayType.value === 3 ? sys.value.zfb_image : '');
 
-const statusTitle = computed(() => Number(o.value.pay_status) === 10 && Number(o.value.order_type) === 1 && Number(o.value.status) === 0
-  ? '订单已支付'
-  : o.value.status_text);
+// 订单只反映付没付，没有发货/收货环节
+const statusTitle = computed(() => o.value.status_text || (Number(o.value.pay_status) === 10 ? '已支付' : '未支付'));
 const statusDesc = computed(() => {
-  if (Number(o.value.pay_status) === 10 && Number(o.value.order_type) === 1 && Number(o.value.status) === 0) {
-    return '订单已支付，可前往我的店铺查看商品';
-  }
-  // 已转拍出去的单不再等待发货，避免会员一直以为还在备货
-  if (o.value.transferred && Number(o.value.status) === 10) return '商品已转拍给他人，无需等待发货';
-  const m = { 0: '请尽快完成支付', 10: '商家正在备货', 20: '商品运输中，请注意查收', 30: '交易已完成', 40: '订单已关闭' };
-  return m[o.value.status] || '';
+  if (Number(o.value.status) === 40) return '订单已关闭';
+  if (Number(o.value.pay_status) !== 10) return '请尽快完成支付';
+  if (o.value.transferred && Number(o.value.order_type) === 1) return '商品已转拍给他人';
+  return Number(o.value.order_type) === 1 ? '订单已支付，可前往我的店铺查看商品' : '订单已支付';
 });
 
 async function load() {
@@ -220,14 +214,6 @@ async function uploadVoucher(file) {
   const result = await api.upload(file);
   voucher.value = result.data.url;
   return result.data.url;
-}
-
-async function receipt() {
-  try {
-    await api.receipt({ order_id: o.value.order_id });
-    showToast('已确认收货');
-    load();
-  } catch {}
 }
 
 onMounted(load);

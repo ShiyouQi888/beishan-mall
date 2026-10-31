@@ -225,9 +225,6 @@ CREATE TABLE IF NOT EXISTS orders (
   consignment_status INTEGER DEFAULT 0,   -- 寄卖：0未寄卖 10已寄卖
   is_examine    INTEGER DEFAULT 0,        -- 审核：0待审 10通过 20拒绝
   address_id    INTEGER DEFAULT 0,
-  express_no    TEXT DEFAULT '',
-  express_company TEXT DEFAULT '',
-  send_time     TEXT DEFAULT '',
   finish_time   TEXT DEFAULT '',
   remark        TEXT DEFAULT '',
   create_time   TEXT

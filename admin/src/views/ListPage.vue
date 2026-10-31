@@ -33,12 +33,9 @@
           @keyup.enter="reload"
           @clear="reload"
         />
-        <el-select v-if="modKey === 'orders'" v-model="filters.status" placeholder="订单状态" clearable style="width: 130px" @change="reload">
-          <el-option label="待付款" :value="0" />
-          <el-option label="待发货" :value="10" />
-          <el-option label="待收货" :value="20" />
-          <el-option label="已完成" :value="30" />
-          <el-option label="已取消" :value="40" />
+        <el-select v-if="modKey === 'orders'" v-model="filters.pay_status" placeholder="支付状态" clearable style="width: 130px" @change="reload">
+          <el-option label="已支付" :value="10" />
+          <el-option label="未支付" :value="0" />
         </el-select>
         <el-select v-if="modKey === 'settle'" v-model="filters.kind" placeholder="账目类型" clearable style="width: 140px" @change="reload">
           <el-option label="大帐-结算" value="large" />
@@ -134,7 +131,7 @@
 
             <!-- 下拉 -->
             <span v-else-if="f.type === 'select' && typeof f.opts === 'object' && !Array.isArray(f.opts)">
-              <!-- 已转拍出去的单：买家手上没有实物，不会再有「待发货」这个动作 -->
+              <!-- 已转拍出去的单：买家手上没有实物，这里标成「已转拍」而不是支付状态 -->
               <span v-if="f.k === 'status' && modKey === 'orders' && row.transferred && Number(row[f.k]) === 10" class="tag-status tag-off">已转拍</span>
               <!-- 订单与兑换单用流转色；其它模块（如积分商品的在售/下架）用开关色 -->
               <span v-else-if="f.k === 'status'" class="tag-status" :class="modKey === 'recycle' ? (Number(row[f.k]) === 10 ? 'tag-ok' : 'tag-warn') : (modKey === 'orders' || modKey === 'scoreExchange') ? orderStatusClass(row[f.k]) : statusClass(row[f.k])">{{ labelOf(f, row[f.k]) }}</span>
@@ -222,7 +219,6 @@
                 <el-button size="small" @click="openEdit(row)">详情</el-button>
                 <el-button v-if="Number(row.is_examine) === 0" size="small" type="warning" @click="auditOrder(row, true)">审核</el-button>
                 <el-button v-if="Number(row.is_examine) === 0" size="small" type="danger" @click="auditOrder(row, false)">拒绝</el-button>
-                <el-button v-if="row.status === 10 && !row.transferred" size="small" type="primary" @click="openDeliver(row)">发货</el-button>
                 <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认收款</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
               </template>
@@ -314,7 +310,7 @@
         <el-descriptions-item label="商品">{{ form.goods_name || '—' }}</el-descriptions-item>
         <el-descriptions-item label="数量">{{ form.num ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="订单金额">¥{{ Number(form.total_price || 0).toFixed(2) }}</el-descriptions-item>
-        <el-descriptions-item label="订单状态">{{ labelOf(mod.fields?.find((f) => f.k === 'status'), form.status) }}</el-descriptions-item>
+        <el-descriptions-item label="订单状态">{{ Number(form.pay_status) === 10 ? '已支付' : '未支付' }}</el-descriptions-item>
         <el-descriptions-item label="审核状态">{{ Number(form.is_examine) === 10 ? '已通过' : Number(form.is_examine) === 20 ? '已拒绝' : '待审核' }}</el-descriptions-item>
         <el-descriptions-item label="支付凭证" :span="2">
           <el-image
@@ -454,22 +450,6 @@
       <template #footer>
         <el-button @click="dialog = false">{{ modKey === 'orders' ? '关闭' : '取消' }}</el-button>
         <el-button v-if="modKey !== 'orders' && modKey !== 'recycle'" type="primary" :loading="saving" @click="save">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 发货弹窗 -->
-    <el-dialog v-model="deliverDlg" title="订单发货" width="440px">
-      <el-form label-width="90px">
-        <el-form-item label="快递公司">
-          <el-input v-model="deliverForm.express_company" placeholder="如 顺丰速运" />
-        </el-form-item>
-        <el-form-item label="快递单号">
-          <el-input v-model="deliverForm.express_no" placeholder="请输入快递单号" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="deliverDlg = false">取消</el-button>
-        <el-button type="primary" @click="doDeliver">确认发货</el-button>
       </template>
     </el-dialog>
 
@@ -674,15 +654,13 @@ const loading = ref(false);
 const sel = ref([]);
 const optsCache = reactive({});
 
-const filters = reactive({ status: '', kind: '', disabled: '', area_id: '' });
+const filters = reactive({ pay_status: '', kind: '', disabled: '', area_id: '' });
 
 const dialog = ref(false);
 const saving = ref(false);
 const form = reactive({});
 const editing = ref(false);
 
-const deliverDlg = ref(false);
-const deliverForm = reactive({ order_id: 0, express_company: '顺丰速运', express_no: '' });
 
 const adjustDlg = ref(false);
 const adjustRow = ref({});
@@ -755,7 +733,7 @@ const desc = computed(() => {
     goods: '统一商品库：价格、库存、持有人与上下架。商品在哪个场次售卖，去「抢购场次 → 关联商品」里设置；被系统回收的商品带「封顶」标签，前台不再展示，改回上架即二次上架',
     category: '首页抢购分类与商城分类维护',
     specialarea: '设置每日抢购场次的内容、限购与关联商品',
-    orders: '全部订单查询、发货、审核与状态流转',
+    orders: '全部订单查询、收款确认与审核',
     settle: '大账结算、中账差额、小账凭证三类账目核对',
     energy: '会员佣金、余额、积分变更流水',
     withdraw: '会员提现申请审核，驳回自动退回余额',
@@ -1065,21 +1043,6 @@ function insertRichImage(key, url) {
     ta.focus();
     ta.setSelectionRange(pos + tag.length, pos + tag.length);
   });
-}
-
-function openDeliver(row) {
-  deliverForm.order_id = row.order_id;
-  deliverForm.express_company = '顺丰速运';
-  deliverForm.express_no = '';
-  deliverDlg.value = true;
-}
-
-async function doDeliver() {
-  if (!deliverForm.express_no) return ElMessage.warning('请输入快递单号');
-  await adminApi.deliver({ ...deliverForm });
-  ElMessage.success('发货成功');
-  deliverDlg.value = false;
-  load();
 }
 
 // ---------- 积分兑换：发货 / 取消退分 ----------

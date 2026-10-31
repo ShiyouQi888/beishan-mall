@@ -33,7 +33,8 @@ function fmtOrder(o) {
     total_price: Number(o.total_price).toFixed(2),
     service_charge: Number(o.service_charge || 0).toFixed(2),
     status: o.status,
-    status_text: transferred && Number(o.status) === 10 ? '已转拍' : (ORDER_STATUS[o.status] || ''),
+    // 状态只看付没付：没有发货/收货环节了，别再给出「待发货」这种不存在的状态
+    status_text: Number(o.pay_status) === 10 ? '已支付' : '未支付',
     transferred: transferred ? 1 : 0,
     pay_status: o.pay_status,
     pay_type: o.pay_type,
@@ -41,11 +42,8 @@ function fmtOrder(o) {
     pay_voucher: o.pay_voucher,
     consignment_status: o.consignment_status,
     is_examine: o.is_examine,
-    express_no: o.express_no,
-    express_company: o.express_company,
     create_time: o.create_time,
     pay_time: o.pay_time,
-    send_time: o.send_time,
     finish_time: o.finish_time,
     remark: o.remark || '',
     seller_id: o.seller_id,
@@ -319,7 +317,7 @@ r.post('/toPay', authMember, (req, res) => {
 
 // ---------------- 订单列表 ----------------
 r.get('/getOrder', authMember, (req, res) => {
-  const { status, dataType, order_id, page: p = 1, limit = 10 } = req.query;
+  const { status, pay_status, dataType, order_id, page: p = 1, limit = 10 } = req.query;
   const pp = Number(limit);
   const cur = Number(p);
   const where = ['member_id = ?'];
@@ -333,6 +331,11 @@ r.get('/getOrder', authMember, (req, res) => {
   if (status !== undefined && status !== '' && status !== 'all') {
     where.push('status = ?');
     args.push(Number(status));
+  }
+  // 会员端订单页现在只看付没付
+  if (pay_status !== undefined && pay_status !== '' && pay_status !== 'all') {
+    where.push('pay_status = ?');
+    args.push(Number(pay_status));
   }
   if (dataType && dataType !== 'all') {
     where.push('type = ?');
@@ -367,33 +370,6 @@ r.post('/cancel', authMember, (req, res) => {
   restoreStock(o.goods_id, o.num);
   log(o.order_id, '订单取消', 'member');
   res.json(ok([], '已取消'));
-});
-
-r.post('/receipt', authMember, (req, res) => {
-  const { order_id } = req.body;
-  const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), req.member.member_id);
-  if (!o) return res.json(fail('订单不存在'));
-  if (o.status !== 20) return res.json(fail('当前状态不可确认收货'));
-  run('UPDATE orders SET status = 30, finish_time = ? WHERE order_id = ?', now(), o.order_id);
-  log(o.order_id, '确认收货', 'member');
-  res.json(ok([], '已确认收货'));
-});
-
-r.get('/express', authMember, (req, res) => {
-  const { order_id } = req.query;
-  if (!order_id) return res.json(fail('method param miss:order_id'));
-  // 只能查自己的订单：原来只按 id 查，任何人遍历 id 就能看到别人的物流与地址
-  const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), req.member.member_id);
-  if (!o) return res.json(fail('订单不存在'));
-  res.json(
-    ok({
-      express_no: o.express_no,
-      express_company: o.express_company,
-      traces: o.express_no
-        ? [{ time: o.send_time, context: '商品已发出，请注意查收' }]
-        : [],
-    }),
-  );
 });
 
 /**

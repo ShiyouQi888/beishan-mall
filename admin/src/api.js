@@ -66,7 +66,6 @@ export const adminApi = {
   detail: (mod, id) => http.get(`/${mod}/detail`, { params: { id } }),
   save: (mod, data) => http.post(`/${mod}/save`, data),
   remove: (mod, ids) => http.post(`/${mod}/remove`, { ids }),
-  deliver: (d) => http.post('/orders/deliver', d),
   scoreDeliver: (d) => http.post('/score-exchange/deliver', d),
   cancelScoreExchange: (d) => http.post('/score-exchange/cancel', d),
   auditOrder: (d) => http.post('/orders/audit', d),

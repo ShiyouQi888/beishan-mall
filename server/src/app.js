@@ -71,6 +71,19 @@ if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'sessio
   db.exec('ALTER TABLE goods ADD COLUMN session_quota INTEGER DEFAULT 0');
   console.log('[migrate] goods.session_quota 已添加，老商品默认不限量');
 }
+// 发货环节整体下线：这套玩法里商品是「持有权」流转，没有真实物流，
+// 快递公司/单号/发货时间这三列没有任何写入方，一并删掉。
+if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_drop_shipping'")) {
+  const ocols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
+  for (const col of ['express_no', 'express_company', 'send_time']) {
+    if (ocols.includes(col)) db.exec(`ALTER TABLE orders DROP COLUMN ${col}`);
+  }
+  // 历史上「待收货」的单再也不会有人确认收货，直接记为已完成，免得永远挂在中间态
+  const moved = run('UPDATE orders SET status = 30 WHERE status = 20');
+  run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_drop_shipping', '1')");
+  console.log(`[migrate] 已下线发货环节：orders 的快递三列已删除，${Number(moved.changes) || 0} 笔待收货订单标记为已完成`);
+}
+
 // 商品详情长图：多数商品详情其实是一串图，只给富文本框等于逼运营去手写 <img>。// 存 JSON 数组，前台在富文本下方按上传顺序满宽铺开；老商品为空数组，展示不变。
 if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'detail_images')) {
   db.exec("ALTER TABLE goods ADD COLUMN detail_images TEXT DEFAULT ''");

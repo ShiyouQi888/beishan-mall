@@ -82,7 +82,6 @@ export const api = {
   orders: (p) => http.get('/order/getOrder', { params: p }),
   orderDetail: (id) => http.get('/order/detail', { params: { order_id: id } }),
   cancelOrder: (d) => http.post('/order/cancel', d),
-  receipt: (d) => http.post('/order/receipt', d),
   express: (id) => http.get('/order/express', { params: { order_id: id } }),
   consignment: (d) => http.post('/order/consignment', d),
   consignmentQuote: (order_id) => http.get('/order/getConsignmentQuote', { params: { order_id } }),
