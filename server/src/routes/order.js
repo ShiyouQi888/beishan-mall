@@ -518,16 +518,19 @@ r.post('/consignment', authMember, (req, res) => {
   const capNow = priceCapOf(g);
   if (capNow.reached) return res.json(fail(capReachedMsg(capNow)));
 
-  // 转拍时限：支付后 N 小时内可转拍（0 表示不限）
+  // 转拍时限：支付后 N 小时内建议转拍（0 表示不限）
+  //
+  // 这里是「软时限」：超时**不拦**，只在订单日志上记一笔「超时挂牌」。
+  // 为什么不再硬拦：货已经在他手上，超时后如果连挂牌都不允许，这件货就永久死在他手里
+  // （下架、卖不掉、也不能转拍），平台还得背这个投诉。真正的约束交给运营看日志去催。
   const area = o.specialarea_id
     ? get('SELECT * FROM specialarea WHERE specialarea_id = ?', o.specialarea_id)
     : null;
   const limitHours = Number(area?.transposition_hours || 0);
+  let overdue = false;
   if (limitHours > 0 && o.pay_time) {
     const deadline = new Date(o.pay_time.replace(/-/g, '/')).getTime() + limitHours * 3600 * 1000;
-    if (Date.now() > deadline) {
-      return res.json(fail(`已超过转拍时限（支付后 ${limitHours} 小时内可转拍）`));
-    }
+    overdue = Date.now() > deadline;
   }
 
   // 上架费 = 本轮抢购金额 × 上架费率
@@ -574,7 +577,7 @@ r.post('/consignment', authMember, (req, res) => {
       // 不再生成寄卖挂单：挂单信息已完整存在于「本订单的 consignment_status/listing_fee/transposition_time」
       // 与「goods 的持有人/标价/上下架」两处，另开一张 type=2 订单属于纯冗余（曾留下永不结清的僵尸单）
       log(o.order_id, '转拍上架', 'member',
-        `标价 ${sellPrice}（上一手 ${q.prev_price}，涨价 ${q.increase_rate}% = ${q.increase_amount}），上架费 ${fee.toFixed(2)}，进入场次 #${nextArea}${nextDate ? `（${nextDate}）` : ''}`);
+        `${overdue ? `（超时挂牌：支付后已超过 ${limitHours} 小时）` : ''}标价 ${sellPrice}（上一手 ${q.prev_price}，涨价 ${q.increase_rate}% = ${q.increase_amount}），上架费 ${fee.toFixed(2)}，进入场次 #${nextArea}${nextDate ? `（${nextDate}）` : ''}`);
     });
   } catch (e) {
     if (e.biz) return res.json(fail(e.message));

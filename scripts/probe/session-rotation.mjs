@@ -209,7 +209,21 @@ async function main() {
     // 只留上午场，模拟「一天一场」的配置
     db.prepare('UPDATE specialarea SET is_open = 20 WHERE name <> ?').run('forenoon');
     db.prepare('UPDATE goods SET specialarea_id = ?, area_date = ? WHERE goods_id = ?').run(fore.specialarea_id, today, target.goods_id);
-    const solo = db.prepare("SELECT * FROM member WHERE member_id NOT IN (?, ?, ?) AND is_valid = 10 AND disabled = 10 LIMIT 1").get(buyer.member_id, buyer2.member_id, buyer3.member_id);
+    // 同一件货每人只能买一次：还得排除已经买过它的会员，否则会撞上「已经买过」
+    let solo = db.prepare(
+      `SELECT * FROM member
+       WHERE member_id NOT IN (?, ?, ?) AND is_valid = 10 AND disabled = 10
+         AND member_id NOT IN (SELECT member_id FROM orders WHERE goods_id = ? AND IFNULL(status, 0) <> 40)
+       LIMIT 1`,
+    ).get(buyer.member_id, buyer2.member_id, buyer3.member_id, target.goods_id);
+    // 种子会员不够用时临时造一个（跑完在 finally 里删掉）
+    if (!solo) {
+      const tmpPhone = '13911000131';
+      await api('/api/member/registerAnAccount', {
+        method: 'POST', body: { phone: tmpPhone, password: tmpPhone, code: 'boss01', nickName: '轮转第4人' },
+      });
+      solo = db.prepare('SELECT * FROM member WHERE mobile = ?').get(tmpPhone);
+    }
     if (solo) {
       await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: solo.member_id, field: 'amount', value: 900000, remark: '冒烟充值' } });
       const ts = await tokenOf(solo);
@@ -232,6 +246,14 @@ async function main() {
   } finally {
     srv.kill('SIGTERM');
     await sleep(300);
+    // 清掉 [6] 可能临时造的会员
+    const tmp = db.prepare("SELECT member_id FROM member WHERE mobile = '13911000131'").get();
+    if (tmp) {
+      for (const t of ['finance_energy', 'member_address', 'member_card', 'member_certification', 'member_msg']) {
+        db.prepare(`DELETE FROM ${t} WHERE member_id = ?`).run(tmp.member_id);
+      }
+      db.prepare('DELETE FROM member WHERE member_id = ?').run(tmp.member_id);
+    }
   }
 
   console.log(`\n${'─'.repeat(52)}`);

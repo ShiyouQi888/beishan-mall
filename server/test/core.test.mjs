@@ -366,7 +366,12 @@ async function main() {
         const late = await api('/api/order/consignment', {
           method: 'POST', token: buyer, body: { order_id: oid2, price: 2000 },
         });
-        ok(late.code === 0 && /转拍时限/.test(late.msg), '超过转拍时限被拒', late.msg);
+        // 转拍时限是软约束：超时仍允许挂牌（否则货会永久卡死在持有人手里），只在日志里标记
+        ok(late.code === 1, '超过转拍时限仍可转拍（软时限）', late.msg);
+        const lateRemark = String(db.prepare(
+          "SELECT remark FROM order_log WHERE order_id = ? AND action = '转拍上架' ORDER BY log_id DESC LIMIT 1",
+        ).get(oid2)?.remark || '');
+        ok(/超时挂牌/.test(lateRemark), '订单动态标注「超时挂牌」', lateRemark);
       }
     }
 
@@ -728,12 +733,15 @@ async function main() {
     }
 
     releaseUnpaidLocks();
+    // A、B 都要能「首次购买」这件货：同一件货每人只能买一次，
+    // 前面用例（如 [7] 的超时挂牌）可能已经让他们买过某件，这里必须排除掉
     const gw = db.prepare(
       `SELECT goods_id, goods_min_price FROM goods
        WHERE goods_status = 10 AND type = 1 AND member_id NOT IN (?, ?)
          AND goods_id NOT IN (SELECT goods_id FROM orders WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0)
+         AND goods_id NOT IN (SELECT goods_id FROM orders WHERE member_id IN (?, ?) AND IFNULL(status, 0) <> 40)
        ORDER BY goods_id LIMIT 1`,
-    ).get(idA, idB);
+    ).get(idA, idB, idA, idB);
     ok(!!gw, '找到可用商品（持有人既非 A 也非 B）');
     const P0 = Number(gw.goods_min_price);
     const P1 = money(P0 * (1 + inc));
@@ -769,7 +777,8 @@ async function main() {
     });
     ok(oB.code === 1, 'B 拍下涨价后的商品', oB.msg);
     eq(oB.data.total_price, P1, `B 成交价 = ${P1}`);
-    await api('/api/order/toPay', { method: 'POST', token: B, body: { order_id: oB.data.order_id, pay_type: 1 } });
+    const payB = await api('/api/order/toPay', { method: 'POST', token: B, body: { order_id: oB.data.order_id, pay_type: 1 } });
+    ok(payB.code === 1, 'B 支付成功', payB.msg);
     const aAfter = Number((await detail(A)).amount);
     eq(money(aAfter - aBefore), P1, `A 收回 ${P1} 全额（原价 ${P0} + 涨价 ${money(P1 - P0)}）`);
 

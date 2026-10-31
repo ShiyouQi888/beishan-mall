@@ -44,9 +44,14 @@
         </el-form-item>
 
         <!-- 转拍时限 -->
-        <el-form-item label="转拍延长时间(小时)" required>
+        <el-form-item label="转拍时限(小时)" required>
           <el-input-number v-model="form.transposition_hours" :min="0" :max="720" controls-position="right" style="width: 200px" />
           <span class="unit">小时（0 = 不限）</span>
+          <div class="hint">
+            会员买下这件货之后，建议在这么多小时内点「转拍上架」重新挂牌。
+            <b>超时不会阻止转拍</b>（否则货会卡死在持有人手里），但订单动态里会记一笔「超时挂牌」，方便运营跟进。
+            填 0 表示不限制。
+          </div>
         </el-form-item>
 
         <!-- 标题 -->

@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS specialarea (
   end_time        INTEGER DEFAULT 0,      -- 每日结束（秒）
   open_days       TEXT DEFAULT '1,2,3,4,5,6,7',  -- 开启日期（1=周一 … 7=周日）
   buy_num         INTEGER DEFAULT 1,      -- 每场每人限购件数（本场次当天跨商品合计）
-  transposition_hours INTEGER DEFAULT 0,  -- 转拍延长时间（小时）
+  transposition_hours INTEGER DEFAULT 0,  -- 转拍时限（小时）：成交后建议多久内转拍，超时仅记录不拦截；0=不限
   is_subscribe    INTEGER DEFAULT 0,      -- 是否开放预约
   is_open         INTEGER DEFAULT 10,
   sort            INTEGER DEFAULT 100,
