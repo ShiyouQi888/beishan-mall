@@ -63,6 +63,7 @@
         <template v-if="modKey === 'orders' && sel.length">
           <span class="muted" style="margin-left: 6px">已选 {{ sel.length }} 项</span>
           <el-button size="small" type="success" plain @click="batchConfirmPay">批量确认抢单</el-button>
+          <el-button size="small" type="danger" plain @click="batchCancelOrders">批量取消</el-button>
         </template>
         <template v-if="modKey === 'withdraw' && sel.length">
           <span class="muted" style="margin-left: 6px">已选 {{ sel.length }} 项</span>
@@ -217,8 +218,7 @@
             <div class="ops">
               <template v-if="modKey === 'orders'">
                 <el-button size="small" @click="openEdit(row)">详情</el-button>
-                <el-button v-if="Number(row.is_examine) === 0" size="small" type="warning" @click="auditOrder(row, true)">审核</el-button>
-                <el-button v-if="Number(row.is_examine) === 0" size="small" type="danger" @click="auditOrder(row, false)">拒绝</el-button>
+                <!-- 确认抢单就等于通过，不需要再单独审核一次 -->
                 <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认抢单</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
               </template>
@@ -310,7 +310,6 @@
         <el-descriptions-item label="数量">{{ form.num ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="订单金额">¥{{ Number(form.total_price || 0).toFixed(2) }}</el-descriptions-item>
         <el-descriptions-item label="订单状态">{{ Number(form.pay_status) === 10 ? '已确认' : '待确认' }}</el-descriptions-item>
-        <el-descriptions-item label="审核状态">{{ Number(form.is_examine) === 10 ? '已通过' : Number(form.is_examine) === 20 ? '已拒绝' : '待审核' }}</el-descriptions-item>
         <el-descriptions-item label="支付凭证" :span="2">
           <el-image
             v-if="form.pay_voucher"
@@ -1105,13 +1104,23 @@ async function batchConfirmPay() {
   }
 }
 
-async function auditOrder(row, pass) {
+async function batchCancelOrders() {
+  const ids = (sel.value || []).filter((r) => Number(r.pay_status) !== 10 && Number(r.status) !== 40).map((r) => r.order_id);
+  if (!ids.length) return ElMessage.warning('勾选的订单都已确认或已取消，没有可取消的');
   try {
-    await ElMessageBox.confirm(pass ? '确认通过该订单审核？' : '确认拒绝该订单？', '订单审核', { type: 'warning' });
-  } catch { return; }
-  await adminApi.auditOrder({ order_id: row.order_id, pass });
-  ElMessage.success(pass ? '审核通过' : '已拒绝');
-  load();
+    await ElMessageBox.confirm(
+      `取消这 ${ids.length} 笔订单？商品会立即释放、重新可抢；已确认的订单会自动跳过。`,
+      '批量取消',
+      { type: 'warning', confirmButtonText: '确定取消', cancelButtonText: '再想想' },
+    );
+  } catch {
+    return;
+  }
+  try {
+    const r = await adminApi.cancelOrderBatch({ order_ids: ids });
+    ElMessage.success(r.msg || `已取消 ${ids.length} 笔`);
+    load();
+  } catch {}
 }
 
 async function cancelOrder(row) {

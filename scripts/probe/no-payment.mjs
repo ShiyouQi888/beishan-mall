@@ -224,7 +224,8 @@ async function main() {
     })()`);
     check('详情页没有「选择支付方式」', !detail.body.includes('选择支付方式'), detail.body.slice(0, 120));
     check('详情页没有「我已付款」', !detail.body.includes('我已付款'), detail.body.slice(0, 120));
-    check('详情页按钮是「申请抢单」', detail.btn.includes('申请抢单'), detail.btn);
+    // 前面已经调过一次「申请抢单」，这里按钮应当已经置灰（重复提交由 apply-once 专门验）
+    check('详情页按钮变成「已提交，等待确认」', detail.btn.includes('已提交'), detail.btn);
 
     try {
       const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });

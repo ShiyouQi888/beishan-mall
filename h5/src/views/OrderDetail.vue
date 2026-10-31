@@ -69,8 +69,13 @@
     </div>
 
     <div class="odetail__bar" v-if="o.status === 0 || (Number(o.pay_status) === 10 && Number(o.order_type) === 1)">
-      <button v-if="o.status === 0 && Number(o.pay_status) !== 10" class="btn-main" :disabled="paying" @click="pay">
-        {{ paying ? '提交中…' : '申请抢单' }}
+      <button
+        v-if="o.status === 0 && Number(o.pay_status) !== 10"
+        class="btn-main"
+        :disabled="paying || submitted"
+        @click="pay"
+      >
+        {{ submitted ? '已提交，等待确认' : (paying ? '提交中…' : '申请抢单') }}
       </button>
       <button v-if="Number(o.pay_status) === 10 && Number(o.order_type) === 1" class="btn-main" @click="goToMyShop">查看我的店铺</button>
     </div>
@@ -89,12 +94,16 @@ const o = ref({});
 const loading = ref(true);
 // 支付方式这一环已整体去掉：未完成的订单只需「申请抢单」，等平台确认
 const paying = ref(false);
+// 已经提交过抢单申请（后端按订单日志判定）→ 按钮置灰，退出重进也不能再点
+const submitted = computed(() => Number(o.value.applied) === 1);
 
 // 订单只反映付没付，没有发货/收货环节
 const statusTitle = computed(() => o.value.status_text || (Number(o.value.pay_status) === 10 ? '已确认' : '待确认'));
 const statusDesc = computed(() => {
   if (Number(o.value.status) === 40) return '订单已关闭';
-  if (Number(o.value.pay_status) !== 10) return '等待平台确认这笔抢单';
+  if (Number(o.value.pay_status) !== 10) {
+    return submitted.value ? '抢单申请已提交，等待平台确认' : '等待平台确认这笔抢单';
+  }
   if (o.value.transferred && Number(o.value.order_type) === 1) return '商品已转拍给他人';
   return Number(o.value.order_type) === 1 ? '平台已确认，可前往我的店铺查看商品' : '平台已确认';
 });
@@ -120,11 +129,17 @@ async function load() {
 }
 
 async function pay() {
+  if (paying.value) return;
+  // 二次兜底：即使按钮因为旧数据没置灰，也不让同一笔订单重复提交
+  if (submitted.value) {
+    showToast('这笔订单已经提交过抢单申请');
+    return;
+  }
   paying.value = true;
   try {
     // pay_type 固定 0：只是把「已申请抢单」提交给平台，不涉及任何支付通道
-    await api.payOrder({ order_id: o.value.order_id, pay_type: 0 });
-    showToast('已提交抢单申请，等待平台确认');
+    const r = await api.payOrder({ order_id: o.value.order_id, pay_type: 0 });
+    showToast((r && r.msg) || '已提交抢单申请，等待平台确认');
     await load();
   } catch (error) {
     if (String(error?.msg || '').includes('订单已支付')) {

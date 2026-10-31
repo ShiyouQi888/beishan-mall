@@ -56,6 +56,22 @@ const log = (orderId, action, operator = 'member', remark = '') =>
   run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
     orderId, action, operator, remark, now());
 
+/** 「申请抢单」这笔动作是否已经登记过（幂等判据，H5 与后台共用） */
+const APPLY_ACTION = '申请抢单';
+const hasApplied = (orderId) =>
+  !!get('SELECT log_id FROM order_log WHERE order_id = ? AND action = ? ORDER BY log_id LIMIT 1', orderId, APPLY_ACTION);
+
+/** 批量算一批订单有没有申请过，避免列表页逐行查一次（N+1） */
+function appliedIdSet(orderIds) {
+  const ids = orderIds.filter((id) => Number.isInteger(Number(id)) && Number(id) > 0).map(Number);
+  if (!ids.length) return new Set();
+  const rows = all(
+    `SELECT DISTINCT order_id FROM order_log WHERE action = ? AND order_id IN (${ids.map(() => '?').join(',')})`,
+    APPLY_ACTION, ...ids,
+  );
+  return new Set(rows.map((r) => Number(r.order_id)));
+}
+
 /** 服务费计算：按订单总额算（与下单写入同一口径，见 lib/helper.js calcServiceCharge） */
 function serviceCharge(amount) {
   return calcServiceCharge(amount);
@@ -283,8 +299,14 @@ r.post('/toPay', authMember, (req, res) => {
   if (![0, 1, 2, 3, 4].includes(pt)) return res.json(fail('请选择有效的支付方式'));
   // 没有支付方式这一环了：只把「已申请抢单」记进订单日志，等平台确认
   if (pt === 0) {
+    // 幂等：一笔订单只登记一次。H5 上退出重进再点、或者网络慢连点两下，
+    // 都不该在日志里刷出一串「申请抢单」，否则后台看到的动态会失真。
+    if (Number(o.status) === 40) return res.json(fail('订单已关闭，不能再申请抢单'));
+    if (hasApplied(o.order_id)) {
+      return res.json(ok({ applied: 1 }, '这笔订单已经提交过抢单申请，请等待平台确认'));
+    }
     log(o.order_id, '申请抢单', 'member', '已提交平台，等待确认');
-    return res.json(ok([], '已提交抢单申请，等待平台确认'));
+    return res.json(ok({ applied: 1 }, '已提交抢单申请，等待平台确认'));
   }
   if (pt === 1) {
     // 余额支付：事务内原子扣款 + 原子标记已支付，防止并发超扣/重复扣
@@ -375,7 +397,8 @@ r.get('/getOrder', authMember, (req, res) => {
   const w = where.join(' AND ');
   const total = get(`SELECT COUNT(*) c FROM orders WHERE ${w}`, ...args).c;
   const list = all(`SELECT * FROM orders WHERE ${w} ORDER BY order_id DESC LIMIT ? OFFSET ?`, ...args, pp, (cur - 1) * pp);
-  res.json(ok(page(list.map(fmtOrder), total, cur, pp)));
+  const applied = appliedIdSet(list.map((o) => o.order_id));
+  res.json(ok(page(list.map((o) => ({ ...fmtOrder(o), applied: applied.has(Number(o.order_id)) ? 1 : 0 })), total, cur, pp)));
 });
 
 r.get('/detail', authMember, (req, res) => {
@@ -387,7 +410,14 @@ r.get('/detail', authMember, (req, res) => {
     return res.json(fail('无权查看该订单'));
   }
   const addr = o.address_id ? get('SELECT * FROM member_address WHERE address_id = ?', o.address_id) : null;
-  res.json(ok({ ...fmtOrder(o), address: addr, logs: all('SELECT * FROM order_log WHERE order_id = ? ORDER BY log_id', o.order_id) }));
+  const logs = all('SELECT * FROM order_log WHERE order_id = ? ORDER BY log_id', o.order_id);
+  res.json(ok({
+    ...fmtOrder(o),
+    address: addr,
+    // H5 靠这个字段把「申请抢单」按钮置灰，避免退出重进后重复提交
+    applied: logs.some((l) => l.action === APPLY_ACTION) ? 1 : 0,
+    logs,
+  }));
 });
 
 // 订单状态流转：取消 / 确认收货

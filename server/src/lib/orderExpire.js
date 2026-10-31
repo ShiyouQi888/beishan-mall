@@ -11,7 +11,7 @@ import { cfg } from './helper.js';
 import { restoreStock } from './stock.js';
 
 /** 支付时限（分钟），后台「交易设置」可改；默认 30，夹在 1 分钟到 24 小时之间 */
-export const payTimeoutMinutes = () =>
+const payTimeoutMinutes = () =>
   Math.max(1, Math.min(1440, Number(cfg('order_pay_timeout', '30')) || 30));
 
 /**

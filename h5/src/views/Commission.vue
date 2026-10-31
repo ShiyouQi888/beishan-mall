@@ -15,7 +15,6 @@
         <div class="c-item"><b>{{ profit.month || 0 }}</b><span>本月</span></div>
         <div class="c-item"><b>{{ profit.all || 0 }}</b><span>累计</span></div>
       </div>
-      <button class="c-btn" @click="$router.push('/withdraw')">申请提现</button>
     </div>
 
     <div class="section-pad" style="padding-top: 14px">

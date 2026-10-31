@@ -24,11 +24,9 @@
       </div>
 
       <div class="card set-card" style="margin-top: 10px">
+        <!-- 收款账户已下线（提现模块隐藏），收货地址还留着：抢购下单时仍用它记地址 -->
         <div class="set-row" @click="$router.push('/address')">
           <span>收货地址</span><span class="val"><i class="arrow">›</i></span>
-        </div>
-        <div class="set-row" @click="$router.push('/address?tab=card')">
-          <span>收款账户</span><span class="val"><i class="arrow">›</i></span>
         </div>
         <div class="set-row" @click="$router.push('/notice')">
           <span>平台公告</span><span class="val"><i class="arrow">›</i></span>

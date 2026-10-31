@@ -1301,10 +1301,36 @@ r.post('/orders/audit', authAdmin, (req, res) => {
   res.json(ok([], '操作成功'));
 });
 
+// 批量取消：只处理还没确认的订单，已成交的一律跳过（钱已经结给卖家了，不能反悔）
+r.post('/orders/cancel-batch', authAdmin, (req, res) => {
+  const ids = (Array.isArray(req.body?.order_ids) ? req.body.order_ids : []).map(Number).filter(Boolean).slice(0, 200);
+  if (!ids.length) return res.json(fail('请先勾选订单'));
+  const done = [];
+  const skipped = [];
+  tx(() => {
+    for (const id of ids) {
+      const o = get('SELECT * FROM orders WHERE order_id = ?', id);
+      if (!o) { skipped.push({ id, reason: '订单不存在' }); continue; }
+      if (Number(o.pay_status) === 10) { skipped.push({ id, reason: '已确认，不能取消' }); continue; }
+      if (Number(o.status) === 40) { skipped.push({ id, reason: '已取消' }); continue; }
+      const r = run('UPDATE orders SET status = 40 WHERE order_id = ? AND IFNULL(status, 0) <> 40 AND IFNULL(pay_status, 0) = 0', id);
+      if (Number(r.changes) !== 1) { skipped.push({ id, reason: '状态已变，请刷新' }); continue; }
+      restoreStock(o.goods_id, o.num);
+      run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
+        id, '后台取消', 'admin', '批量取消，商品已释放', now());
+      done.push(id);
+    }
+  });
+  res.json(ok({ done, skipped }, `已取消 ${done.length} 笔${skipped.length ? `，跳过 ${skipped.length} 笔` : ''}`));
+});
+
 r.post('/orders/cancel', authAdmin, (req, res) => {
   const { order_id } = req.body;
   const o = get('SELECT * FROM orders WHERE order_id = ?', Number(order_id));
   if (!o) return res.json(fail('订单不存在'));
+  // 已确认的订单钱已经结给卖家了，再「取消」等于凭空造出一笔退款，直接拦住
+  if (Number(o.pay_status) === 10) return res.json(fail('订单已确认，不能取消'));
+  if (Number(o.status) === 40) return res.json(fail('订单已取消，请勿重复操作'));
   // 只有「待付款」的拆分订单才归还库存：已成交的份额是真卖掉了，再还回去等于凭空多一份
   const unpaid = Number(o.status) === 0;
   run('UPDATE orders SET status = 40 WHERE order_id = ?', o.order_id);
@@ -1320,9 +1346,12 @@ function confirmPayOne(orderId) {
   const o = get('SELECT * FROM orders WHERE order_id = ?', Number(orderId));
   if (!o) { const e = new Error('订单不存在'); e.biz = true; throw e; }
   if (o.pay_status === 10) { const e = new Error('订单已确认'); e.biz = true; throw e; }
-  // 后台开了「支付凭证必传」才拦；关了就是运营自己承担无凭证确认的风险
+  // 后台开了「支付凭证必传」才拦；关了就是运营自己承担无凭证确认的风险。
+  // pay_type=0 是「申请抢单」——前台已经整体去掉支付方式与凭证上传，
+  // 这类订单永远不会有凭证，不能拿凭证去卡它，否则新单永远确认不了。
+  const pt = Number(o.pay_type);
   if (Number(cfg('pay_voucher_required', '10')) === 10
-    && Number(o.pay_type) !== 1 && !o.pay_voucher) {
+    && pt !== 0 && pt !== 1 && !o.pay_voucher) {
     const e = new Error('会员尚未提交支付凭证');
     e.biz = true;
     throw e;
