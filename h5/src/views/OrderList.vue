@@ -95,7 +95,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { showToast, showConfirmDialog } from '../utils/feedback.js';
 import { api } from '../api.js';
@@ -206,12 +206,62 @@ async function submitTransfer() {
   }
 }
 
+/* ---------------- 自动刷新 ----------------
+ * 后台确认抢单后，列表上的「已提交 / 待确认」也要跟着变，不然用户以为没生效。
+ * 静默拉取（不动 loading、不打断弹窗），只在有未完成订单时轮询。
+ */
+const POLL_MS = 8000;
+let pollTimer = 0;
+
+const hasPending = () => list.value.some((x) => Number(x.status) !== 40 && Number(x.pay_status) !== 10);
+
+function stopPoll() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; }
+}
+
+async function pollOnce() {
+  // 转拍弹窗打开时别刷，否则 curOrder 会被换掉、填了一半的输入框也会被冲掉
+  if (document.hidden || showTransfer.value || submitting.value || !hasPending()) {
+    if (!hasPending()) stopPoll();
+    return;
+  }
+  try {
+    const params = { page: 1, limit: 30 };
+    if (route.query.consign_order_id) params.order_id = route.query.consign_order_id;
+    if (status.value !== 'all') params.pay_status = status.value;
+    const r = await api.orders(params);
+    const next = r.data.data || [];
+    const confirmedNow = list.value.filter(
+      (x) => Number(x.pay_status) !== 10 && next.some((y) => Number(y.order_id) === Number(x.order_id) && Number(y.pay_status) === 10),
+    );
+    // 当前看的是「待确认」tab 时，刚确认的单会从列表里消失 —— 提醒一句，避免以为是丢了
+    if (confirmedNow.length && Number(status.value) === 0) {
+      showToast(`${confirmedNow.length} 笔已被平台确认，可在「已确认」里查看`);
+    }
+    list.value = next;
+    if (!hasPending()) stopPoll();
+  } catch {
+    // 静默失败，下一轮再试
+  }
+}
+
+function startPoll() {
+  stopPoll();
+  if (hasPending()) pollTimer = setInterval(pollOnce, POLL_MS);
+}
+
+function onVisible() {
+  if (!document.hidden) pollOnce();
+}
+
 onMounted(async () => {
   try {
     const r = await api.tradeConfig();
     if (r.data?.listing_fee_rate) listingRate.value = Number(r.data.listing_fee_rate);
   } catch {}
   await load();
+  startPoll();
+  document.addEventListener('visibilitychange', onVisible);
   const consignOrderId = Number(route.query.consign_order_id || 0);
   if (consignOrderId) {
     const order = list.value.find((item) => Number(item.order_id) === consignOrderId);
@@ -221,6 +271,11 @@ onMounted(async () => {
       router.replace('/my-shop');
     }
   }
+});
+
+onUnmounted(() => {
+  stopPoll();
+  document.removeEventListener('visibilitychange', onVisible);
 });
 </script>
 

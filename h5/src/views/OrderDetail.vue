@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
@@ -153,7 +153,68 @@ function goToMyShop() {
   router.push('/my-shop');
 }
 
-onMounted(load);
+/* ---------------- 自动刷新 ----------------
+ * 抢单是「用户提交申请 → 平台在后台点确认」，确认这一刻用户手机上没有任何感知，
+ * 不轮询就会一直停在「已提交，等待确认」，得手动退出重进才更新。
+ * 只在「还没确认、也没关闭」时轮询，确认/关闭后自动停，不会白耗流量。
+ */
+const POLL_MS = 4000;
+let pollTimer = 0;
+
+function shouldPoll() {
+  const v = o.value || {};
+  if (!v.order_id) return false;
+  if (Number(v.status) === 40) return false;      // 已关闭，不会再有变化
+  return Number(v.pay_status) !== 10;             // 已确认就停
+}
+
+function stopPoll() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; }
+}
+
+async function pollOnce() {
+  // 页面在后台、或正在提交申请时不打扰
+  if (document.hidden || paying.value || !shouldPoll()) {
+    if (!shouldPoll()) stopPoll();
+    return;
+  }
+  try {
+    const r = await api.orderDetail(route.params.id);
+    if (!r || r.code !== 1 || !r.data?.order_id) return;
+    const wasConfirmed = Number(o.value.pay_status) === 10;
+    const wasClosed = Number(o.value.status) === 40;
+    o.value = { ...r.data };
+    if (!wasConfirmed && Number(r.data.pay_status) === 10) {
+      showToast('平台已确认这笔抢单');
+    } else if (!wasClosed && Number(r.data.status) === 40) {
+      showToast('这笔订单已关闭');
+    }
+    if (!shouldPoll()) stopPoll();
+  } catch {
+    // 静默失败：网络抖一下不该弹错误，下一轮再试
+  }
+}
+
+function startPoll() {
+  stopPoll();
+  if (shouldPoll()) pollTimer = setInterval(pollOnce, POLL_MS);
+}
+
+// 从后台切回前台时立刻补一次，别让用户盯着旧数据等 4 秒
+function onVisible() {
+  if (!document.hidden) pollOnce();
+}
+
+onMounted(async () => {
+  await load();
+  startPoll();
+  document.addEventListener('visibilitychange', onVisible);
+});
+
+onUnmounted(() => {
+  stopPoll();
+  document.removeEventListener('visibilitychange', onVisible);
+});
 </script>
 
 <style scoped>
