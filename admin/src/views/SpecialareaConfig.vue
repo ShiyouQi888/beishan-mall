@@ -83,12 +83,6 @@
           <div class="hint">停用后本场不出现在前台抢购页，也不参与下单校验</div>
         </el-form-item>
 
-        <!-- 排序 -->
-        <el-form-item label="排序">
-          <el-input-number v-model="form.sort" :min="0" :max="9999" controls-position="right" style="width: 200px" />
-          <span class="unit">数字越小越靠前</span>
-        </el-form-item>
-
         <el-form-item>
           <el-button type="primary" size="large" :loading="saving" @click="save">确认提交</el-button>
         </el-form-item>
@@ -257,7 +251,6 @@ const form = reactive({
   image_ordinary: '',
   is_subscribe: 0,
   is_open: 10,
-  sort: 100,
 });
 
 const dayOptions = [
@@ -309,7 +302,6 @@ async function load() {
       image_ordinary: d.image_ordinary || '',
       is_subscribe: Number(d.is_subscribe) === 10 ? 10 : 0,
       is_open: Number(d.is_open) === 20 ? 20 : 10,
-      sort: Number(d.sort ?? 100),
     });
     days.value = String(d.open_days || '1,2,3,4,5,6,7')
       .split(',').map(Number).filter((x) => x >= 1 && x <= 7);
@@ -342,7 +334,6 @@ async function save() {
         image_ordinary: form.image_ordinary,
         is_subscribe: form.is_subscribe,
         is_open: form.is_open,
-        sort: form.sort,
       });
     if (r.code === 1) {
       ElMessage.success('保存成功');

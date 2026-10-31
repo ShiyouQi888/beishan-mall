@@ -148,10 +148,12 @@ async function main() {
       const labels = [...document.querySelectorAll('.el-form-item__label')].map((l) => l.textContent.trim());
       return { labels, hasSwitch: document.querySelectorAll('.el-switch').length, hasNumber: document.querySelectorAll('.el-input-number').length };
     })()`);
-    const need = ['专场副标题', '开放预约', '启用状态', '排序'];
+    // 「排序」字段已下线：它排在第 4 优先级，开始时间不同就永远不生效，留着只会误导运营
+    const need = ['专场副标题', '开放预约', '启用状态'];
     const missing = need.filter((t) => !cfg.labels.includes(t));
     check('配置页补齐了原来编辑弹窗才有的字段', missing.length === 0, missing.length ? `缺少：${missing.join('、')}` : JSON.stringify(cfg.labels));
     check('开放预约 / 启用状态 是开关', cfg.hasSwitch >= 2, String(cfg.hasSwitch));
+    check('「排序」字段已从配置页移除', !cfg.labels.includes('排序'), JSON.stringify(cfg.labels));
 
     // 关联商品表要能看出「开抢日期」：带未来日期的商品当天不会出现在 H5，
     // 运营看不到这一列就会以为前台漏显示了

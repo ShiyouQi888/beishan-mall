@@ -8,8 +8,7 @@
 //   1. 还在开放中的排前面，已结束的沉到后面
 //   2. 各场次自己的开始时间（秒）
 //   3. 场次标识的语义顺序：forenoon(上午) → afternoon(下午) → evening(晚上)
-//   4. 后台手填的 sort 值
-//   5. id
+//   4. id
 import { all } from '../db.js';
 import { todayStr, addDays, sessionWindow } from './sessionWindow.js';
 
@@ -37,10 +36,8 @@ function orderSessions(list, stateOf = () => ({ state: 'open' })) {
     const rb = NAME_RANK[b.name] ?? 99;
     if (ra !== rb) return ra - rb;
 
-    const ta = Number(a.sort) || 0;
-    const tb = Number(b.sort) || 0;
-    if (ta !== tb) return ta - tb;
-
+    // 原来这里还比一项「后台手填的 sort」。它排在第 4 位，只有开始时间和名称都一样才轮得到，
+    // 实际永远不生效，反而让运营以为改它能调顺序 —— 已下线。
     return (Number(a.specialarea_id) || 0) - (Number(b.specialarea_id) || 0);
   });
 }

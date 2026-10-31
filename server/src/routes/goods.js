@@ -182,7 +182,6 @@ function areaPayload() {
     return {
       specialarea_id: a.specialarea_id,
       name: a.name,
-      srot: a.sort,
       title: {
         ordinary_title_main: a.title_main,
         ordinary_title: a.title_ordinary,

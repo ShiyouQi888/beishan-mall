@@ -87,8 +87,9 @@ const M = {
   specialarea: {
     table: 'specialarea', pk: 'specialarea_id', label: '抢购场次',
     search: ['title_main'],
-    // 与 H5 抢购页同一套顺序：开始时间 → 上午/下午/晚上 → 排序值
-    orderBy: "start_time ASC, CASE name WHEN 'forenoon' THEN 1 WHEN 'afternoon' THEN 2 WHEN 'evening' THEN 3 ELSE 9 END ASC, sort ASC, specialarea_id ASC",
+    // 与 H5 抢购页同一套顺序：开始时间 → 上午/下午/晚上 → id
+    // （原来的手填「排序」值已下线：它排在第 4 位，开始时间不同就永远轮不到它）
+    orderBy: "start_time ASC, CASE name WHEN 'forenoon' THEN 1 WHEN 'afternoon' THEN 2 WHEN 'evening' THEN 3 ELSE 9 END ASC, specialarea_id ASC",
     fields: [
       { k: 'specialarea_id', t: 'ID', type: 'text', readonly: true, w: 60 },
       { k: 'name', t: '场次标识', type: 'text', w: 100, hide: true },
@@ -103,7 +104,6 @@ const M = {
       { k: 'transposition_hours', t: '转拍时限(小时)', type: 'number', w: 96 },
       { k: 'is_subscribe', t: '开放预约', type: 'switch', opts: { 10: '是', 0: '否' }, w: 100 },
       { k: 'is_open', t: '启用', type: 'switch', opts: { 10: '启用', 20: '停用' }, w: 90 },
-      { k: 'sort', t: '排序', type: 'number', w: 80 },
     ],
   },
   member: {
