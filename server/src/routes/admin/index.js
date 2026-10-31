@@ -39,17 +39,21 @@ const M = {
       { k: 'good_thumb', t: '商品图片', type: 'image', w: 84 },
       { k: 'images', t: '图集', type: 'images', hide: true },
       { k: 'goods_name', t: '商品名称', type: 'text', w: 140 },
-      { k: 'goods_no', t: '商品编码', type: 'text', w: 116, hide: true },
+      // 编码不再手填：新建/复制时按序列自动生成，仍做唯一标识与搜索用
+      { k: 'goods_no', t: '商品编码', type: 'text', w: 116, hide: true, readonly: true, tip: '新建时自动生成，不用手填' },
       // 场次由「抢购场次 → 关联商品」决定，商品这边只读展示，不再提供选择框
       { k: 'areas', t: '关联场次', type: 'areas', readonly: true, w: 150, tip: '在场次页「关联商品」里维护。一件商品可以同时关联多个场次；没有关联任何场次时，它只在首页/分类/搜索里正常售卖，不受场次时间限制。' },
       { k: 'area_date', t: '场次日期', type: 'text', readonly: true, w: 100, hide: true, tip: '轮转上架时自动写入。空白表示不限日期（未进入场次的商品）' },
       { k: 'category_id', t: '分类', type: 'select', opts: 'category', w: 96 },
-      { k: 'member_id', t: '现持有人', type: 'holder', w: 104 },
+      // 持有人由「抢购成交 / 转拍 / 系统回收」自动流转，编辑页不再提供手填入口
+      { k: 'member_id', t: '现持有人', type: 'holder', w: 104, readonly: true, tip: '由成交、转拍、系统回收自动维护，不在编辑页手改。' },
       { k: 'goods_min_price', t: '售卖价', type: 'money', w: 100 },
-      { k: 'base_price', t: '基准价', type: 'money', w: 100, hide: true, tip: '涨跌幅从这个价起算，默认取首次上架时的售卖价；转拍涨价不会改它。改这里等于重设涨幅起点。' },
+      // 基准价不再手填：新建时自动取售卖价，之后转拍不会改它，涨幅水位就从这里起算
+      { k: 'base_price', t: '基准价', type: 'money', w: 100, hide: true, readonly: true, tip: '自动取首次上架价，转拍涨价不会改它。这是涨幅水位的起点，不需要手工维护。' },
       { k: 'price_cap', t: '价格上限(元)', type: 'money', w: 108, hide: true, tip: '填金额，不是百分比：这是一道围栏，任何一轮标价都不能越过它。判定不是「等到等于上限」，而是「下一轮涨价会越界时」就停止转拍（如上限 1200、当前 1180、涨 3% 会到 1215 → 到顶）。0 = 不限。' },
       { k: 'price_warning', t: '价格水位', type: 'capbar', readonly: true, w: 168, tip: '绿 → 黄 → 红表示当前价在「基准价 → 价格上限」这段区间里的位置；红色表示已达上限、不能再转拍。' },
-      { k: 'line_price', t: '划线价', type: 'money', w: 100, hide: true },
+      // 划线价（前台「市场价」）随转拍自动上调，不再手填
+      { k: 'line_price', t: '划线价', type: 'money', w: 100, hide: true, readonly: true, tip: '前台展示的「市场价」，转拍时会自动跟涨；不用手填。' },
       { k: 'stock_num', t: '库存', type: 'number', w: 72, tip: '还能被抢几个名额。填 1 = 唯一的一件货，成交后整件归买家并下架，等买家转拍；填 >1 = 一批货，抢一个减一个名额，抢光才下架，整件始终归原持有人。' },
       { k: 'session_quota', t: '每场放量', type: 'number', w: 92, hide: true, tip: '这一场只拿出多少件来卖。0 = 不限，整批库存都能卖。例如库存 100 件、这里填 10：本场最多卖 10 件，卖满立刻结束变灰，剩下 90 件留到下一场。注意是「名额数」不是「人数」—— 10 个名额 + 每人限购 2 件 = 5 个人就抢完了。' },
       { k: 'turn_beat_num', t: '转拍次数', type: 'number', w: 88, hide: true },
@@ -1177,6 +1181,15 @@ r.post('/:module/save', authAdmin, (req, res) => {
     };
     const memberId = tx(create);
     return res.json(ok({ id: memberId }, '添加成功'));
+  } else if (mod.table === 'goods') {
+    // 商品编码不再让运营手填：新建时按序列自动生成，搜索、复制仍靠它做唯一标识。
+    // base_price 已在上面按「取售卖价」补过，这里只补编码与时间戳。
+    ins = [...keys, 'goods_no'];
+    vals = [...vals, nextGoodsNo()];
+    if (mod.fields.some((f) => f.k === 'create_time')) {
+      ins = [...ins, 'create_time'];
+      vals = [...vals, now()];
+    }
   } else {
     if (mod.fields.some((f) => f.k === 'create_time')) {
       ins = [...keys, 'create_time'];

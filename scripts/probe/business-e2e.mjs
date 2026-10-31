@@ -116,6 +116,9 @@ async function main() {
     // ================= 2. 建商品（基准 1000 / 围栏 1100） =================
     section('[2] 建商品：售价 1000、基准价 1000、价格上限 1100');
     const catId = db.prepare('SELECT category_id FROM goods_category LIMIT 1').get().category_id;
+    // 说明：后台编辑表单已不再提供「商品编码 / 现持有人 / 基准价 / 划线价」入口，
+    // 这四项由系统维护 —— 编码自动生成、基准价自动取售价、持有人归平台、划线价随转拍跟涨。
+    // 这里仍按老参数传一遍，是为了确认它们被安全忽略（不会写坏数据）。
     const created = await api('/admin/api/goods/save', {
       method: 'POST', token: at,
       body: {
@@ -128,6 +131,12 @@ async function main() {
     ok(created.code === 1 && gid > 0, '商品创建成功', created.msg);
     const goods = () => db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(gid);
     eq(goods().price_cap, 1100, '价格上限落库');
+    eq(goods().base_price, 1000, '基准价自动取售价（表单传参被忽略）');
+    ok(/^GP\d+$/.test(String(goods().goods_no || '')), '编码自动生成（表单传参被忽略）', goods().goods_no);
+    // 新建商品默认归平台（member_id = 0），平台卖出不向会员打款。
+    // 这个用例要验证的是「卖家收款分账」，所以把它置为官方持有 —— 等价于商品被官方抢走后的状态。
+    db.prepare('UPDATE goods SET member_id = ? WHERE goods_id = ?').run(official.member_id, gid);
+    eq(goods().member_id, official.member_id, '已把样品置为官方持有');
     // 挂进第一场：这样抢单走的是真正的场次校验，不是「没场次的随时可买」
     const link = await api('/admin/api/specialarea/goods/add', {
       method: 'POST', token: at, body: { specialarea_id: areaId, goods_ids: [gid] },
