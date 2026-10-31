@@ -148,14 +148,19 @@ async function main() {
     const dom = await evaluate(`(() => {
       const rows = [...document.querySelectorAll('.kv')].map((r) => r.innerText.replace(/\\s+/g, ' ').trim());
       const sum = document.querySelector('.sum__v.brand')?.textContent?.trim() || '';
-      const tip = document.querySelector('.sum__tip')?.textContent?.replace(/\\s+/g, ' ').trim() || '';
-      return { rows, sum, tip };
+      const tip = document.querySelector('.sum__tip');
+      return { rows, sum, hasTip: !!tip, text: (document.querySelector('.item')?.innerText || '').replace(/\\s+/g, ' ') };
     })()`);
 
-    check('页面显示「抢单服务费 -196.00」', dom.rows.some((r) => r.includes('抢单服务费') && r.includes('196')), JSON.stringify(dom.rows));
-    check('页面净赚为 +98.00（不是 294）', dom.rows.some((r) => r.includes('净赚') && r.includes('98.00')), JSON.stringify(dom.rows.filter((r) => r.includes('净赚'))));
+    // 只留「上架费」和「预计成交净赚」，中间过程全部不展示
+    check('只保留「上架费」一行费用', dom.rows.some((r) => r.includes('上架费')), JSON.stringify(dom.rows));
+    check('不再显示「我的买入价」', !dom.text.includes('我的买入价'), dom.text);
+    check('不再显示「抢单服务费」', !dom.text.includes('抢单服务费'), dom.text);
+    check('不再显示「下一轮标价」', !dom.text.includes('下一轮标价'), dom.text);
+    check('不再显示「成交后可收回」', !dom.text.includes('成交后可收回'), dom.text);
+    check('页面显示「预计成交净赚 +98.00」', dom.rows.some((r) => r.includes('预计成交净赚') && r.includes('98.00')), JSON.stringify(dom.rows));
     check('顶部预计收益为 98.00', dom.sum.includes('98.00'), dom.sum);
-    check('说明里写清了要扣服务费', dom.tip.includes('抢单服务费'), dom.tip.slice(0, 60));
+    check('顶部收益说明整块已去掉', dom.hasTip === false, String(dom.hasTip));
 
     try {
       const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });

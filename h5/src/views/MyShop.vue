@@ -24,10 +24,6 @@
             <div class="sum__k">预计收益</div>
           </div>
         </div>
-        <div class="sum__tip">
-          预计收益 = 下一轮标价 − 买入价 − 抢单服务费 − 上架费（涨价率 {{ summary.increase_rate }}%）。
-          商品被下一轮买走后会从这里消失，收益随即到账。
-        </div>
       </div>
 
       <!-- 列表 -->
@@ -46,25 +42,18 @@
         </div>
 
         <div class="item__rows">
-          <div class="kv"><span>我的买入价</span><span>{{ Number(g.my_price) > 0 ? money(g.my_price) : '—' }}</span></div>
+          <!-- 只露两行：上架费（唯一的显性扣费）和最终预计净赚。
+               买入价 / 服务费 / 下一轮标价这些中间过程不展示，避免一眼看不明白到底赚多少 -->
           <template v-if="g.transferable">
-            <!-- 抢单服务费是买家实付的一部分，不算进来会把利润算高 -->
-            <div class="kv" v-if="Number(g.my_service_charge) > 0">
-              <span>抢单服务费</span><span>-{{ money(g.my_service_charge) }}</span>
-            </div>
-            <div class="kv"><span>下一轮标价</span><span class="brand">{{ money(g.next_price) }}</span></div>
             <div class="kv"><span>上架费</span><span>-{{ money(g.listing_fee) }}</span></div>
-            <div class="kv kv--sum">
-              <span>{{ g.listed ? '成交后可收回' : '转拍后预计收益' }}</span>
-              <span class="brand strong">
-                {{ g.est_net === null ? '—' : money(g.listed ? g.next_price : g.est_net) }}
-              </span>
-            </div>
             <div class="kv kv--net" v-if="g.est_net !== null">
-              <span>扣除买入价、服务费与上架费后净赚</span>
-              <span :class="Number(g.est_net) >= 0 ? 'brand' : 'loss'">
+              <span>预计成交净赚</span>
+              <span class="strong" :class="Number(g.est_net) >= 0 ? 'brand' : 'loss'">
                 {{ Number(g.est_net) >= 0 ? '+' : '' }}{{ money(g.est_net) }}
               </span>
+            </div>
+            <div class="kv" v-else>
+              <span>预计成交净赚</span><span class="muted">—</span>
             </div>
           </template>
           <template v-else>
@@ -142,7 +131,6 @@ onMounted(load);
 .sum__v { font-size: 19px; font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; }
 .sum__v.brand { color: var(--brand); }
 .sum__k { font-size: 11px; color: var(--text-3); margin-top: 3px; }
-.sum__tip { margin-top: 11px; font-size: 11px; color: var(--text-3); line-height: 1.6; }
 
 .item { padding: 13px 14px; margin-bottom: 10px; }
 .item__head { display: flex; gap: 11px; }
@@ -161,9 +149,10 @@ onMounted(load);
 .kv span:last-child { font-variant-numeric: tabular-nums; }
 .kv .brand { color: var(--brand); }
 .kv .loss { color: #d4380d; }
-.kv--sum { padding-top: 6px; border-top: 1px dashed #eef0f3; }
-.kv--sum .strong { font-size: 15px; font-weight: 600; }
-.kv--net { color: var(--text-3); font-size: 11.5px; }
+/* 净赚是这张卡唯一要看的数，单独拉开一档 */
+.kv--net { padding-top: 9px; margin-top: 9px; border-top: 1px dashed #eef0f3; font-size: 13px; }
+.kv--net .strong { font-size: 17px; font-weight: 700; }
+.kv .muted { color: var(--text-3); }
 
 .item__actions { margin-top: 11px; display: flex; align-items: center; }
 .mini {
