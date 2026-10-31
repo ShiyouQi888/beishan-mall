@@ -31,3 +31,6 @@ _shots/
 .env
 .env.*
 !.env.example
+
+# 项目根下意外出现的整包副本（某个时间点的快照，不是源码的一部分），别提交进库
+/beishan-mall-main/

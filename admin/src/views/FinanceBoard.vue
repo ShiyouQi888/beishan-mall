@@ -123,22 +123,34 @@
       <div class="panel mt14">
         <div class="panel-head">
           <span>近 30 日经营净利</span>
-          <span class="sub">红=盈利 · 绿=亏损</span>
+          <span class="sub">红=盈利 · 绿=亏损 · 灰=当天无成交</span>
         </div>
         <div class="chart">
-          <div class="cw" v-for="(it, i) in d.trend_daily" :key="it.date">
-            <div class="col" :title="`${it.date}\n订单 ${it.orders} 单\n收入 ¥${fmt(it.income)}\n支出 ¥${fmt(it.drive_award)}\n净利 ¥${fmt(it.net)}`">
-              <div class="axis" />
-              <div
-                class="bar"
-                :class="it.net >= 0 ? 'up' : 'down'"
-                :style="barStyle(it.net)"
-              />
+          <!-- 左侧刻度：没有它，只有一天有数据时那根柱子看着像「顶格巨利」，其实可能只有几十块 -->
+          <div class="yaxis">
+            <span>+¥{{ fmt(maxAbs) }}</span>
+            <span>0</span>
+            <span>-¥{{ fmt(maxAbs) }}</span>
+          </div>
+          <div class="plot">
+            <div class="cw" v-for="(it, i) in d.trend_daily" :key="it.date">
+              <div class="col" :title="`${it.date}\n订单 ${it.orders} 单\n收入 ¥${fmt(it.income)}\n支出 ¥${fmt(it.drive_award)}\n净利 ¥${fmt(it.net)}`">
+                <div class="axis" />
+                <div
+                  class="bar"
+                  :class="it.net === 0 ? 'flat' : it.net > 0 ? 'up' : 'down'"
+                  :style="barStyle(it.net)"
+                />
+              </div>
+              <div class="lbl">{{ i % 5 === 0 || i === d.trend_daily.length - 1 ? it.date.slice(5) : '' }}</div>
             </div>
-            <div class="lbl">{{ i % 5 === 0 || i === d.trend_daily.length - 1 ? it.date.slice(5) : '' }}</div>
           </div>
         </div>
         <div v-if="!d.trend_daily.some((x) => x.orders)" class="chart-empty">近 30 日暂无成交数据</div>
+        <!-- 只有零星几天有成交时，光看图容易被那一根柱子误导，直接说清楚 -->
+        <div v-else-if="activeDays <= 3" class="chart-note">
+          近 30 天只有 {{ activeDays }} 天有成交（{{ activeDates }}），其余日期为 0
+        </div>
       </div>
 
       <!-- 月度趋势 -->
@@ -303,9 +315,18 @@ const maxAbs = computed(() => {
   return Math.max(1, ...list.map((x) => Math.abs(Number(x.net) || 0)));
 });
 
+// 近 30 天里真正有成交的天数（用来判断要不要加一句说明）
+const activeDays = computed(() => (d.value.trend_daily || []).filter((x) => Number(x.orders) > 0).length);
+const activeDates = computed(() => (d.value.trend_daily || [])
+  .filter((x) => Number(x.orders) > 0)
+  .map((x) => x.date.slice(5))
+  .join('、'));
+
 const barStyle = (v) => {
   const h = (Math.abs(Number(v) || 0) / maxAbs.value) * 48;
-  const height = `${Number(v) === 0 ? 0 : Math.max(1.5, h)}%`;
+  // 0 值也给 2% 的细条（灰色）：否则 30 天里没成交的日子完全看不见，
+  // 整张图只剩孤零零一根柱子，看不出「这是 30 天里的哪一天」
+  const height = `${Number(v) === 0 ? 3 : Math.max(1.5, h)}%`;
   return Number(v) >= 0 ? { bottom: '50%', height } : { top: '50%', height };
 };
 
@@ -424,7 +445,21 @@ onMounted(load);
 .f-note { font-size: 11.5px; color: #8c93a0; margin-top: 5px; }
 
 /* ---- 趋势图 ---- */
-.chart { display: flex; align-items: stretch; gap: 4px; height: 190px; }
+.chart { display: flex; align-items: stretch; gap: 8px; height: 190px; }
+.yaxis {
+  flex: none;
+  width: 58px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  font-size: 10px;
+  color: #a8adb7;
+  font-variant-numeric: tabular-nums;
+  /* 上中下三档贴着图表上下沿与中线，跟柱子共用一套坐标系 */
+  padding: 0 0 17px;
+}
+.plot { flex: 1; display: flex; gap: 4px; min-width: 0; }
 .cw { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .col { flex: 1; position: relative; }
 .axis {
@@ -442,8 +477,12 @@ onMounted(load);
 }
 .bar.up { background: linear-gradient(180deg, #ff826e, #ff513a); border-radius: 4px 4px 2px 2px; }
 .bar.down { background: linear-gradient(0deg, #34b37a, #1f9d5f); border-radius: 2px 2px 4px 4px; }
+/* 当天没有成交：一条贴中线的浅灰短条，只用来占位，不表达大小 */
+.bar.flat { background: #d7dbe1; border-radius: 2px; }
 .lbl { height: 17px; text-align: center; font-size: 10px; color: #a8adb7; padding-top: 4px; white-space: nowrap; }
 .chart-empty { text-align: center; font-size: 12px; color: #a8adb7; margin-top: -18px; padding-bottom: 6px; }
+/* 有数据但天数很少时的说明：正常排在图表下方，不能像 chart-empty 那样用负 margin 压上去 */
+.chart-note { text-align: center; font-size: 12px; color: #8c93a0; margin-top: 4px; }
 
 .pos { color: #e63c26; }
 .neg { color: #1f9d5f; }

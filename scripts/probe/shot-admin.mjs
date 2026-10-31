@@ -99,7 +99,8 @@ async function main() {
   await send('Page.addScriptToEvaluateOnNewDocument', {
     source: `try{localStorage.setItem('ADMIN_TOKEN', ${JSON.stringify(token)})}catch(e){}`,
   });
-  await send('Page.navigate', { url: `${BASE}/${ROUTE}` });
+  // ROUTE 自带前导斜杠，别再拼一个（否则会变成 //finance-board，路由匹配不上）
+  await send('Page.navigate', { url: `${BASE}${ROUTE}` });
   await sleep(5000);
 
   // 后台是「侧边栏 + 内部滚动容器」布局，documentElement 不会随内容变高，
@@ -138,13 +139,18 @@ async function main() {
         });
         return Math.ceil(max + 26);
       })(),
+      path: location.pathname,
       title: (document.querySelector('.page-head h2') || {}).textContent || '',
     })`,
     returnByValue: true,
   });
   const meta = JSON.parse(info.result.value);
   console.log('页面状态：', JSON.stringify(meta));
-  if (!meta.href.includes(`#${ROUTE}`)) throw new Error(`路由未命中，实际停在 ${meta.href}`);
+  // 路由已改 history 模式，用 pathname 判断有没有停在目标页
+  const wantPath = `/${String(ROUTE || '').replace(/^\/+/, '')}`;
+  if (ROUTE && wantPath !== '/' && !meta.path.startsWith(wantPath)) {
+    throw new Error(`路由未命中，实际停在 ${meta.path}`);
+  }
 
   const shotH = Math.min(Math.max(meta.contentH || 0, 600), H);
   const shot = await send('Page.captureScreenshot', {
