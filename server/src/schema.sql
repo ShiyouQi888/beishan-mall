@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS goods (
   good_thumb     TEXT DEFAULT '',
   images         TEXT DEFAULT '',         -- JSON 数组
   detail         TEXT DEFAULT '',         -- 富文本详情
+  detail_images  TEXT DEFAULT '',         -- 详情长图（JSON 数组），前台接在富文本下方满宽展示
   category_id    INTEGER DEFAULT 0,
   specialarea_id INTEGER DEFAULT 0,       -- 已废弃：仅供旧读法兜底，真实归属见 specialarea_goods
   area_date      TEXT DEFAULT '',         -- 本轮上架落在哪一天的场次（YYYY-MM-DD；空=不限，老数据兼容）

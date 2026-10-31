@@ -17,7 +17,7 @@
         <el-input v-model="keyword" placeholder="搜索文件名" clearable style="width: 200px" @clear="loadList" @keyup.enter="loadList" />
         <el-button @click="loadList">搜索</el-button>
         <span class="spacer" />
-        <el-button @click="fileEl?.click()">上传并裁剪图片</el-button>
+        <el-button @click="fileEl?.click()">上传新图片</el-button>
         <input ref="fileEl" type="file" accept="image/*" multiple style="display: none" @change="onPickFiles" />
       </div>
 

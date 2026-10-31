@@ -55,7 +55,7 @@
         <!-- 专区图片 -->
         <el-form-item label="专区图片" required>
           <ImageUploader v-model="form.image_ordinary" :upload="uploadImage" :presets="[{ label: '推荐 1080 × 360 px', width: 1080, height: 360 }]" />
-          <div class="hint">前台场次横幅按 3:1 显示，推荐尺寸：1080×360 px。裁剪时可选「横幅 3:1」，并将主体放在画面中间；图片会在浏览器内转 WebP 并压缩后上传。</div>
+          <div class="hint">前台场次横幅按 3:1 显示，推荐尺寸：1080×360 px。原图可直接上传（浏览器内自动转 WebP 并等比压缩）；想精确按 3:1 出图时，点缩略图上的「裁剪」并选「横幅 3:1」，主体放在画面中间。</div>
         </el-form-item>
 
         <el-form-item>

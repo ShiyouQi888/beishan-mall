@@ -330,7 +330,7 @@
           v-for="f in formFields"
           :key="f.k"
           :label="f.t"
-          :class="{ 'is-wide': modKey === 'goods' && f.type === 'rich' }"
+          :class="{ 'is-wide': modKey === 'goods' && (f.type === 'rich' || f.k === 'detail_images') }"
         >
           <template v-if="f.type === 'image'">
             <div class="image-field">
@@ -373,7 +373,19 @@
           <el-select v-else-if="f.type === 'vip'" v-model="form[f.k]" style="width: 100%">
             <el-option v-for="(label, idx) in VIP_LABELS" :key="idx" :value="idx" :label="label" />
           </el-select>
-          <el-input v-else-if="f.type === 'rich'" v-model="form[f.k]" type="textarea" :rows="5" placeholder="支持 HTML" />
+          <template v-else-if="f.type === 'rich'">
+            <el-input
+              :ref="(el) => setRichRef(f.k, el)"
+              v-model="form[f.k]"
+              type="textarea"
+              :rows="5"
+              placeholder="支持 HTML；也可以点下面「插入图片」把图片放进正文"
+            />
+            <div class="rich-tools">
+              <el-button size="small" :loading="richUploading" @click="pickRichImage(f.k)">插入图片</el-button>
+              <span class="rich-tools__tip">图片插在光标位置；不想写 HTML 也没关系，用下面的「详情图片」就能整段铺图</span>
+            </div>
+          </template>
           <el-time-select
             v-else-if="f.type === 'timesec'"
             :model-value="timeModel(f)"
@@ -579,11 +591,14 @@
         <el-button type="primary" @click="createShopOrder">创建订单</el-button>
       </template>
     </el-dialog>
+
+    <!-- 详情正文插图用的隐藏选择器：走同一套上传接口，插到光标所在位置 -->
+    <input ref="richInputEl" class="rich-file" type="file" accept="image/*" @change="onRichFile" />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { adminApi } from '../api.js';
@@ -592,6 +607,7 @@ import ImageUploader from '../components/ImageUploader.vue';
 import CategoryIcon from '../../../shared/CategoryIcon.vue';
 import CategoryIconPicker from '../../../shared/CategoryIconPicker.vue';
 import { categoryIconKey } from '../../../shared/category-icons.js';
+import { prepareImage } from '../../../shared/imagePrepare.js';
 
 const adminApiPost = async (url, data) => (await http.post(url, data)).data;
 
@@ -658,14 +674,14 @@ const shortMoney = (v) => {
 function imageRecommendation(field) {
   const key = field.k;
   const module = modKey.value;
-  if (module === 'banner' && key === 'file_path') return '首页轮播按 16:9 显示，推荐 1080×608 px；裁剪请选择「16:9」，重要文字和主体尽量靠中间。';
+  if (module === 'banner' && key === 'file_path') return '首页轮播按 16:9 显示，推荐 1080×608 px；原图可直接上传，想精确按 16:9 出图时在缩略图上点「裁剪」，重要文字和主体尽量靠中间。';
   if (module === 'goods' && key === 'good_thumb') return '商品卡片按正方形显示，推荐 800×800 px；主体居中，四周留少量空白。';
   if (module === 'goods' && key === 'images') return '商品详情图推荐 800×800 px（1:1），多张图尽量统一比例；建议单张不超过 2 MB。';
   if (module === 'category' && key === 'image') return '分类图标推荐 512×512 px（1:1），主体居中，建议使用透明背景 PNG 或 WebP。';
   if (module === 'navigation' && key === 'file_path') return '导航图标推荐 512×512 px（1:1），主体居中并预留边距。';
   if (module === 'certification') return '证件照片建议 1200×800 px（3:2）或更高分辨率；请完整拍入证件四边并保持文字清晰。';
   if (module === 'orders' && key === 'goods_thumb') return '商品缩略图按正方形显示，推荐 800×800 px。';
-  return '建议使用清晰原图；裁剪比例按前台展示需要选择，重要内容留在画面中央。';
+  return '建议使用清晰原图，选好即可直接上传（自动等比压缩）；需要调整取景时再点缩略图上的「裁剪」。';
 }
 
 function imagePresets(field) {
@@ -891,6 +907,8 @@ function openEdit(row) {
   editing.value = true;
   for (const k of Object.keys(form)) delete form[k];
   for (const f of mod.value.fields || []) form[f.k] = row[f.k];
+  // 换了一条记录，之前记住的文本域已经不在这个弹窗里了
+  richFieldKey.value = '';
   if (modKey.value === 'orders') {
     form.is_examine = row.is_examine;
     form.pay_status = row.pay_status;
@@ -935,6 +953,65 @@ async function removeOne(row) {
 async function uploadImage(file, extra = {}) {
   const r = await adminApi.upload(file, extra);
   return r.data.url;
+}
+
+// ---------------- 详情富文本：插入图片 ----------------
+// 为什么要拿 textarea 元素：点「插入图片」时输入框已经失焦，但 selectionStart
+// 仍停在用户原来的光标处，取它才能把图插在想放的位置，而不是一律甩到末尾。
+// 不靠 focus 事件记光标 —— 弹窗里有焦点陷阱，靠事件容易漏，直接问组件要 textarea 更稳。
+const richInputEl = ref(null);
+const richUploading = ref(false);
+const richFieldKey = ref('');
+const richRefs = {};
+
+function setRichRef(key, el) {
+  if (el) richRefs[key] = el;
+  else delete richRefs[key];
+}
+
+/** el-input 的 textarea 在组件根节点里，无论它有没有暴露内部 ref 都能取到 */
+function richTextareaOf(key) {
+  const comp = richRefs[key];
+  const root = comp?.$el || comp;
+  return root?.querySelector?.('textarea') || null;
+}
+
+function pickRichImage(key) {
+  richFieldKey.value = key;
+  richInputEl.value?.click();
+}
+
+async function onRichFile(e) {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  const key = richFieldKey.value;
+  if (!file || !key) return;
+  richUploading.value = true;
+  try {
+    // 和图片上传同一套预处理：只等比压缩，不裁剪
+    const ready = await prepareImage(file);
+    const url = await uploadImage(ready);
+    insertRichImage(key, url);
+  } catch (error) {
+    ElMessage.error(error?.message || '插入图片失败，请重试');
+  } finally {
+    richUploading.value = false;
+  }
+}
+
+function insertRichImage(key, url) {
+  const cur = String(form[key] || '');
+  const ta = richTextareaOf(key);
+  const caret = ta && Number.isInteger(ta.selectionStart) ? ta.selectionStart : cur.length;
+  const pos = Math.min(Math.max(caret, 0), cur.length);
+  const tag = `<img src="${url}" alt="" />`;
+  form[key] = cur.slice(0, pos) + tag + cur.slice(pos);
+  // 光标落到图片后面，方便接着写下一段
+  nextTick(() => {
+    if (!ta) return;
+    ta.focus();
+    ta.setSelectionRange(pos + tag.length, pos + tag.length);
+  });
 }
 
 function openDeliver(row) {
@@ -1472,6 +1549,17 @@ onUnmounted(() => {
   background: #22c55e;
   animation: auto-scan-pulse 1.8s infinite;
 }
+
+/* 详情富文本的工具栏：插入图片 + 一句说明，避免运营以为必须手写 HTML */
+.rich-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.rich-tools__tip { color: #9098a4; font-size: 11.5px; line-height: 1.5; }
+.rich-file { display: none; }
 
 .auto-scan-hint {
   display: inline-flex;

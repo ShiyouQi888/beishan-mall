@@ -64,6 +64,8 @@ const props = defineProps({
   file: { type: File, default: null },
   cropperClass: { type: Function, required: true },
   presets: { type: Array, default: () => [] },
+  // 初始选框占画面的比例：1 表示整图全选（可选裁剪模式，直接确认不会裁掉边缘）
+  autoCropArea: { type: Number, default: 0.88 },
 });
 const emit = defineEmits(['close', 'processed', 'error']);
 const imageEl = ref(null);
@@ -116,7 +118,7 @@ async function initialize() {
   cropper = new props.cropperClass(imageEl.value, {
     viewMode: 1,
     dragMode: 'move',
-    autoCropArea: 0.88,
+    autoCropArea: props.autoCropArea,
     responsive: true,
     restore: false,
     guides: true,

@@ -43,6 +43,8 @@ export const fmtGoods = (g, soldToday = 0, areas = []) => {
     good_thumb: img(g.good_thumb),
     images: g.images ? JSON.parse(g.images).map(img) : [],
     detail: g.detail || '',
+    // 详情长图：接在富文本下方满宽铺开，顺序 = 后台的上传顺序
+    detail_images: g.detail_images ? JSON.parse(g.detail_images).map(img) : [],
     goods_min_price: Number(g.goods_min_price).toFixed(2),
     line_price: Number(g.line_price || 0).toFixed(2),
     sales_actual: g.sales_actual,

@@ -71,6 +71,12 @@ if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'sessio
   db.exec('ALTER TABLE goods ADD COLUMN session_quota INTEGER DEFAULT 0');
   console.log('[migrate] goods.session_quota 已添加，老商品默认不限量');
 }
+// 商品详情长图：多数商品详情其实是一串图，只给富文本框等于逼运营去手写 <img>。
+// 存 JSON 数组，前台在富文本下方按上传顺序满宽铺开；老商品为空数组，展示不变。
+if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'detail_images')) {
+  db.exec("ALTER TABLE goods ADD COLUMN detail_images TEXT DEFAULT ''");
+  console.log('[migrate] goods.detail_images 已添加（详情长图，JSON 数组）');
+}
 // 「名额」一旦定下就不随成交变化，用来区分「唯一一件货」（成交即归买家）和「一批货」（抢一个减一个）。
 const initStockTotal = run(
   `UPDATE goods SET stock_total = MAX(IFNULL(stock_num, 1), 1) WHERE IFNULL(stock_total, 0) = 0`,

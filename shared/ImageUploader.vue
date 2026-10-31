@@ -6,6 +6,7 @@
           <img :src="url" :alt="`已上传图片 ${index + 1}`" />
           <span class="image-uploader__zoom">放大查看</span>
         </button>
+        <button class="image-uploader__crop" type="button" :aria-label="`裁剪第 ${index + 1} 张图片`" :disabled="disabled || busy" @click.stop="recropAt(index)">裁剪</button>
         <button class="image-uploader__remove" type="button" :aria-label="`移除第 ${index + 1} 张图片`" @click="removeAt(index)">×</button>
       </div>
 
@@ -18,7 +19,7 @@
     <div v-if="busy" class="image-uploader__status">{{ status }}</div>
     <div v-if="errorText" class="image-uploader__error" role="status">{{ errorText }}</div>
 
-    <ImageEditor :visible="editorVisible" :file="activeFile" :cropper-class="cropperClass" :presets="presets" @close="cancelQueue" @processed="onProcessed" @error="errorText = $event" />
+    <ImageEditor :visible="editorVisible" :file="activeFile" :cropper-class="cropperClass" :presets="presets" :auto-crop-area="crop === 'required' ? 0.88 : 1" @close="cancelQueue" @processed="onProcessed" @error="errorText = $event" />
 
     <Teleport to="body">
       <div v-if="sourcePickerVisible" class="image-uploader__source-overlay" role="dialog" aria-modal="true" aria-labelledby="image-uploader-source-title" @click.self="sourcePickerVisible = false" @keydown.esc="sourcePickerVisible = false">
@@ -26,14 +27,14 @@
           <header class="image-uploader__source-head">
             <div>
               <h2 id="image-uploader-source-title">选择图片来源</h2>
-              <p>图片会先裁剪和压缩，再上传使用</p>
+              <p>{{ crop === 'required' ? '图片会先裁剪和压缩，再上传使用' : '选好即可直接上传，需要时再单独裁剪' }}</p>
             </div>
             <button class="image-uploader__source-close" type="button" aria-label="关闭" @click="sourcePickerVisible = false">×</button>
           </header>
           <div class="image-uploader__source-options">
             <button class="image-uploader__source-option" type="button" @click="chooseLocal">
               <span class="image-uploader__source-icon">↑</span>
-              <span><strong>本地上传</strong><small>从电脑或手机选择图片</small></span>
+              <span><strong>本地上传</strong><small>{{ crop === 'required' ? '从电脑或手机选择图片' : '从电脑或手机选择，不强制裁剪' }}</small></span>
               <span class="image-uploader__source-arrow">›</span>
             </button>
             <button v-if="libraryPicker" class="image-uploader__source-option" type="button" @click="chooseLibrary">
@@ -55,6 +56,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import ImageEditor from './ImageEditor.vue';
+import { prepareImage } from './imagePrepare.js';
 
 const props = defineProps({
   modelValue: { type: [String, Array], default: '' },
@@ -65,6 +67,8 @@ const props = defineProps({
   multiple: { type: Boolean, default: false },
   max: { type: Number, default: 9 },
   disabled: { type: Boolean, default: false },
+  // required：选完必须裁剪（老行为）；optional：直接上传原图，裁剪改成可选入口
+  crop: { type: String, default: 'required' },
 });
 const emit = defineEmits(['update:modelValue', 'uploaded']);
 const inputEl = ref(null);
@@ -77,6 +81,8 @@ const errorText = ref('');
 const previewUrl = ref('');
 const sourcePickerVisible = ref(false);
 const activeUploadOptions = ref({});
+// 编辑器当前处理的是「新增」还是「替换第 N 张」
+const activeReplaceIndex = ref(-1);
 const urls = computed(() => {
   if (Array.isArray(props.modelValue)) return props.modelValue.filter(Boolean);
   if (!props.modelValue) return [];
@@ -151,10 +157,58 @@ function processFiles(selected, uploadOptions = {}) {
   if (!selected.length) return;
   const remaining = props.multiple ? Math.max(0, props.max - urls.value.length) : 1;
   if (props.multiple && selected.length > remaining) errorText.value = `最多可上传 ${props.max} 张，已选图片将按剩余位置处理`;
-  queue.value = selected.slice(0, remaining).map((file) => ({ file, uploadOptions }));
-  if (!queue.value.length) return;
+  const picked = selected.slice(0, remaining);
+  if (!picked.length) return;
+  if (props.crop === 'required') {
+    queue.value = picked.map((file) => ({ file, uploadOptions, replaceIndex: -1 }));
+    busy.value = true;
+    startNext();
+    return;
+  }
+  uploadDirect(picked, uploadOptions);
+}
+
+// 不裁剪模式：等比压缩后直接上传，不进裁剪器
+async function uploadDirect(files, uploadOptions) {
   busy.value = true;
-  startNext();
+  errorText.value = '';
+  let acc = props.multiple ? [...urls.value] : [];
+  try {
+    for (let index = 0; index < files.length; index += 1) {
+      if (files.length > 1) status.value = `正在处理第 ${index + 1}/${files.length} 张图片…`;
+      else status.value = '正在处理图片…';
+      const ready = await prepareImage(files[index]);
+      status.value = '正在上传图片…';
+      const url = await props.upload(ready, uploadOptions);
+      acc = props.multiple ? [...acc, url] : [url];
+      updateUrls(acc);
+      emit('uploaded', url, ready);
+    }
+  } catch (error) {
+    errorText.value = error?.message || '上传失败，请重试';
+  } finally {
+    busy.value = false;
+    status.value = '';
+  }
+}
+
+// 已上传的图片想改裁剪：读回文件 → 进编辑器 → 处理完替换原位置
+async function recropAt(index) {
+  if (props.disabled || busy.value) return;
+  const url = urls.value[index];
+  if (!url) return;
+  errorText.value = '';
+  busy.value = true;
+  status.value = '正在读取图片…';
+  try {
+    const file = await fetchImageFile(url);
+    queue.value = [{ file, uploadOptions: {}, replaceIndex: index }];
+    startNext();
+  } catch (error) {
+    busy.value = false;
+    status.value = '';
+    errorText.value = error?.message || '无法读取这张图片，请重试';
+  }
 }
 
 function startNext() {
@@ -163,10 +217,12 @@ function startNext() {
     editorVisible.value = false;
     busy.value = false;
     status.value = '';
+    activeReplaceIndex.value = -1;
     return;
   }
   activeFile.value = next.file;
   activeUploadOptions.value = next.uploadOptions;
+  activeReplaceIndex.value = next.replaceIndex ?? -1;
   status.value = props.multiple ? `待处理 ${queue.value.length + 1} 张` : '请完成图片裁剪与压缩';
   editorVisible.value = true;
 }
@@ -177,15 +233,23 @@ function cancelQueue() {
   busy.value = false;
   status.value = '';
   activeUploadOptions.value = {};
+  activeReplaceIndex.value = -1;
 }
 
 async function onProcessed(file) {
+  const replaceIndex = activeReplaceIndex.value;
   editorVisible.value = false;
   try {
     status.value = '正在上传处理后的图片…';
     const url = await props.upload(file, activeUploadOptions.value);
-    const next = props.multiple ? [...urls.value, url] : [url];
-    updateUrls(next);
+    if (replaceIndex >= 0 && replaceIndex < urls.value.length) {
+      const next = [...urls.value];
+      next[replaceIndex] = url;
+      updateUrls(next);
+    } else {
+      const next = props.multiple ? [...urls.value, url] : [url];
+      updateUrls(next);
+    }
     emit('uploaded', url, file);
     errorText.value = '';
   } catch (error) {
@@ -205,6 +269,9 @@ async function onProcessed(file) {
 .image-uploader__zoom { position:absolute;inset:auto 0 0;padding:5px 2px;background:rgba(20,24,32,.58);color:#fff;font-size:10px;opacity:0;transition:opacity .16s ease; }
 .image-uploader__preview:hover .image-uploader__zoom,.image-uploader__preview:focus-visible .image-uploader__zoom { opacity:1; }
 .image-uploader__remove { position:absolute;top:4px;right:4px;width:21px;height:21px;border:0;border-radius:50%;background:rgba(24,29,38,.64);color:#fff;font-size:17px;line-height:1;cursor:pointer; }
+.image-uploader__crop { position:absolute;top:4px;left:4px;padding:2px 8px;border:0;border-radius:9px;background:rgba(24,29,38,.64);color:#fff;font:inherit;font-size:10px;line-height:1.6;cursor:pointer;transition:background .16s ease; }
+.image-uploader__crop:hover { background:rgba(223,89,67,.92); }
+.image-uploader__crop:disabled { cursor:wait;opacity:.4; }
 .image-uploader__add { display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:1px dashed #cbd1da;background:#fafbfc;color:#77818f;font:inherit;font-size:11px;cursor:pointer;transition:border-color .16s ease,background .16s ease,color .16s ease; }
 .image-uploader__add:hover { border-color:#e77967;background:#fff8f6;color:#d7513b; }
 .image-uploader__add:disabled { opacity:.6;cursor:wait; }

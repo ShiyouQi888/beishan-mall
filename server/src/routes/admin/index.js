@@ -57,6 +57,7 @@ const M = {
       { k: 'goods_sort', t: '排序', type: 'number', w: 72, hide: true },
       { k: 'goods_status', t: '状态', type: 'select', opts: GOODS_STATUS, w: 84 },
       { k: 'detail', t: '商品详情', type: 'rich', hide: true },
+      { k: 'detail_images', t: '详情图片', type: 'images', hide: true, tip: '前台商品详情页会把这里的图按上传顺序，接在「商品详情」文字下方满宽铺开。一张图讲一段内容，建议 750px 宽的长图；只写文字不配图就留空。' },
       { k: 'create_time', t: '添加时间', type: 'text', readonly: true, w: 150, hide: true },
     ],
   },

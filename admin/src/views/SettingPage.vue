@@ -176,7 +176,7 @@ function imageRecommendation(key) {
     wx_qr: '微信收款码推荐 600×600 px（1:1）；确保二维码边缘完整、可识别。',
     poster_bg: '邀请海报底图推荐 750×1334 px（竖版 9:16）；底部和中部留出二维码、文案叠加空间。',
   };
-  return tips[key] || '推荐使用清晰原图；上传前可裁剪并压缩，文字、二维码等内容请保持完整。';
+  return tips[key] || '推荐使用清晰原图，选好即可直接上传（自动等比压缩）；需要调整时再点缩略图上的「裁剪」，文字、二维码等内容请保持完整。';
 }
 
 function imagePresets(key) {

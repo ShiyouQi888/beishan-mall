@@ -9,6 +9,7 @@
       :multiple="multiple"
       :max="max"
       :disabled="disabled"
+      :crop="crop"
       @update:model-value="(v) => emit('update:modelValue', v)"
       @uploaded="(url, file) => emit('uploaded', url, file)"
     />
@@ -31,6 +32,8 @@ const props = defineProps({
   max: { type: Number, default: 9 },
   disabled: { type: Boolean, default: false },
   presets: { type: Array, default: () => [] },
+  // 后台默认「选好就传」，不再强制进裁剪器；需要时必须自己点缩略图上的「裁剪」
+  crop: { type: String, default: 'optional' },
 });
 const emit = defineEmits(['update:modelValue', 'uploaded']);
 
