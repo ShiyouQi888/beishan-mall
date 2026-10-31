@@ -436,18 +436,21 @@
               周{{ DAY_NAMES[d - 1] }}
             </button>
           </div>
-          <el-input-number
-            v-else-if="f.type === 'money' || f.type === 'number'"
-            v-model="form[f.k]"
-            :precision="f.type === 'money' ? 2 : 0"
-            :min="0"
-            :disabled="priceLocked(f)"
-            style="width: 100%"
-            controls-position="right"
-          />
-          <div v-if="priceLocked(f)" class="price-lock-tip">
-            转拍商品的价格由系统按涨幅自动计算，这里不能改；上下架、标题、图片仍可修改
-          </div>
+          <!-- 用 template 包住：直接在 v-else-if 链中间插一个 v-if 的 div 会把后面的
+               v-else-if / v-else 挂到这个 div 上，于是每个字段底下都多渲染一个输入框 -->
+          <template v-else-if="f.type === 'money' || f.type === 'number'">
+            <el-input-number
+              v-model="form[f.k]"
+              :precision="f.type === 'money' ? 2 : 0"
+              :min="0"
+              :disabled="priceLocked(f)"
+              style="width: 100%"
+              controls-position="right"
+            />
+            <div v-if="priceLocked(f)" class="price-lock-tip">
+              转拍商品的价格由系统按涨幅自动计算，这里不能改；上下架、标题、图片仍可修改
+            </div>
+          </template>
           <el-select
             v-else-if="f.type === 'parent'"
             v-model="form[f.k]"

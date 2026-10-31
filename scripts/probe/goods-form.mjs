@@ -112,6 +112,26 @@ async function main() {
     const keptMissing = KEPT.filter((t) => !labels.labels.includes(t));
     check('其余字段仍在（没有误删）', keptMissing.length === 0, keptMissing.length ? `缺少：${keptMissing.join('、')}` : JSON.stringify(labels.labels));
 
+    // 回归：曾经在 v-else-if 链中间插了一个 v-if 的提示 div，把后面的 else 分支挂到自己身上，
+    // 结果每个字段底下都多渲染一个输入框（状态下面显示原始值 10）。这里钉死「不许多余控件」。
+    const dupe = await evaluate(`(() => {
+      const d = [...document.querySelectorAll('.el-dialog')].find((x) => x.offsetParent !== null);
+      if (!d) return { bad: ['弹窗未打开'] };
+      const bad = [];
+      for (const it of d.querySelectorAll('.el-form-item')) {
+        const label = it.querySelector('.el-form-item__label')?.textContent.trim() || '?';
+        // 图片/图集/详情本身就是复合控件，不参与统计
+        if (['商品图片', '图集', '商品详情', '详情图片', '商品名称'].includes(label)) continue;
+        // 只看 content 的直接子元素：el-input-number 内部本身也含 .el-input，用后代选择器会重复计数
+        const content = it.querySelector('.el-form-item__content');
+        if (!content) continue;
+        const boxes = [...content.children].filter((el) => /^el-(input|select|textarea|switch|radio)/.test(el.className));
+        if (boxes.length > 1) bad.push(label + '×' + boxes.length);
+      }
+      return { bad };
+    })()`);
+    check('每个字段只有一个输入控件（没有多余框）', dupe.bad.length === 0, JSON.stringify(dupe.bad));
+
     // 弹窗开着的时候先拍一张，方便看字段排布（有没有因为删字段留下空格）
     try {
       const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
