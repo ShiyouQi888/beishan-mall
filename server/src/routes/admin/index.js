@@ -637,7 +637,7 @@ const SETTING_GROUPS = {
     { k: 'withdraw_offline_open', t: '提现线下打款', type: 'switch', hide: true },
     { k: 'order_pay_timeout', t: '确认时限(分钟)', type: 'number', tip: '会员提交抢单申请后，平台多久内没确认就自动关单。抢购是「提交即锁单」，超过这个时间没确认，订单会被系统关闭、商品重新放出。默认 30 分钟。' },
     { k: 'price_increase_rate', t: '转拍涨价率(%)', type: 'number', tip: '每转拍一次，在上一手成交价基础上自动加价该比例，逐轮复利：10000 → 10300 → 10609。下一轮买家付 10300 时，上一手持有人收回 10300 全额（原价 + 涨价），此后与该持有人无关。注意：涨价率要高于「上架费率 + 抢单服务费率」才有净收益，否则每转一手都在亏钱。' },
-    { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number', tip: '按「本单成交金额 × 该费率」计算，**下单时就和货款一起收**（会员确认订单页会单独列出这一笔），转拍上架时不再二次扣款，避免会员余额不够导致货卡在手里。填 0 则不收。' },
+    { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number', tip: '按「本单成交金额 × 该费率」计算，下单时就和货款一起收（会员确认订单页会单独列出这一笔），转拍上架时不再二次扣款，历史订单也不追溯。填 0 则不收。改完费率记得同步改「转拍规则说明」和「转拍须知」里的文案，别让会员看到「免上架费」却被扣了钱。' },
     { k: 'drive_award_rate', t: '直推奖(%)', type: 'number' },
     { k: 'consignment_open', t: '转拍开关', type: 'switch' },
     { k: 'consignment_rule', t: '转拍规则说明', type: 'textarea' },
@@ -1019,7 +1019,9 @@ r.get('/orders/export', authAdmin, (req, res) => {
     ...args,
   );
 
-  const header = ['订单号', '商品', '类型', '单价', '数量', '总额', '服务费', '状态', '买家', '卖家', '下单时间', '确认时间', '备注'];
+  // 实付 = 货款 + 抢单服务费 + 转拍上架费。三列都导出来，
+  // 运营拿这张表跟收款流水对账时才能一笔对一笔（原来只有货款 + 服务费，上架费是隐形的）。
+  const header = ['订单号', '商品', '类型', '单价', '数量', '商品金额', '抢单服务费', '转拍上架费', '实付金额', '状态', '买家', '卖家', '下单时间', '确认时间', '备注'];
   const body = rows.map((o) => [
     o.order_no,
     o.goods_name,
@@ -1028,6 +1030,8 @@ r.get('/orders/export', authAdmin, (req, res) => {
     o.num,
     Number(o.total_price || 0).toFixed(2),
     Number(o.service_charge || 0).toFixed(2),
+    Number(o.listing_fee || 0).toFixed(2),
+    money(Number(o.total_price || 0) + Number(o.service_charge || 0) + Number(o.listing_fee || 0)).toFixed(2),
     Number(o.pay_status) === 10 ? '已确认' : '待确认',
     o.buyer_name || '',
     o.seller_name || '',

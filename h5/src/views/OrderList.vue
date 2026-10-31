@@ -35,6 +35,11 @@
                 <div class="price"><span class="sym">¥</span>{{ Number(o.total_price).toFixed(2) }}</div>
                 <div class="muted">× {{ o.num }}</div>
               </div>
+              <!-- 卡片主价是成交价；带服务费/上架费的单要再露一行实付，否则会员点进去才发现金额不一样 -->
+              <div class="ocard__pay" v-if="extraFeeOf(o) > 0">
+                实付 ¥{{ payTotalOf(o).toFixed(2) }}
+                <span class="muted">（含{{ feeText(o) }}）</span>
+              </div>
             </div>
           </div>
           <div class="ocard__foot">
@@ -142,6 +147,19 @@ async function load() {
 function switchTab(v) {
   status.value = v;
   load();
+}
+
+// ---------- 实付口径：货款 + 抢单服务费 + 转拍上架费 ----------
+// 卡片上先露成交价、再露实付，两个数都在，会员不会因为「点进去金额变了」而质疑
+const payTotalOf = (o) => Number(o?.total_price || 0)
+  + Number(o?.service_charge || 0)
+  + Number(o?.listing_fee || 0);
+const extraFeeOf = (o) => Number(o?.service_charge || 0) + Number(o?.listing_fee || 0);
+function feeText(o) {
+  const parts = [];
+  if (Number(o?.service_charge) > 0) parts.push(`服务费 ¥${Number(o.service_charge).toFixed(2)}`);
+  if (Number(o?.listing_fee) > 0) parts.push(`上架费 ¥${Number(o.listing_fee).toFixed(2)}`);
+  return parts.join(' + ');
 }
 
 function pay(o) {
@@ -357,6 +375,22 @@ onUnmounted(() => {
   margin-top: auto;
 }
 .ocard__row .price { font-size: 16px; }
+/* 实付行：成交价下面补一行，字号小、颜色浅，不抢主价格 */
+.ocard__pay {
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #8a5a3b;
+}
+.ocard__pay .muted { font-weight: 400; }
+/* 实付行：成交价下面补一行，字号小、颜色浅，不抢主价格 */
+.ocard__pay {
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #8a5a3b;
+}
+.ocard__pay .muted { font-weight: 400; }
 
 .ocard__foot {
   display: flex;

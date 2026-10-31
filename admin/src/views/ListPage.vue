@@ -332,8 +332,16 @@
         <el-descriptions-item label="订单类型">{{ labelOf(mod.fields?.find((f) => f.k === 'type'), form.type) }}</el-descriptions-item>
         <el-descriptions-item label="商品">{{ form.goods_name || '—' }}</el-descriptions-item>
         <el-descriptions-item label="数量">{{ form.num ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="订单金额">¥{{ Number(form.total_price || 0).toFixed(2) }}</el-descriptions-item>
+        <el-descriptions-item label="商品金额">¥{{ Number(form.total_price || 0).toFixed(2) }}</el-descriptions-item>
         <el-descriptions-item label="订单状态">{{ Number(form.pay_status) === 10 ? '已确认' : '待确认' }}</el-descriptions-item>
+        <!-- 实付由三笔构成：货款 + 抢单服务费 + 转拍上架费（下单时一并收取）。
+             只显示货款的话，运营按会员转来的钱对账永远差一截 -->
+        <el-descriptions-item label="抢单服务费">¥{{ Number(form.service_charge || 0).toFixed(2) }}</el-descriptions-item>
+        <el-descriptions-item label="转拍上架费">¥{{ Number(form.listing_fee || 0).toFixed(2) }}</el-descriptions-item>
+        <el-descriptions-item label="实付金额" :span="2">
+          <b style="color: #d4380d">¥{{ payTotalOf(form).toFixed(2) }}</b>
+          <span class="muted" style="margin-left: 8px">= 货款 + 服务费 + 上架费</span>
+        </el-descriptions-item>
         <el-descriptions-item label="支付凭证" :span="2">
           <el-image
             v-if="form.pay_voucher"
@@ -793,6 +801,12 @@ const labelOf = (f, v) => {
   if (typeof f.opts === 'object') return f.opts[v] ?? v ?? '—';
   return v ?? '—';
 };
+
+// 订单实付 = 货款 + 抢单服务费 + 转拍上架费（后两笔都在下单时算进去、支付时一次扣清）。
+// 后台对账、客服答疑都按这个口径，别再只看 total_price。
+const payTotalOf = (o) => Number(o?.total_price || 0)
+  + Number(o?.service_charge || 0)
+  + Number(o?.listing_fee || 0);
 
 // 开关取值：本系统约定 10 = 开启，另一个键 = 关闭。
 // 不能按数值大小猜——member.disabled(10 正常/20 禁用)、navigation.disabled(10 显示/20 隐藏)、

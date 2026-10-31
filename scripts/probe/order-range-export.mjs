@@ -60,13 +60,18 @@ async function main() {
   const rWeek = await q('/orders/list?page=1&limit=200&range=week');
   check('本周 >= 今日', Number(rWeek.data.total) >= dbToday, `本周 ${rWeek.data.total} / 今日 ${dbToday}`);
   const rMonth = await q('/orders/list?page=1&limit=200&range=month');
-  check('本月 >= 本周', Number(rMonth.data.total) >= Number(rWeek.data.total), `本月 ${rMonth.data.total} / 本周 ${rWeek.data.total}`);
+  // 不能拿「本月 >= 本周」来断言：月初那一周会跨上个月（11-01 是周日，本周从 10-26 起算），
+  // 本月反而比本周小。改成与「今日」比 —— 今天永远属于本月。
+  check('本月 >= 今日', Number(rMonth.data.total) >= dbToday, `本月 ${rMonth.data.total} / 今日 ${dbToday}`);
 
   const rCustom = await q(`/orders/list?page=1&limit=200&range=custom&date_start=${today}&date_end=${today}`);
   check('自定义（今天~今天）= 今日', Number(rCustom.data.total) === dbToday, `接口 ${rCustom.data.total} / 今日 ${dbToday}`);
   // 起止反着传也要能兜住
+  // 起止反着传：交换后应等于「今天−3 ~ 今天」这个区间，而不是等于「今天」那一天
   const rSwap = await q(`/orders/list?page=1&limit=200&range=custom&date_start=${today}&date_end=${addDays(today, -3)}`);
-  check('自定义起止反了会自动交换', Number(rSwap.data.total) === Number(rCustom.data.total), `${rSwap.data.total} vs ${rCustom.data.total}`);
+  const dbSwap = Number(get('SELECT COUNT(*) c FROM orders WHERE create_time >= ? AND create_time <= ?',
+    `${addDays(today, -3)} 00:00:00`, `${today} 23:59:59`).c);
+  check('自定义起止反了会自动交换', Number(rSwap.data.total) === dbSwap, `接口 ${rSwap.data.total} / 库 ${dbSwap}`);
   const rBad = await q('/orders/list?range=custom&date_start=abc&date_end=def');
   check('自定义日期非法被拒', rBad.code === 0 && /YYYY-MM-DD/.test(rBad.msg || ''), rBad.msg);
   const rOld = await q('/orders/list?page=1&limit=200&range=custom&date_start=2020-01-01&date_end=2020-01-31');

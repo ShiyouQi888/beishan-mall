@@ -32,6 +32,9 @@ function fmtOrder(o) {
     num: o.num,
     total_price: Number(o.total_price).toFixed(2),
     service_charge: Number(o.service_charge || 0).toFixed(2),
+    // 转拍上架费：下单时随货款一起收的。白名单漏了这个字段，
+    // H5 订单列表/详情就算前端算好了「实付 = 货款 + 服务费 + 上架费」也永远减不出上架费。
+    listing_fee: Number(o.listing_fee || 0).toFixed(2),
     status: o.status,
     // 没有支付与发货环节：只看平台确认没确认
     status_text: Number(o.pay_status) === 10 ? '已确认' : '待确认',
