@@ -9,6 +9,7 @@ import { ensureBuiltinAdmin } from './lib/builtinAdmin.js';
 import { scanCappedGoods } from './lib/recycle.js';
 import { expireUnsold } from './lib/expire.js';
 import { expireUnpaidOrders } from './lib/orderExpire.js';
+import { cleanStaleListingFlags } from './lib/listing.js';
 import { fail, cfg } from './lib/helper.js';
 import { themeOf, DEFAULT_THEME } from './lib/themes.js';
 
@@ -165,6 +166,14 @@ if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_drop_streamb
   const back = run('UPDATE goods SET goods_status = 20 WHERE goods_status = 30');
   run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_drop_streambeat', '1')");
   console.log(`[migrate] 流拍已下线：删除 ${Number(del.changes) || 0} 条流拍台账，${Number(back.changes) || 0} 件流拍商品改回下架`);
+}
+
+// 历史脏数据：货已经过户给别人（或被回收成平台持仓），旧订单的「已挂牌」标记还停在 10。
+// 修复前 settleOrder 成交时不清上一手的标记，同一件货会累积多条「在挂」记录。
+// 幂等：没有脏数据时 changes = 0，每次启动跑一次的开销可以忽略。
+{
+  const fixed = cleanStaleListingFlags();
+  if (fixed > 0) console.log(`[migrate] 清理了 ${fixed} 条失效的「已挂牌」标记`);
 }
 
 // 「差价对账」下线：批次 / 中账 / 匹配三张表一并删除（成交流程早已即时入账）

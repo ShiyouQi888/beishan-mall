@@ -65,6 +65,14 @@ export function settleOrder(o) {
     );
   }
 
+  // 货已过户：这件商品身上所有「已挂牌」标记都失效了 ——
+  // 包括上一手持有人挂出去、刚刚被这笔订单买走的那一笔（它的 consignment_status 还停在 10）。
+  // 不清的话，同一件货会累积多条「在挂」记录，任何按 consignment_status 统计的地方都会多算。
+  run(
+    'UPDATE orders SET consignment_status = 0 WHERE goods_id = ? AND IFNULL(consignment_status, 0) = 10',
+    g.goods_id,
+  );
+
   // 卖家收货款全额
   let sellerIncome = 0;
   if (o.seller_id && o.seller_id !== o.member_id) {

@@ -63,3 +63,22 @@ export function releaseListing(goodsId, reason = '') {
 
   return { released: true, goods_name: g.goods_name, member_id: g.member_id, order_id: o.order_id };
 }
+
+/**
+ * 清理历史失效的「已挂牌」标记（启动时跑一次，幂等）。
+ *
+ * 修复前 settleOrder 不过户时清标记，同一件货会累积多条 consignment_status=10 ——
+ * 只要「货已经不在订单会员手上」（被买走 / 被回收成平台持仓），这条记录就不可能仍在挂。
+ * @returns {number} 清理条数
+ */
+export function cleanStaleListingFlags() {
+  const r = run(
+    `UPDATE orders SET consignment_status = 0
+     WHERE IFNULL(consignment_status, 0) = 10
+       AND EXISTS (
+         SELECT 1 FROM goods g
+         WHERE g.goods_id = orders.goods_id AND IFNULL(g.member_id, 0) <> orders.member_id
+       )`,
+  );
+  return Number(r.changes || 0);
+}
