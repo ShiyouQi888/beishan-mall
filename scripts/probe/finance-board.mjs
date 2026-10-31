@@ -231,23 +231,54 @@ async function main() {
     eqMoney(ovA.liability.balance, dbBalance, '会员负债中的余额 = member.amount 合计');
     eqMoney(ovA.liability.total, m2(dbBalance + ovA.liability.commission), '会员负债合计 = 余额 + 佣金');
 
-    section('[4] B 段：打开 1% 上架费，再转拍一单，验证收入结构第二项');
+    section('[4] B 段：打开 1% 上架费 —— 只在下单时收，转拍不追溯');
     await saveCfg({ listing_fee_rate: '1' });
     const lastBuyer = buyers[ROUNDS - 1];
+
+    // 4.1 已经成交的老单（下单时费率是 0）转拍：一分钱都不该再收
     const q = (await api(`/api/order/getConsignmentQuote?order_id=${lastOrderId}`, { token: lastBuyer.token })).data;
-    const expectListing = m2((chain[ROUNDS - 1].price * 1) / 100);
-    eqMoney(q.listing_fee, expectListing, `报价上架费 = ${yuan(chain[ROUNDS - 1].price)} × 1%`);
+    eqMoney(q.listing_fee, 0, '报价按订单实收展示上架费（本单 0，不按新费率虚构）');
+    const balBefore = m2(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(lastBuyer.mid).amount);
     const cs2 = await api('/api/order/consignment', { method: 'POST', token: lastBuyer.token, body: { order_id: lastOrderId } });
-    ok(cs2.code === 1, '第 3 轮持有人转拍（带 1% 上架费）', cs2.msg);
+    ok(cs2.code === 1, '第 3 轮持有人转拍成功（费率已改，但不追溯）', cs2.msg);
+    const balAfter = m2(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(lastBuyer.mid).amount);
+    eqMoney(balAfter, balBefore, '转拍没有从余额扣任何上架费');
+
+    const ovB0 = (await adminAt('/admin/api/finance/overview', { token: at })).data;
+    eqMoney(ovB0.today.listing_fee - base.listing, 0, '改费率后，老单不产生上架费收入');
+
+    // 4.2 新下的单：下单那一刻就把 1% 上架费算进应付
+    const reg4 = await api('/api/member/registerAnAccount', {
+      method: 'POST',
+      body: { phone: '13920000009', password: '123456', code: holder.invitation_code, nickName: '财务第4手' },
+    });
+    ok(reg4.code === 1 && !!reg4.data?.token, '注册第 4 手', reg4.msg);
+    await adminAt('/admin/api/member/adjust', {
+      method: 'POST', token: at,
+      body: { member_id: reg4.data.member_id, field: 'amount', value: 200000, remark: '核对充值' },
+    });
+    // 转拍会把货排到下一场（可能跨天），这里直接放开日期，模拟「到了那一天」
+    db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(gid);
+    const price4 = m2(chain[ROUNDS - 1].price * (1 + INCREASE_RATE / 100));
+    const fee4 = m2((price4 * SERVICE_RATE) / 100);
+    const award4 = m2((price4 * DRIVE_RATE) / 100);
+    const listing4 = m2((price4 * 1) / 100);
+    const od4 = await api('/api/order/toAddOrder', { method: 'POST', token: reg4.data.token, body: { goods_id: gid, num: 1, pay_type: 1 } });
+    ok(od4.code === 1, `第 4 手下单，标价 ${yuan(price4)}`, od4.msg);
+    eqMoney(od4.data?.total_price, price4, '第 4 手订单标价（复利）');
+    eqMoney(od4.data?.service_charge, fee4, `第 4 手服务费 ${yuan(fee4)}`);
+    eqMoney(od4.data?.listing_fee, listing4, `第 4 手转拍上架费 ${yuan(listing4)}（下单时就收）`);
+    const pay4 = await api('/api/order/toPay', { method: 'POST', token: reg4.data.token, body: { order_id: od4.data.order_id, pay_type: 1 } });
+    ok(pay4.code === 1, '第 4 手支付成功（实付含上架费）', pay4.msg);
 
     const ovB = (await adminAt('/admin/api/finance/overview', { token: at })).data;
-    eqMoney(ovB.today.listing_fee - base.listing, expectListing, '今日上架费增量已计入');
-    eqMoney(ovB.today.service_fee - base.svc, expectSvc, '上架费不影响服务费口径');
-    eqMoney(ovB.today.income - base.income, m2(expectSvc + expectListing), '经营收入 = 服务费 + 上架费');
-    eqMoney(ovB.today.net - base.net, m2(expectSvc + expectListing - expectAward), '净利随收入同步增加');
+    eqMoney(ovB.today.listing_fee - base.listing, listing4, '今日上架费增量 = 下单时收的那一笔');
+    eqMoney(ovB.today.service_fee - base.svc, m2(expectSvc + fee4), '服务费口径不受上架费影响');
+    eqMoney(ovB.today.income - base.income, m2(expectSvc + fee4 + listing4), '经营收入 = 服务费 + 上架费');
+    eqMoney(ovB.today.net - base.net, m2(expectSvc + fee4 + listing4 - expectAward - award4), '净利随收入同步增加');
     const dbListing = m2(db.prepare('SELECT IFNULL(SUM(listing_fee),0) v FROM orders').get().v);
-    eqMoney(ovB.total.listing_fee - base.totalListing, expectListing, '累计上架费增量 = 本单上架费');
-    ok(dbListing >= expectListing, '库中上架费合计已落库', `库中 ${yuan(dbListing)}`);
+    eqMoney(ovB.total.listing_fee - base.totalListing, listing4, '累计上架费增量 = 本单上架费');
+    ok(dbListing >= listing4, '库中上架费合计已落库', `库中 ${yuan(dbListing)}`);
     section('[5] 趋势数据一致性');
     ok(Array.isArray(ovB.trend_daily) && ovB.trend_daily.length === 30, '日趋势返回 30 天');
     // 本地日期（toISOString 是 UTC，东八区 0-8 点会差一天）

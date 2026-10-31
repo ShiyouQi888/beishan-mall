@@ -164,7 +164,7 @@ async function main() {
     const item = (shop.data?.list || []).find((x) => Number(x.goods_id) === g1);
     eq(item?.my_cost, 1048, '店铺：实际成本 1048');
     eq(item?.listing_fee, 28, '店铺：上架费（已付）28');
-    eq(item?.listing_fee_due, 0, '店铺：转拍时不再扣上架费');
+    ok(item?.listing_fee_due === undefined, '店铺：不再暴露「待扣上架费」字段（转拍不收费）');
     eq(item?.est_net, q1.data?.net_income, '店铺预估 = 转拍报价（同一口径）');
 
     // ---------- 4. 转拍：不再二次扣款 ----------
@@ -179,23 +179,31 @@ async function main() {
     const feeFlows = all("SELECT * FROM finance_energy WHERE member_id = ? AND type_name = '转拍上架费'", mid);
     eq(feeFlows.length, 0, '没有「转拍上架费」扣款流水（避免重复入账）');
 
-    // ---------- 5. 老订单兼容 ----------
-    section('[5] 迁移前的老订单（listing_fee = 0）仍在转拍时扣');
+    // ---------- 5. 历史订单：费率变了也不追缴 ----------
+    // 这是用户报的真实问题：一笔下单时 listing_fee = 0 的老订单，
+    // 运营后来把上架费调成 2.8%，会员点转拍却被要求补缴 60 元，
+    // 余额不够就报「余额不足以支付上架费」—— 货卡死在手上。
+    section('[5] 历史订单（listing_fee = 0）：费率改了也不追缴、不卡死');
     const g2 = await mkGoods('老订单样品');
     const o2 = await api('/api/order/toAddOrder', { method: 'POST', token: tk, body: { goods_id: g2, num: 1, pay_type: 1 } });
     await api('/api/order/toPay', { method: 'POST', token: tk, body: { order_id: o2.data.order_id, pay_type: 1 } });
-    // 模拟历史数据：下单时没收过这笔钱
+    // 模拟历史数据：下单时没收过这笔钱（当时费率是 0，或代码还没上线）
     db.prepare('UPDATE orders SET listing_fee = 0 WHERE order_id = ?').run(o2.data.order_id);
     const q2 = await api(`/api/order/getConsignmentQuote?order_id=${o2.data.order_id}`, { token: tk });
-    eq(q2.data?.listing_fee_prepaid, 0, '老订单标记为未预付');
-    eq(q2.data?.prev_cost, 1020, '老订单实际成本 1020（没预付）');
-    eq(q2.data?.net_income, -18, '净收益 −18 = 1030 − 1020 − 28（转拍时才扣）');
-    const balOld = bal();
+    eq(q2.data?.listing_fee_prepaid, 0, '历史订单标记为未付过');
+    eq(q2.data?.listing_fee, 0, '报价里不虚构一笔上架费（按订单实收 0）');
+    eq(q2.data?.prev_cost, 1020, '历史订单实际成本 1020（没付过上架费）');
+    eq(q2.data?.net_income, 10, '净收益 10 = 1030 − 1020（不再按新费率扣 28）');
+    // 把余额清到 0，复现用户截图那一刻：只要还会扣款就必然报「余额不足」
+    db.prepare('UPDATE member SET amount = 0 WHERE member_id = ?').run(mid);
     const cs2 = await api('/api/order/consignment', { method: 'POST', token: tk, body: { order_id: o2.data.order_id } });
-    ok(cs2.code === 1, '老订单转拍成功', cs2.msg);
-    eq(bal(), balOld - 28, '老订单转拍时才扣 28');
+    ok(cs2.code === 1, '余额为 0 也能转拍（不再报「余额不足以支付上架费」）', cs2.msg);
+    eq(bal(), 0, '余额没被扣（转拍不再收费）');
     const oldFlow = all("SELECT * FROM finance_energy WHERE member_id = ? AND type_name = '转拍上架费'", mid);
-    eq(oldFlow.length, 1, '老订单产生一条上架费流水');
+    eq(oldFlow.length, 0, '没有产生「转拍上架费」流水');
+    const ord2 = get('SELECT * FROM orders WHERE order_id = ?', o2.data.order_id);
+    eq(ord2.listing_fee, 0, '订单上的 listing_fee 不被覆盖（财务统计不会虚增收入）');
+    eq(ord2.consignment_status, 10, '订单已标记挂牌');
   } finally {
     srv.kill('SIGTERM');
     await sleep(300);

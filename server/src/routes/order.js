@@ -468,9 +468,11 @@ function quoteConsignment(o, g, clientPrice) {
   // 算套利时这三笔都是成本：只扣商品金额会把利润算高
   // （9800 买、10094 卖，实际只赚 98，不是 294）。
   const prevService = money2(Number(o.service_charge) || 0);
-  // 下单时已经预付过这笔上架费 → 计入成本，转拍时不再扣，净收益也别再减一次。
-  // 两个数必须成对使用，否则「预估」和「实际到账」会差一笔上架费。
-  const prepaid = Number(o.listing_fee) || 0;
+  // 上架费在下单那一刻就定了，订单上记多少就是多少。
+  // 绝不按「当前费率」重算 —— 运营中途把费率从 0 调到 2.8%，会员手里那些
+  // 下单时根本没付过这笔钱的货就会被凭空追缴，余额不够还直接卡死
+  // （货在他手上、转不了拍、也退不掉）。
+  const prepaid = money2(Number(o.listing_fee) || 0);
   const prevCost = money2(prevPrice + prevService + prepaid);
   const rate = priceIncreaseRate();
   const cap = priceCapOf(g);
@@ -479,8 +481,6 @@ function quoteConsignment(o, g, clientPrice) {
     : (Number(clientPrice) > 0 ? money2(clientPrice) : money2(g.goods_min_price));
   // 兜底：如果因为改配置/手工改价导致这一轮会越过围栏，压到围栏价（正常已被 reached 拦下）
   const nextPrice = clampToCap(raw, cap);
-  const listingFee = calcListingFee(prevPrice);
-  const feeToPay = prepaid > 0 ? 0 : listingFee;
   return {
     prev_price: prevPrice,
     prev_service_charge: prevService,
@@ -488,10 +488,11 @@ function quoteConsignment(o, g, clientPrice) {
     increase_rate: rate,
     increase_amount: money2(nextPrice - prevPrice),
     next_price: nextPrice,
-    listing_fee: listingFee,
-    // 持有人的实际套利 = 下一轮收回价 − 上一手实际成本（含服务费） − 本次还要不要付上架费
-    net_income: money2(nextPrice - prevCost - feeToPay),
-    // 前端据此决定「上架费」是显示本次扣除，还是显示「下单时已付」
+    // 这一手实际付过的上架费（下单时随货款收的；历史订单为 0，转拍也不再补收）
+    listing_fee: prepaid,
+    // 持有人的实际套利 = 下一轮收回价 − 上一手实际成本（货款 + 服务费 + 上架费）
+    net_income: money2(nextPrice - prevCost),
+    // 前端据此决定「上架费」是显示「下单时已付」，还是「本次不收取」
     listing_fee_prepaid: prepaid > 0 ? 1 : 0,
     // 价格水位（供前端展示「还能涨多少」）
     base_price: cap.base_price,
@@ -555,31 +556,20 @@ r.post('/consignment', authMember, (req, res) => {
     overdue = Date.now() > deadline;
   }
 
-  // 上架费 = 本轮抢购金额 × 上架费率
+  // 上架费只在下单时收一次，这里一分钱都不再扣。
+  // 原来「老订单在转拍时补扣」的分支已删除：那个分支有三个坑 ——
+  //   1. 运营中途改费率，会员手里没付过这笔钱的货被凭空追缴；
+  //   2. 余额不够直接报错，货卡死在手上（转不了拍、也退不掉）；
+  //   3. 扣成功后把金额写回订单，财务统计会把「刚收到的钱」重复计一次。
   const q = quoteConsignment(o, g, price);
-  const fee = q.listing_fee;          // 这一手按费率算出来的应缴上架费
-  const prepaid = Number(o.listing_fee) || 0;  // 下单时已预付的金额（老订单为 0）
   const sellPrice = q.next_price;
   if (sellPrice <= 0) return res.json(fail('标价必须大于 0'));
 
   try {
     tx(() => {
-      // 上架费：下单时已经预付过（orders.listing_fee > 0）就不再扣，避免重复收费；
-      // 只有「下单时没预付」的老订单才按原来的方式从余额扣。
-      // 费率为 0 时不扣款、也不写 0 元流水，否则会员流水里会出现无意义的 ¥0.00 记录。
-      if (prepaid <= 0 && fee > 0) {
-        const r1 = run(
-          'UPDATE member SET amount = amount - ? WHERE member_id = ? AND amount >= ?',
-          fee, m.member_id, fee,
-        );
-        if (Number(r1.changes) !== 1) throw biz(`余额不足以支付上架费 ¥${fee.toFixed(2)}`);
-        run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-          m.member_id, -fee, 2, '转拍上架费', `订单 ${o.order_no} 上架费 ${fee.toFixed(2)}`, now());
-      }
-
-      // 原订单标记已寄卖（上架费保留预付值，别用本次报价覆盖，否则统计会重复）
-      run('UPDATE orders SET consignment_status = 10, listing_fee = ?, transposition_time = ? WHERE order_id = ?',
-        prepaid > 0 ? prepaid : fee, now(), o.order_id);
+      // 原订单标记已寄卖；listing_fee 保持下单时的实收值，绝不覆盖
+      run('UPDATE orders SET consignment_status = 10, transposition_time = ? WHERE order_id = ?',
+        now(), o.order_id);
 
       // 商品重新上架，更新标价；划线价须高于现价，否则同步上调
       const curLine = Number(g.line_price || 0);
@@ -602,14 +592,14 @@ r.post('/consignment', authMember, (req, res) => {
       // 不再生成寄卖挂单：挂单信息已完整存在于「本订单的 consignment_status/listing_fee/transposition_time」
       // 与「goods 的持有人/标价/上下架」两处，另开一张 type=2 订单属于纯冗余（曾留下永不结清的僵尸单）
       log(o.order_id, '转拍上架', 'member',
-        `${overdue ? `（超时挂牌：支付后已超过 ${limitHours} 小时）` : ''}标价 ${sellPrice}（上一手 ${q.prev_price}，涨价 ${q.increase_rate}% = ${q.increase_amount}），上架费 ${fee.toFixed(2)}，进入场次 #${nextArea}${nextDate ? `（${nextDate}）` : ''}`);
+        `${overdue ? `（超时挂牌：支付后已超过 ${limitHours} 小时）` : ''}标价 ${sellPrice}（上一手 ${q.prev_price}，涨价 ${q.increase_rate}% = ${q.increase_amount}），上架费 ${q.listing_fee.toFixed(2)}（下单时已付），进入场次 #${nextArea}${nextDate ? `（${nextDate}）` : ''}`);
     });
   } catch (e) {
     if (e.biz) return res.json(fail(e.message));
     throw e;
   }
   res.json(ok(
-    { ...q, listing_fee: fee.toFixed(2), selling_price: sellPrice },
+    { ...q, listing_fee: q.listing_fee.toFixed(2), selling_price: sellPrice },
     `转拍成功，下一轮标价 ¥${sellPrice.toFixed(2)}（涨价 ${q.increase_rate}%）`,
   ));
 });

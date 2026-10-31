@@ -100,6 +100,12 @@ async function main() {
   if (login.code !== 1) throw new Error('后台登录失败：' + login.msg);
   const token = login.data.token;
 
+  // 演示库里本来就有真实在挂单（上架费不为 0），所以汇总只能用「造数前后的差值」来验，
+  // 不能用绝对值 —— 否则跑过一次真实转拍，这条断言就会无缘无故变红。
+  const feeBase = Number(db.prepare(
+    'SELECT IFNULL(SUM(listing_fee), 0) v FROM orders WHERE IFNULL(consignment_status, 0) = 10',
+  ).get().v) || 0;
+
   ensureNick();
   // 今日 / 昨日 / 本周内（非今日昨日）/ 上月
   const weekInner = dates.weekStart > addDays(dates.today, -2) ? dates.today : addDays(dates.today, -2);
@@ -168,7 +174,9 @@ async function main() {
     check('带出挂牌时长（分钟）', Number.isFinite(one.online_minutes) && one.online_minutes >= 0, String(one.online_minutes));
 
     const allSummary = allRes.summary;
-    check('汇总：上架费合计', Math.abs(allSummary.fee - seeded.reduce((s, x) => s + x.listingFee, 0)) < 0.01, String(allSummary.fee));
+    const seededFee = seeded.reduce((s, x) => s + x.listingFee, 0);
+    check('汇总：上架费合计（造数前后差值）', Math.abs((allSummary.fee - feeBase) - seededFee) < 0.01,
+      `合计 ${allSummary.fee}，造数前 ${feeBase}，本轮 ${seededFee}`);
     check('汇总：涉及商品数（含演示库真实单）', allSummary.goods_count >= seeded.length, String(allSummary.goods_count));
 
     // ---------------- 页面 ----------------

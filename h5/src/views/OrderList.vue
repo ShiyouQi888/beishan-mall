@@ -72,12 +72,14 @@
 
       <div class="tr-fee">
         <!-- 上架费已在下单时随货款一起收过，这里不再从余额扣，只做展示 -->
+        <!-- 上架费只在下单时收一次：本单付过就显示金额，没付过（历史订单）就写「不收取」，
+             转拍时不再从余额扣款，所以这里不会出现负数 -->
         <div class="tr-row">
-          <span>上架费（{{ listingRate }}%）</span>
+          <span>转拍上架费</span>
           <b v-if="Number(quote.listing_fee_prepaid) === 1" class="prepaid">
             ¥{{ Number(quote.listing_fee || 0).toFixed(2) }}（下单时已付）
           </b>
-          <b v-else>-¥{{ Number(quote.listing_fee || 0).toFixed(2) }}</b>
+          <b v-else class="prepaid">本单不收取</b>
         </div>
         <div class="tr-row tr-row--sum">
           <span>下一轮成交后您可收回</span>
@@ -91,8 +93,8 @@
         </div>
         <div class="tr-tip">
           {{ Number(quote.listing_fee_prepaid) === 1
-            ? '上架费已随本单货款一起支付，本次转拍不再扣款；'
-            : (Number(quote.listing_fee) > 0 ? '上架费按您本轮成交价计算，从余额扣除；' : '本次转拍免上架费；') }}商品转拍后即与您无关，后续涨跌由下一手持有人承担。
+            ? '上架费已随本单货款一起支付，本次转拍不再从余额扣款；'
+            : '本单下单时未含上架费，本次转拍不收取；' }}商品转拍后即与您无关，后续涨跌由下一手持有人承担。
         </div>
       </div>
 
@@ -167,7 +169,6 @@ async function consign(o) {
 const showTransfer = ref(false);
 const curOrder = ref({});
 const quote = ref({});
-const listingRate = ref(2.8);
 const submitting = ref(false);
 const loadingQuoteId = ref(0);
 
@@ -264,10 +265,6 @@ function onVisible() {
 }
 
 onMounted(async () => {
-  try {
-    const r = await api.tradeConfig();
-    if (r.data?.listing_fee_rate) listingRate.value = Number(r.data.listing_fee_rate);
-  } catch {}
   await load();
   startPoll();
   document.addEventListener('visibilitychange', onVisible);
