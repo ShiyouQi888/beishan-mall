@@ -123,7 +123,7 @@
       <div class="panel mt14">
         <div class="panel-head">
           <span>近 30 日经营净利</span>
-          <span class="sub">红=盈利 · 绿=亏损 · 灰=当天无成交</span>
+          <span class="sub">红=盈利 · 绿=亏损 · 只画有成交的日期（{{ trendActive.length }} 天）</span>
         </div>
         <div class="chart">
           <!-- 左侧刻度：没有它，只有一天有数据时那根柱子看着像「顶格巨利」，其实可能只有几十块 -->
@@ -133,7 +133,7 @@
             <span>-¥{{ fmt(maxAbs) }}</span>
           </div>
           <div class="plot">
-            <div class="cw" v-for="(it, i) in d.trend_daily" :key="it.date">
+            <div class="cw" v-for="it in trendActive" :key="it.date" :style="barColStyle">
               <div class="col" :title="`${it.date}\n订单 ${it.orders} 单\n收入 ¥${fmt(it.income)}\n支出 ¥${fmt(it.drive_award)}\n净利 ¥${fmt(it.net)}`">
                 <div class="axis" />
                 <div
@@ -142,15 +142,11 @@
                   :style="barStyle(it.net)"
                 />
               </div>
-              <div class="lbl">{{ i % 5 === 0 || i === d.trend_daily.length - 1 ? it.date.slice(5) : '' }}</div>
+              <div class="lbl">{{ it.date.slice(5) }}</div>
             </div>
           </div>
         </div>
-        <div v-if="!d.trend_daily.some((x) => x.orders)" class="chart-empty">近 30 日暂无成交数据</div>
-        <!-- 只有零星几天有成交时，光看图容易被那一根柱子误导，直接说清楚 -->
-        <div v-else-if="activeDays <= 3" class="chart-note">
-          近 30 天只有 {{ activeDays }} 天有成交（{{ activeDates }}），其余日期为 0
-        </div>
+        <div v-if="!trendActive.length" class="chart-empty">近 30 日暂无成交数据</div>
       </div>
 
       <!-- 月度趋势 -->
@@ -310,17 +306,16 @@ const riskCount = computed(() => {
   return bad ? `${bad} 项需要处理` : '全部正常';
 });
 
+// 只保留「当天有订单」的日期：没成交的日子画一根 0 高度或灰条柱子没有信息量，
+// 30 天里只有 1 天成交却画出 30 个槽位，反而让那一根看着更奇怪。
+const trendActive = computed(() => (d.value?.trend_daily || []).filter((x) => Number(x.orders) > 0));
+// 柱子很少时给固定宽度（否则 flex:1 会让一根柱子撑满整张图）
+const barColStyle = computed(() => (trendActive.value.length <= 10 ? { flex: '0 0 56px' } : {}));
+
 const maxAbs = computed(() => {
-  const list = d.value?.trend_daily || [];
+  const list = trendActive.value;
   return Math.max(1, ...list.map((x) => Math.abs(Number(x.net) || 0)));
 });
-
-// 近 30 天里真正有成交的天数（用来判断要不要加一句说明）
-const activeDays = computed(() => (d.value.trend_daily || []).filter((x) => Number(x.orders) > 0).length);
-const activeDates = computed(() => (d.value.trend_daily || [])
-  .filter((x) => Number(x.orders) > 0)
-  .map((x) => x.date.slice(5))
-  .join('、'));
 
 const barStyle = (v) => {
   const h = (Math.abs(Number(v) || 0) / maxAbs.value) * 48;
@@ -459,7 +454,7 @@ onMounted(load);
   /* 上中下三档贴着图表上下沿与中线，跟柱子共用一套坐标系 */
   padding: 0 0 17px;
 }
-.plot { flex: 1; display: flex; gap: 4px; min-width: 0; }
+.plot { flex: 1; display: flex; gap: 10px; min-width: 0; justify-content: center; }
 .cw { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .col { flex: 1; position: relative; }
 .axis {
