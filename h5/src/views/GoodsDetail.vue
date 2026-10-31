@@ -81,7 +81,7 @@
         <span>订单</span>
       </div>
       <button class="btn-main bar-btn" :disabled="!canBuy" @click="buy">
-        {{ canBuy ? (advanceOpen ? '提前抢购' : '立即抢购') : soldOut ? '已抢完' : buyClosed ? '当前不在抢购时间' : '不可购买' }}
+        {{ canBuy ? (advanceOpen ? '提前抢购' : '立即抢购') : soldOut ? '已抢完' : lockedByOther ? '别人抢购中' : buyClosed ? '当前不在抢购时间' : '不可购买' }}
       </button>
     </div>
   </div>
@@ -130,7 +130,9 @@ const buyClosed = computed(() => isLootGoods.value && Number(g.value.is_ordinary
 const soldOut = computed(() => (g.value.sold_out === undefined
   ? Number(g.value.goods_status ?? 10) !== 10
   : Number(g.value.sold_out) === 1));
-const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value && !soldOut.value);
+// 别人下单锁着的时候也买不了 —— 抢购是提交即锁单
+const lockedByOther = computed(() => Number(g.value.locked) === 1);
+const canBuy = computed(() => !!g.value.goods_id && !buyClosed.value && !soldOut.value && !lockedByOther.value);
 // 不能买时给一句人话，别只把按钮弄灰 —— 按钮变灰很容易被当成「点一下试试」
 const closedTip = computed(() => {
   if (!g.value.goods_id || canBuy.value) return '';
@@ -140,6 +142,7 @@ const closedTip = computed(() => {
     return `本场 ${g.value.session_quota} 件已经抢满，下一场再来`;
   }
   if (soldOut.value) return '这件货已经被抢走了，等下一场再来';
+  if (lockedByOther.value) return '这件货刚被别人抢先下单，正在等他付款；超时未付会自动放出';
   const a = g.value.specialarea;
   if (buyClosed.value && a) return `当前不在抢购时间（本场 ${a.start_end_time}-${a.start_end_time1}）`;
   return '该商品暂不可购买';

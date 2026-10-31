@@ -8,6 +8,7 @@ import { ensureNodes } from './lib/nodes.js';
 import { ensureBuiltinAdmin } from './lib/builtinAdmin.js';
 import { scanCappedGoods } from './lib/recycle.js';
 import { expireUnsold } from './lib/expire.js';
+import { expireUnpaidOrders } from './lib/orderExpire.js';
 import { fail, cfg } from './lib/helper.js';
 import { themeOf, DEFAULT_THEME } from './lib/themes.js';
 
@@ -303,6 +304,7 @@ for (const [key, val, group] of [
   ['withdraw_zfb_open', '10', 'trade'],     // 提现到支付宝
   ['withdraw_bank_open', '10', 'trade'],    // 提现到银行卡
   ['withdraw_offline_open', '10', 'trade'], // 提现线下打款
+  ['order_pay_timeout', '30', 'trade'],     // 下单后多久没付款就自动关闭（分钟）
   ['recycle_open', '10', 'trade'],          // 到顶自动回收开关
   ['recycle_daily_cap', '0', 'trade'],      // 每日回收总额上限（0 = 不限）
 ]) {
@@ -482,6 +484,21 @@ if (RECYCLE_SCAN_MS > 0) {
       console.error('[recycle] 扫描失败：', e.message);
     }
   }, RECYCLE_SCAN_MS).unref?.();
+}
+
+// 未支付订单超时关闭：抢购是「提交即锁单」，不关掉的话一件货会被一张不付款的单占死。
+// 30 秒扫一次 —— 用户等着的就是这几十秒，扫太慢会出现「明明没人买却抢不了」。
+// ORDER_EXPIRE_SCAN_MS=0 可关掉（联调脚本用）。
+const ORDER_EXPIRE_SCAN_MS = Number(process.env.ORDER_EXPIRE_SCAN_MS ?? 30000);
+if (ORDER_EXPIRE_SCAN_MS > 0) {
+  setInterval(() => {
+    try {
+      const r = expireUnpaidOrders();
+      if (r.closed) console.log(`[order] 超时关闭未支付订单 ${r.closed} 笔，商品已释放`);
+    } catch (e) {
+      console.error('[order] 超时关单失败：', e.message);
+    }
+  }, ORDER_EXPIRE_SCAN_MS).unref?.();
 }
 
 // 到期自动下架：转拍挂出后场次结束仍没人买 → 下架退回持有人（替代原「流拍」）

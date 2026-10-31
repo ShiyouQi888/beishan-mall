@@ -29,6 +29,22 @@ const r = Router();
 const img = (u) => assetUrl(u);
 
 /**
+ * 这件货此刻是否被「待付款订单」锁着。
+ * 抢购是提交即锁单：别人下了单还没付款，这件货就不该再让人下单。
+ * 按件出售的一批货不锁（那是抢一个减一个），所以这里只看唯一一件货。
+ */
+function isLockedByOrder(goodsId, stockTotal) {
+  if (Number(stockTotal) > 1) return 0;
+  const row = get(
+    `SELECT 1 AS x FROM orders
+     WHERE goods_id = ? AND type = 1 AND IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0
+     LIMIT 1`,
+    Number(goodsId),
+  );
+  return row ? 1 : 0;
+}
+
+/**
  * 商品统一出参格式
  * @param {object} g goods 行
  * @param {number} soldToday 本场已卖出件数
@@ -65,6 +81,8 @@ export const fmtGoods = (g, soldToday = 0, areas = []) => {
     // 不看 stock_num —— 未关联场次的商品常常不维护库存，用它判断会全标成售罄
     sold_out: Number(g.goods_status) === 10 && !quotaFull(g, soldToday) ? 0 : 1,
     turn_beat_num: g.turn_beat_num,
+    // 1 = 已经有别人下单锁着（还没付款），前台要显示「抢购中」并禁用按钮
+    locked: isLockedByOrder(g.goods_id, Number(g.stock_total) || Number(g.stock_num) || 1),
     // 兼容字段：第一个关联场次。真实归属以 specialarea_ids 为准（可多场）
     specialarea_id: list.length ? Number(list[0].specialarea_id) : 0,
     specialarea_ids: list.map((a) => Number(a.specialarea_id)),

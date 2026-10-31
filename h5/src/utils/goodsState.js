@@ -24,6 +24,9 @@ export function cardState(g = {}) {
     return isQuota ? 'quota' : 'sold';
   }
 
+  // 被别人下单锁着：还没付款，但此刻谁也抢不了（抢购是提交即锁单）
+  if (Number(g.locked) === 1) return 'locked';
+
   // 场次状态由后端算好（服务端时间才准，客户端时钟可能差几分钟）
   switch (g.session_state) {
     case 'ended':
@@ -42,7 +45,8 @@ export const cardLabel = (state) => ({
   quota: '本场已满',
   ended: '本场已结束',
   upcoming: '未开始',
+  locked: '抢购中',
 }[state] || '');
 
 /** 是否整张卡置灰（未开始只是暂时不能买，不置灰，否则一进首页全是灰的） */
-export const isGreyState = (state) => state === 'sold' || state === 'quota' || state === 'ended';
+export const isGreyState = (state) => state === 'sold' || state === 'quota' || state === 'ended' || state === 'locked';

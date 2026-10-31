@@ -219,6 +219,7 @@ r.get('/index/getTradeConfig', (req, res) => {
       consignment_open: cfg('consignment_open', '10'),
       withdraw_min: cfg('withdraw_min', '10'),
       withdraw_fee: cfg('withdraw_fee', '1'),
+      pay_timeout: Number(cfg('order_pay_timeout', '30')) || 30,
     }),
   );
 });

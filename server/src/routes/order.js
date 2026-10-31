@@ -167,6 +167,23 @@ r.post('/toAddOrder', authMember, (req, res) => {
     }
   }
 
+  // 锁单：唯一一件货（名额=1）同一时刻只能有一笔「待付款」订单占着。
+  // 提交订单就算锁住，别人连下单都下不了 —— 否则两个人同时下单、先付先得，
+  // 后付的那位钱被扣了却发现货没了。按件出售的一批货不锁，那本来就是「抢一个减一个」。
+  if (!isPieceSale(g)) {
+    const locked = get(
+      `SELECT order_id, order_no, member_id FROM orders
+       WHERE goods_id = ? AND type = 1 AND IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0
+       ORDER BY order_id DESC LIMIT 1`,
+      g.goods_id,
+    );
+    if (locked) {
+      return res.json(fail(Number(locked.member_id) === Number(m.member_id)
+        ? '你已经下过单了，请先完成支付或取消这笔订单'
+        : '这件货刚被别人抢先锁定，等他付款超时后可以再抢'));
+    }
+  }
+
   // 是否强制会员先设置收款方式由后台「交易设置」控制，默认关闭。
   // 兼容旧版 H5：收款账户页面写入 member_card，而旧校验只检查 member.pay_setting。
   if (areas.length && Number(cfg('require_receiving_account', '20')) === 10) {

@@ -573,6 +573,7 @@ const SETTING_GROUPS = {
     { k: 'withdraw_zfb_open', t: '提现到支付宝', type: 'switch' },
     { k: 'withdraw_bank_open', t: '提现到银行卡', type: 'switch' },
     { k: 'withdraw_offline_open', t: '提现线下打款', type: 'switch' },
+    { k: 'order_pay_timeout', t: '支付时限(分钟)', type: 'number', tip: '下单后多久没付款就自动关单。抢购是「提交订单即锁单」，超过这个时间没付，订单会被系统关闭、商品重新放出。默认 30 分钟。' },
     { k: 'price_increase_rate', t: '转拍涨价率(%)', type: 'number', tip: '每转拍一次，在上一手成交价基础上自动加价该比例，逐轮复利：10000 → 10300 → 10609。下一轮买家付 10300 时，上一手持有人收回 10300 全额（原价 + 涨价），此后与该持有人无关。注意：涨价率要高于「上架费率 + 抢单服务费率」才有净收益，否则每转一手都在亏钱。' },
     { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number' },
     { k: 'drive_award_rate', t: '直推奖(%)', type: 'number' },

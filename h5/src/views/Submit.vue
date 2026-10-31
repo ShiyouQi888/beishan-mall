@@ -82,7 +82,7 @@
       </div>
 
       <div class="submit__tip">
-        <p>· 抢购成功后请在 30 分钟内完成支付，超时订单自动关闭。</p>
+        <p>· 提交订单即锁定这件货，请在 {{ payTimeout }} 分钟内完成支付；超时订单自动关闭、商品重新放出。</p>
         <p>· 商品支持复检，非质量问题不予退换。</p>
       </div>
     </div>
@@ -144,11 +144,14 @@ const payTypes = computed(() => allPayTypes.value.filter((item) =>
 const total = computed(() => Number(g.value.goods_min_price || 0) * num.value);
 const fee = computed(() => Math.round(total.value * feeRate.value) / 100);
 const payTotal = computed(() => Math.round((total.value + fee.value) * 100) / 100);
+// 支付时限由后台「交易设置」控制，页面文案跟着走，别写死 30 分钟
+const payTimeout = ref(30);
 
 onMounted(async () => {
   try {
-    const p = await api.paymentSettings();
+    const [p, t] = await Promise.all([api.paymentSettings(), api.tradeConfig()]);
     paymentSettings.value = p.data || {};
+    payTimeout.value = Number(t.data?.pay_timeout) || 30;
     // 只要线下转账开着就默认选它；没开才退回第一个可用方式
     payType.value = (payTypes.value.find((p2) => p2.v === 4) || payTypes.value[0])?.v || 0;
   } catch {
