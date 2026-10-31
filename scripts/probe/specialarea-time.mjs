@@ -13,6 +13,7 @@
  *   5. 编辑：合法修改放行
  *   6. 超出 00:00-23:59 范围被拒
  *   7. 场次列表的「商品数」与配置页明细同口径（孤儿关联不算数，且启动时会被清掉）
+ *   8. 场次先后只看开始时间：name 为空不影响，同时段的按创建先后
  *
  * 独立库（specialarea-time.db / 3461），跑完销毁。
  * 用法: node scripts/probe/specialarea-time.mjs
@@ -152,7 +153,22 @@ async function main() {
     run('DELETE FROM specialarea_goods WHERE goods_id = ?', gid);
     run('DELETE FROM goods WHERE goods_id = ?', gid);
 
-    section('[4] 现有场次仍然合法（没被误伤）');
+    section('[4] 场次顺序只看开始时间，不再依赖 name');
+    // 新建的场次 name 都是空串（后台没这个字段）；同开始时间时应该按创建先后排
+    const a1 = await save({ title_main: '同时段-先建', start_time: H(6), end_time: H(7) });
+    ok(a1.code === 1, '建第一个 06:00-07:00 场次', a1.msg);
+    const a2 = await save({ title_main: '同时段-后建', start_time: H(6), end_time: H(7) });
+    ok(a2.code === 1, '建第二个 06:00-07:00 场次', a2.msg);
+
+    const order = await api('/admin/api/specialarea/list?page=1&limit=100', { token: at });
+    const titles = (order.data?.data || []).map((x) => x.title_main);
+    ok(titles.indexOf('同时段-先建') >= 0 && titles.indexOf('同时段-先建') < titles.indexOf('同时段-后建'),
+      '开始时间相同的按创建先后排', titles.join(' | '));
+    const newRow = (order.data?.data || []).find((x) => x.title_main === '同时段-先建');
+    eq(newRow?.name, '', '新建场次的 name 是空串（不影响排序）');
+    ok(!(order.data?.module?.fields || []).some((f) => f.k === 'name'), '「场次标识」字段已从后台移除');
+
+    section('[5] 现有场次仍然合法（没被误伤）');
     const areas = db.prepare('SELECT specialarea_id, start_time, end_time FROM specialarea').all();
     ok(areas.every((a) => Number(a.end_time) === 0 || Number(a.end_time) > Number(a.start_time)),
       '库里所有场次都满足 end = 0 或 end > start',

@@ -7,12 +7,14 @@
 // 排序键（依次比较）：
 //   1. 还在开放中的排前面，已结束的沉到后面
 //   2. 各场次自己的开始时间（秒）
-//   3. 场次标识的语义顺序：forenoon(上午) → afternoon(下午) → evening(晚上)
-//   4. id
+//   3. id（创建先后）
+//
+// 原来还比过两项：运营手填的 sort、以及场次标识 name（forenoon/afternoon/evening）。
+// 两者都排在第 3、4 位，只有「开始时间完全相同」才轮得到，实际几乎永远不生效；
+// 而 name 在后台根本不暴露（新建场次就是空串），等于用了一个运营改不了的字段决定顺序。
+// 都已下线：场次先后只看开始时间，同一时间的按创建顺序。
 import { all } from '../db.js';
 import { todayStr, addDays, sessionWindow } from './sessionWindow.js';
-
-const NAME_RANK = { forenoon: 1, afternoon: 2, evening: 3 };
 
 // 三态权重：进行中 → 未开始 → 已结束 → 今天不开放
 const STATE_RANK = { open: 0, upcoming: 1, ended: 2, closed: 3 };
@@ -32,12 +34,7 @@ function orderSessions(list, stateOf = () => ({ state: 'open' })) {
     const sb = Number(b.start_time) || 0;
     if (sa !== sb) return sa - sb;
 
-    const ra = NAME_RANK[a.name] ?? 99;
-    const rb = NAME_RANK[b.name] ?? 99;
-    if (ra !== rb) return ra - rb;
-
-    // 原来这里还比一项「后台手填的 sort」。它排在第 4 位，只有开始时间和名称都一样才轮得到，
-    // 实际永远不生效，反而让运营以为改它能调顺序 —— 已下线。
+    // 开始时间相同的场次按创建先后排（原来这里还比过 name 和手填 sort，两者都已下线）
     return (Number(a.specialarea_id) || 0) - (Number(b.specialarea_id) || 0);
   });
 }
