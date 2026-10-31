@@ -208,10 +208,7 @@ const notificationCursors = new Map();
 
 const isActive = (p) => (p === '/' ? route.path === '/' : route.path === p);
 const visibleMenuPaths = () => new Set(menus.value.flatMap((group) => (group.items || []).map((item) => item.path)));
-const orderListPath = computed(() => {
-  const paths = visibleMenuPaths();
-  return paths.has('/orders') ? '/orders' : paths.has('/orders/shop') ? '/orders/shop' : '';
-});
+const orderListPath = computed(() => (visibleMenuPaths().has('/orders') ? '/orders' : ''));
 const withdrawListPath = computed(() => (visibleMenuPaths().has('/withdraw') ? '/withdraw' : ''));
 const recycleListPath = computed(() => (visibleMenuPaths().has('/recycle') ? '/recycle' : ''));
 const canReceiveNotifications = computed(() =>
@@ -238,7 +235,6 @@ function notificationTargets() {
   const paths = visibleMenuPaths();
   const targets = [];
   if (paths.has('/orders')) targets.push({ key: 'orders:all', kind: 'order', idField: 'order_id', type: 0 });
-  else if (paths.has('/orders/shop')) targets.push({ key: 'orders:shop', kind: 'order', idField: 'order_id', type: 3 });
   if (paths.has('/withdraw')) targets.push({ key: 'withdrawals', kind: 'withdrawal', idField: 'withdraw_id' });
   if (paths.has('/recycle')) targets.push({ key: 'recycles', kind: 'recycle', idField: 'recycle_id' });
   return targets;
@@ -247,8 +243,6 @@ function notificationTargets() {
 function notificationRoute(item) {
   if (item.kind === 'withdrawal') return withdrawListPath.value || '/';
   if (item.kind === 'recycle') return recycleListPath.value || '/';
-  const paths = visibleMenuPaths();
-  if ((Number(item.type) === 3 || Number(item.type) === 4) && paths.has('/orders/shop')) return '/orders/shop';
   return orderListPath.value || '/';
 }
 

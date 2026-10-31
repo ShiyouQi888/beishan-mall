@@ -7,7 +7,6 @@
       </div>
       <div class="page-actions">
         <el-button v-if="modKey === 'orders'" @click="importOrders">批量导入</el-button>
-        <el-button v-if="modKey === 'orders' && Number(fixed.type) === 3" type="primary" plain @click="openShopOrder">新建寄买单</el-button>
         <span v-if="modKey === 'recycle'" class="auto-scan-hint">
           <i class="auto-scan-dot" />系统每 60 秒自动扫描 · 列表实时刷新
         </span>
@@ -565,19 +564,6 @@
       </el-table>
     </el-dialog>
 
-    <el-dialog v-model="shopOrderDlg" title="新建寄买订单" width="500px">
-      <el-form label-width="100px">
-        <el-form-item label="商品 ID"><el-input-number v-model="shopOrderForm.goods_id" :min="1" /></el-form-item>
-        <el-form-item label="会员 ID"><el-input-number v-model="shopOrderForm.member_id" :min="1" /></el-form-item>
-        <el-form-item label="寄买价格"><el-input-number v-model="shopOrderForm.price" :min="0" :precision="2" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="shopOrderForm.remark" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="shopOrderDlg = false">取消</el-button>
-        <el-button type="primary" @click="createShopOrder">创建订单</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 开通提前抢购：提前多少分钟 + 可用次数 -->
     <el-dialog v-model="advanceDlg" title="开通提前抢购" width="460px">
       <el-form label-width="88px">
@@ -670,8 +656,6 @@ const energyMember = ref('');
 const energyList = ref([]);
 const energyTotal = ref(0);
 const teamData = ref({});
-const shopOrderDlg = ref(false);
-const shopOrderForm = reactive({ goods_id: 0, member_id: 0, price: 0, remark: '' });
 
 // 提前抢购：开通弹窗的临时表单
 const advanceDlg = ref(false);
@@ -1357,19 +1341,6 @@ async function clearCommission(row) {
   load();
 }
 
-function openShopOrder() {
-  Object.assign(shopOrderForm, { goods_id: 0, member_id: 0, price: 0, remark: '' });
-  shopOrderDlg.value = true;
-}
-
-async function createShopOrder() {
-  if (!shopOrderForm.goods_id || !shopOrderForm.member_id) return ElMessage.warning('请填写商品 ID 和会员 ID');
-  const r = await adminApi.createShopOrder({ ...shopOrderForm });
-  ElMessage.success(r.msg || '寄买订单已创建');
-  shopOrderDlg.value = false;
-  load();
-}
-
 async function toggleAdvance(row) {
   // 已开通 → 直接确认关闭；未开通 → 打开弹窗填提前量与次数
   if (Number(row.is_advance) === 10) {
@@ -1445,7 +1416,6 @@ watch(() => route.fullPath, () => {
   filters.kind = '';
   filters.disabled = '';
   teamDlg.value = false;
-  shopOrderDlg.value = false;
   load();
 });
 

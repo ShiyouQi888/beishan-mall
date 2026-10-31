@@ -56,11 +56,6 @@ export const MENU = [
         icon: `<path d="M20 12a8 8 0 1 1-2.3-5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M20.5 4.5V9H16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0 0 2.3 5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.5 19.5V15H8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`,
       },
       {
-        path: '/orders/shop',
-        title: '商城订单',
-        icon: `<circle cx="9" cy="20" r="1.6" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="20" r="1.6" stroke="currentColor" stroke-width="1.7"/><path d="M3 4h2.5l2.2 10.4A1.6 1.6 0 0 0 9.4 16h8.3a1.6 1.6 0 0 0 1.6-1.2L21 8H7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
-      },
-      {
         path: '/score-exchange',
         title: '积分兑换',
         icon: `<path d="M4 9h11l-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 15H9l3 3m-3-3 3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
@@ -134,11 +129,6 @@ export const MENU = [
         path: '/setting/trade',
         title: '交易设置',
         icon: `<path d="M4 8h13l-3-3M20 16H7l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
-      },
-      {
-        path: '/delivery',
-        title: '运费模板',
-        icon: `<path d="M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="6.5" cy="18" r="1.6" stroke="currentColor" stroke-width="1.7"/><circle cx="17" cy="18" r="1.6" stroke="currentColor" stroke-width="1.7"/>`,
       },
       {
         path: '/setting/storage',

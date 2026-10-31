@@ -66,11 +66,8 @@ export function authAdmin(req, res, next) {
 function adminRequestAllowed(req, allowedPaths) {
   const path = String(req.path || '').replace(/\/$/, '') || '/';
   const has = (...paths) => paths.some((p) => allowedPaths.includes(p));
-  const orderTypeForId = (id) => Number(get('SELECT type FROM orders WHERE order_id = ?', Number(id))?.type || 0);
-  // type=2（历史寄卖挂单）已不再产生，统一按「全部订单」校验权限
-  const orderPath = (type) => ({
-    1: '/orders', 2: '/orders', 3: '/orders/shop', 4: '/orders/shop',
-  }[Number(type)] || null);
+  // 商城订单页与寄卖/寄买订单页都已下线，所有订单类型统一在「全部订单」里管，
+  // 所以订单相关的权限判断不再区分 type
 
   // 身份信息与当前权限菜单可读，但不会授予任何业务操作权限。
   if (['/me', '/me/password', '/menu', '/my-paths', '/modules'].includes(path)) return true;
@@ -96,24 +93,15 @@ function adminRequestAllowed(req, allowedPaths) {
   if (path === '/options/category') return has('/category', '/goods');
   if (path === '/options/specialarea') return has('/specialarea', '/goods');
 
-  if (path === '/notifications/orders') {
-    const type = Number(req.query.type) || 0;
-    if (!type) return has('/orders');
-    if (type === 3) return has('/orders/shop');
-    return false;
-  }
+  if (path === '/notifications/orders') return has('/orders');
   if (path === '/notifications/withdrawals') return has('/withdraw');
   if (path === '/notifications/recycles') return has('/recycle');
   // 提现审核（含批量）：原来没显式映射，导致只有超管能用，普通角色拿到菜单也审不了
   if (path === '/withdraw/audit' || path === '/withdraw/audit-batch') return has('/withdraw');
-  // 订单批量确认收款：逐单按类型校验，商城单与抢购单权限分开
+  // 订单批量确认收款：订单页只剩「全部订单」一个，整批按同一权限校验
   if (path === '/orders/confirm-pay-batch') {
     const ids = Array.isArray(req.body?.order_ids) ? req.body.order_ids : [];
-    if (!ids.length) return false;
-    return ids.every((id) => {
-      const pagePath = orderPath(orderTypeForId(id));
-      return Boolean(pagePath && has('/orders', pagePath));
-    });
+    return ids.length > 0 && has('/orders');
   }
 
   // 商品已合并为一个「商品管理」模块，不再区分抢购/商城两套权限
@@ -121,37 +109,11 @@ function adminRequestAllowed(req, allowedPaths) {
   // 场次与商品的关联维护：场次页有这个入口，有商品管理权限的人也应该能调
   if (path.startsWith('/specialarea/') && path.split('/').length > 3) return has('/specialarea', '/goods');
 
-  if (path.startsWith('/orders/')) {
-    if (path === '/orders/list') {
-      if (req.query.type) {
-        const pagePath = orderPath(req.query.type);
-        return Boolean(pagePath && has('/orders', pagePath));
-      }
-      return has('/orders');
-    }
-    if (path === '/orders/import') {
-      const types = (req.body?.rows || []).map((row) => Number(row.type) || 1);
-      return types.length > 0 && types.every((type) => {
-        const pagePath = orderPath(type);
-        return Boolean(pagePath && has('/orders', pagePath));
-      });
-    }
-    if (path === '/orders/set-goods-order') return has('/orders', '/orders/shop');
-    const id = req.query.id || req.body?.order_id;
-    if (id) {
-      const pagePath = orderPath(orderTypeForId(id));
-      if (!pagePath || !has('/orders', pagePath)) return false;
-    }
-    return has('/orders', '/orders/shop');
-  }
+  if (path.startsWith('/orders/')) return has('/orders');
   if (path.startsWith('/member/')) return has('/member');
   if (path === '/stats/goods') return has('/goods');
   if (path === '/stats/today-orders') return has('/orders');
-  if (path === '/award/grant') {
-    const type = orderTypeForId(req.body?.order_id);
-    const pagePath = orderPath(type);
-    return Boolean(pagePath && has('/orders', pagePath));
-  }
+  if (path === '/award/grant') return has('/orders');
   if (path.startsWith('/settle/')) {
     return has('/settle');
   }

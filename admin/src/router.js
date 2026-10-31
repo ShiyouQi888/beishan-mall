@@ -25,10 +25,8 @@ export default [
       list('/orders', 'orders', 'orders', '全部订单'),
       // 转拍订单是专门页面（要按今日/昨日/周/月/自定义筛选），不走通用 ListPage
       { path: '/transpose', name: 'transpose', component: () => import('./views/TransposeOrders.vue'), meta: { title: '转拍订单', permissionPath: '/transpose' } },
-      list('/orders/shop', 'ordersShop', 'orders', '商城订单', { fixed: { type: 3 }, title: '商城订单' }),
       list('/score-exchange', 'scoreExchange', 'scoreExchange', '积分兑换'),
       list('/recycle', 'recycle', 'recycle', '系统回收'),
-      list('/delivery', 'delivery', 'delivery', '运费模板'),
       { path: '/finance-board', name: 'financeBoard', component: () => import('./views/FinanceBoard.vue'), meta: { title: '财务大盘', permissionPath: '/finance-board' } },
       { path: '/media', name: 'media', component: () => import('./views/MediaLibrary.vue'), meta: { title: '文件管理', permissionPath: '/media' } },
       list('/energy', 'energy', 'energy', '佣金记录'),
