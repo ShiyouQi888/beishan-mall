@@ -10,6 +10,7 @@ import { scanCappedGoods } from './lib/recycle.js';
 import { expireUnsold } from './lib/expire.js';
 import { expireUnpaidOrders } from './lib/orderExpire.js';
 import { cleanStaleListingFlags } from './lib/listing.js';
+import { cleanOrphanLinks } from './lib/areaGoods.js';
 import { fail, cfg } from './lib/helper.js';
 import { themeOf, DEFAULT_THEME } from './lib/themes.js';
 
@@ -166,6 +167,12 @@ if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_drop_streamb
   const back = run('UPDATE goods SET goods_status = 20 WHERE goods_status = 30');
   run("INSERT INTO setting_config (`key`, `value`) VALUES ('migrate_drop_streambeat', '1')");
   console.log(`[migrate] 流拍已下线：删除 ${Number(del.changes) || 0} 条流拍台账，${Number(back.changes) || 0} 件流拍商品改回下架`);
+}
+
+// 历史脏数据：商品被删了但场次关联还留着（孤儿行），会让「场次商品数」和配置页明细对不上。
+{
+  const cleaned = cleanOrphanLinks();
+  if (cleaned > 0) console.log(`[migrate] 清掉了 ${cleaned} 条指向已删商品的场次关联`);
 }
 
 // 历史脏数据：货已经过户给别人（或被回收成平台持仓），旧订单的「已挂牌」标记还停在 10。

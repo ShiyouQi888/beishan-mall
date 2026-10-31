@@ -12,6 +12,7 @@
  *   4. 编辑：只传 start_time 造成非法 → 被拒
  *   5. 编辑：合法修改放行
  *   6. 超出 00:00-23:59 范围被拒
+ *   7. 场次列表的「商品数」与配置页明细同口径（孤儿关联不算数，且启动时会被清掉）
  *
  * 独立库（specialarea-time.db / 3461），跑完销毁。
  * 用法: node scripts/probe/specialarea-time.mjs
@@ -41,6 +42,7 @@ function ok(cond, name, detail = '') {
   if (cond) { pass++; console.log(`  ✓ ${name}`); }
   else { fails.push(`${name}${detail ? ' → ' + detail : ''}`); console.log(`  ✗ ${name}${detail ? ' → ' + detail : ''}`); }
 }
+const eq = (a, b, name) => ok(String(a) === String(b), name, `期望 ${b}，实际 ${a}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function runSeed() {
@@ -122,7 +124,35 @@ async function main() {
     ok(Number(after.start_time) === H(8) && Number(after.end_time) === H(20), '库里已是 08:00-20:00',
       `${after.start_time}-${after.end_time}`);
 
-    section('[3] 现有场次仍然合法（没被误伤）');
+    section('[3] 商品数：列表统计与配置页明细同口径');
+    const run = (sql, ...p) => db.prepare(sql).run(...p);
+    const gid = Number(run(
+      `INSERT INTO goods (goods_name, goods_no, good_thumb, images, detail, category_id, specialarea_id, area_date,
+         member_id, goods_min_price, base_price, price_cap, line_price, stock_num, stock_total, sales_actual,
+         goods_status, is_sell, session_quota, turn_beat_num, goods_sort, type, score_price, recycled, create_time, update_time)
+       VALUES ('商品数验收','SC-1','/uploads/demo-1.svg','[]','',1,1,'',0,1000,1000,0,0,1,1,0,10,10,0,0,100,1,0,0,datetime('now','+8 hours'),datetime('now','+8 hours'))`,
+    ).lastInsertRowid);
+    run('INSERT INTO specialarea_goods (specialarea_id, goods_id, sort) VALUES (1, ?, 100)', gid);
+    // 造一条孤儿关联（指向不存在的商品），模拟「商品被删但关联没清」
+    run('INSERT INTO specialarea_goods (specialarea_id, goods_id, sort) VALUES (1, 999999, 100)');
+
+    const listApi = await api('/admin/api/specialarea/list?page=1&limit=100', { token: at });
+    const rowArea = (listApi.data?.data || []).find((x) => Number(x.specialarea_id) === 1);
+    const detailApi = await api('/admin/api/specialarea/1/goods', { token: at });
+    eq(rowArea?.area_goods_count, detailApi.data?.total, '列表的「商品数」= 配置页明细条数（孤儿不算）');
+    ok(!(detailApi.data?.list || []).some((x) => Number(x.goods_id) === 999999), '明细里不出现孤儿商品');
+
+    const { cleanOrphanLinks } = await import('../../server/src/lib/areaGoods.js');
+    ok(cleanOrphanLinks() >= 1, '清理函数能删掉孤儿关联');
+    eq(cleanOrphanLinks(), 0, '再跑一次是幂等的');
+    const afterClean = await api('/admin/api/specialarea/1/goods', { token: at });
+    ok(!(afterClean.data?.list || []).some((x) => Number(x.goods_id) === 999999), '清理后明细里没有孤儿');
+
+    // 收尾：删掉验收商品
+    run('DELETE FROM specialarea_goods WHERE goods_id = ?', gid);
+    run('DELETE FROM goods WHERE goods_id = ?', gid);
+
+    section('[4] 现有场次仍然合法（没被误伤）');
     const areas = db.prepare('SELECT specialarea_id, start_time, end_time FROM specialarea').all();
     ok(areas.every((a) => Number(a.end_time) === 0 || Number(a.end_time) > Number(a.start_time)),
       '库里所有场次都满足 end = 0 或 end > start',

@@ -1187,7 +1187,12 @@ function enrich(mod, row) {
   }
   if (mod === 'specialarea') {
     // 场次列表展示「已关联商品数」，商品归属完全由关联表决定
-    out.area_goods_count = Number(get('SELECT COUNT(*) c FROM specialarea_goods WHERE specialarea_id = ?', row.specialarea_id)?.c || 0);
+    // 与配置页的商品明细同口径：都要 JOIN goods，否则关联表里的孤儿行会让两处数字对不上
+    out.area_goods_count = Number(get(
+      `SELECT COUNT(*) c FROM specialarea_goods sg JOIN goods g ON g.goods_id = sg.goods_id
+       WHERE sg.specialarea_id = ?`,
+      row.specialarea_id,
+    )?.c || 0);
   }
   if (mod === 'energy' || mod === 'withdraw' || mod === 'settle' || mod === 'scoreExchange') {
     out._member = get('SELECT nick_name FROM member WHERE member_id = ?', row.member_id)?.nick_name || '';

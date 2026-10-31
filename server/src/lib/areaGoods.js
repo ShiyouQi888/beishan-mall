@@ -163,3 +163,17 @@ export function clearAreaLinks(areaId) {
   ids.forEach((id) => syncAreaMirror(id));
   return ids.length;
 }
+
+/**
+ * 清理孤儿关联（启动时跑一次，幂等）：商品已经被删除，但关联表里还留着指向它的行。
+ *
+ * 这类行会让「场次列表的商品数」和「配置页里的商品明细」对不上 ——
+ * 前者只数关联表，后者要 JOIN goods 才能显示名称，孤儿行会被 JOIN 掉。
+ * @returns {number} 清理条数
+ */
+export function cleanOrphanLinks() {
+  const r = run(
+    'DELETE FROM specialarea_goods WHERE goods_id NOT IN (SELECT goods_id FROM goods)',
+  );
+  return Number(r.changes || 0);
+}
