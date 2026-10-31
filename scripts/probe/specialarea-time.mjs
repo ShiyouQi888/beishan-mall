@@ -14,6 +14,7 @@
  *   6. 超出 00:00-23:59 范围被拒
  *   7. 场次列表的「商品数」与配置页明细同口径（孤儿关联不算数，且启动时会被清掉）
  *   8. 场次先后只看开始时间：name 为空不影响，同时段的按创建先后
+ *   9. 限购件数：< 1 或 > 999 被拒，不填时默认 10
  *
  * 独立库（specialarea-time.db / 3461），跑完销毁。
  * 用法: node scripts/probe/specialarea-time.mjs
@@ -168,7 +169,23 @@ async function main() {
     eq(newRow?.name, '', '新建场次的 name 是空串（不影响排序）');
     ok(!(order.data?.module?.fields || []).some((f) => f.k === 'name'), '「场次标识」字段已从后台移除');
 
-    section('[5] 现有场次仍然合法（没被误伤）');
+    section('[5] 限购件数：下限 1、上限 999、默认 10');
+    const bn0 = await save({ title_main: '限购0', start_time: H(9), end_time: H(10), buy_num: 0 });
+    ok(bn0.code === 0 && /不小于 1/.test(bn0.msg || ''), 'buy_num = 0 被拒（0 不能被当成「不限」）', bn0.msg);
+    const bnNeg = await save({ title_main: '限购负', start_time: H(9), end_time: H(10), buy_num: -3 });
+    ok(bnNeg.code === 0, 'buy_num 为负被拒', bnNeg.msg);
+    const bnBig = await save({ title_main: '限购过大', start_time: H(9), end_time: H(10), buy_num: 1000 });
+    ok(bnBig.code === 0 && /999/.test(bnBig.msg || ''), 'buy_num > 999 被拒', bnBig.msg);
+    const bn1 = await save({ title_main: '限购1件', start_time: H(9), end_time: H(10), buy_num: 1 });
+    ok(bn1.code === 1, 'buy_num = 1 允许', bn1.msg);
+    eq(Number(get("SELECT buy_num FROM specialarea WHERE title_main = '限购1件' LIMIT 1")?.buy_num), 1, '库里存的是 1');
+
+    const bnDefault = await save({ title_main: '限购不填', start_time: H(11), end_time: H(12) });
+    ok(bnDefault.code === 1, '不传 buy_num 也能建场次', bnDefault.msg);
+    eq(Number(get("SELECT buy_num FROM specialarea WHERE title_main = '限购不填' LIMIT 1")?.buy_num), 10,
+      '不填时按表默认值 10（与 seed、配置页默认一致）');
+
+    section('[6] 现有场次仍然合法（没被误伤）');
     const areas = db.prepare('SELECT specialarea_id, start_time, end_time FROM specialarea').all();
     ok(areas.every((a) => Number(a.end_time) === 0 || Number(a.end_time) > Number(a.start_time)),
       '库里所有场次都满足 end = 0 或 end > start',

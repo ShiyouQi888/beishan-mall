@@ -98,7 +98,7 @@ const M = {
       { k: 'open_days', t: '开放日期', type: 'days', w: 96 },
       { k: 'start_time', t: '开始时间', type: 'timesec', w: 88 },
       { k: 'end_time', t: '结束时间', type: 'timesec', w: 88 },
-      { k: 'buy_num', t: '限购件数', type: 'number', w: 84 },
+      { k: 'buy_num', t: '限购件数', type: 'number', w: 84, min: 1, max: 999 },
       { k: 'area_goods_count', t: '商品数', type: 'count', readonly: true, w: 80, tip: '本场次已关联多少件商品。点「配置」进去可以增减。' },
       { k: 'transposition_hours', t: '转拍时限(小时)', type: 'number', w: 96 },
       { k: 'is_subscribe', t: '开放预约', type: 'switch', opts: { 10: '是', 0: '否' }, w: 100 },
@@ -1243,6 +1243,13 @@ r.post('/:module/save', authAdmin, (req, res) => {
     // end = 0 表示「不限」，是合法的
     if (et > 0 && et <= st) {
       return res.json(fail('结束时间必须晚于开始时间（跨天时段不支持，请拆成两个场次）'));
+    }
+    // 限购件数：0 在别处会被当成「不限」，但配置项语义是「最多买几件」，
+    // 填 0 只会让人以为这个场次买不了 —— 统一要求 >= 1，下限交给前端 min 提示
+    if ('buy_num' in body) {
+      const bn = Number(body.buy_num);
+      if (!Number.isInteger(bn) || bn < 1) return res.json(fail('每场每人限购件数必须是不小于 1 的整数'));
+      if (bn > 999) return res.json(fail('每场每人限购件数最多 999'));
     }
   }
 

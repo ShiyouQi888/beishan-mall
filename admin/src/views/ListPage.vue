@@ -442,7 +442,8 @@
             <el-input-number
               v-model="form[f.k]"
               :precision="f.type === 'money' ? 2 : 0"
-              :min="0"
+              :min="f.min ?? 0"
+              :max="f.max ?? 999999"
               :disabled="priceLocked(f)"
               style="width: 100%"
               controls-position="right"

@@ -23,8 +23,10 @@ export function sessionBoughtOf(memberId, areaId, date = todayStr()) {
 
 /**
  * 本场限购件数；<= 0 表示不限。
- * 后台输入框 min=1，正常不会出现 0，这里兜底成「不限」而不是「默认 1 件」——
- * 把 0 当 1 会在运营误填时把整场锁死。
+ *
+ * 正常不会出现 0：后台两处入口都限制最小 1，接口也会拒绝 < 1 的值。
+ * 这里把 0 兜底成「不限」而不是「默认 1 件」—— 万一有历史脏数据是 0，
+ * 当成 1 件会把整场锁死（谁买第二件都被拒），当成不限最多是不限购，代价小得多。
  */
 export const sessionLimitOf = (area) => {
   const n = Number(area?.buy_num) || 0;
