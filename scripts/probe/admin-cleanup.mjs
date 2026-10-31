@@ -153,6 +153,23 @@ async function main() {
     check('配置页补齐了原来编辑弹窗才有的字段', missing.length === 0, missing.length ? `缺少：${missing.join('、')}` : JSON.stringify(cfg.labels));
     check('开放预约 / 启用状态 是开关', cfg.hasSwitch >= 2, String(cfg.hasSwitch));
 
+    // 关联商品表要能看出「开抢日期」：带未来日期的商品当天不会出现在 H5，
+    // 运营看不到这一列就会以为前台漏显示了
+    const rel = await evaluate(`(() => {
+      const heads = [...document.querySelectorAll('.related .el-table__header th')].map((x) => x.innerText.trim());
+      const dates = [...document.querySelectorAll('.related .open-date')].map((x) => ({
+        text: x.textContent.trim(), cls: x.className,
+      }));
+      const hint = document.querySelector('.rel-hint')?.innerText || '';
+      return { heads, dates, hint };
+    })()`);
+    check('关联商品表有「开抢日期」列', rel.heads.includes('开抢日期'), JSON.stringify(rel.heads));
+    check('每行都标了日期（不限 / 今天 / X 起）',
+      rel.dates.length > 0 && rel.dates.every((d) => d.text.length > 0), JSON.stringify(rel.dates));
+    check('带未来日期的行用橙色提醒',
+      rel.dates.every((d) => !d.text.includes('起') || d.cls.includes('is-future')), JSON.stringify(rel.dates));
+    check('表头说明了开抢日期的作用', rel.hint.includes('开抢日期'), rel.hint.slice(0, 60));
+
     try {
       const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
       mkdirSync(join(process.cwd(), '_probe'), { recursive: true });

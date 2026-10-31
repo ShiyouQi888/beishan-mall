@@ -101,6 +101,9 @@
           <div class="hint rel-hint">
             本场次售卖的商品都在这里维护。一件商品可以同时关联多个场次；
             没关联任何场次的商品，相当于首页/分类里随时可买的普通商品，不受场次时段限制。
+            <br />
+            <b>「开抢日期」标了未来某天的商品，要等到那天才会出现在 H5</b> —— 转拍上架时系统会自动把它排到下一场，
+            所以本场关联了 4 件、前台只看到 2 件，多半是另外 2 件排到了明天。
           </div>
         </div>
         <el-button type="primary" plain @click="openPicker">+ 关联商品</el-button>
@@ -130,6 +133,13 @@
         <el-table-column label="状态" width="96">
           <template #default="{ row }">
             <span class="tag-status" :class="statusClass(row.goods_status)">{{ statusText(row.goods_status) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="开抢日期" width="118">
+          <template #default="{ row }">
+            <!-- 商品带开抢日期时，只有到了那天才会在 H5 出现；这是转拍落场用的，
+                 运营看不到就会疑惑「明明关联了 4 件，前台只有 2 件」 -->
+            <span :class="['open-date', dateClass(row.area_date)]">{{ dateText(row.area_date) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="其它场次" min-width="130">
@@ -348,6 +358,27 @@ const pickTableRef = ref(null);
 
 const STATUS_TEXT = { 10: '上架', 20: '下架', 30: '流拍' };
 const statusText = (v) => STATUS_TEXT[Number(v)] || '—';
+
+/* 开抢日期：空 = 不限（随时可买），今天 = 本场正常露出，未来 = 那天才上架 */
+const todayStr = () => {
+  const d = new Date(Date.now() + 8 * 3600 * 1000); // 固定东八区，和业务时间对齐
+  return d.toISOString().slice(0, 10);
+};
+function dateText(v) {
+  const d = String(v || '').trim();
+  if (!d) return '不限';
+  const t = todayStr();
+  if (d === t) return '今天';
+  if (d > t) return `${d.slice(5)} 起`;
+  return d.slice(5);
+}
+function dateClass(v) {
+  const d = String(v || '').trim();
+  if (!d) return 'is-none';
+  const t = todayStr();
+  if (d === t) return 'is-today';
+  return d > t ? 'is-future' : 'is-past';
+}
 const statusClass = (v) => (Number(v) === 10 ? 'tag-ok' : Number(v) === 30 ? 'tag-warn' : 'tag-off');
 
 async function loadGoods() {
@@ -434,6 +465,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 开抢日期：未来那天才上架，用橙色提醒，别让运营以为漏显示了 */
+.open-date { font-size: 12px; font-variant-numeric: tabular-nums; }
+.open-date.is-today { color: #1f9d5f; }
+.open-date.is-future { color: #c88a1e; font-weight: 600; }
+.open-date.is-past, .open-date.is-none { color: #a8adb7; }
+
 .cfg-form { max-width: 760px; padding: 10px 0 4px; }
 .cfg-form :deep(.el-form-item) { margin-bottom: 24px; }
 
