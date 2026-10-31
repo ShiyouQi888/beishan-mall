@@ -136,11 +136,6 @@ export const MENU = [
         icon: `<path d="M4 8h13l-3-3M20 16H7l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
       },
       {
-        path: '/setting/pay',
-        title: '支付设置',
-        icon: `<rect x="3" y="6" width="18" height="12" rx="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M3 10.5h18" stroke="currentColor" stroke-width="1.7"/>`,
-      },
-      {
         path: '/delivery',
         title: '运费模板',
         icon: `<path d="M3 7h11v9H3V7Zm11 3h4l3 3v3h-7v-6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="6.5" cy="18" r="1.6" stroke="currentColor" stroke-width="1.7"/><circle cx="17" cy="18" r="1.6" stroke="currentColor" stroke-width="1.7"/>`,

@@ -54,27 +54,6 @@
         <div class="kv" v-if="o.seller_name"><span>卖家</span><span>{{ o.seller_name }}</span></div>
       </div>
 
-      <div class="card payment" v-if="o.status === 0 && Number(o.pay_status) !== 10">
-        <div class="sec-title" style="padding: 14px 0 8px"><span>选择支付方式</span></div>
-        <div v-for="p in availablePayTypes" :key="p.v" class="payment__option" @click="selectedPayType = p.v">
-          <span class="radio" :class="{ on: selectedPayType === p.v }" />
-          <div>
-            <div class="payment__title">{{ p.t }}</div>
-            <div class="payment__desc">{{ p.d }}</div>
-          </div>
-        </div>
-        <div v-if="!availablePayTypes.length" class="payment__empty">当前暂无开放的支付方式，请联系平台处理。</div>
-        <div v-if="selectedPayType === 2 || selectedPayType === 3" class="payment__qr">
-          <div>{{ selectedPayType === 2 ? '请使用微信扫码转账' : '请使用支付宝扫码转账' }}</div>
-          <img v-if="paymentQr" :src="paymentQr" alt="收款二维码" @click="showImagePreview([paymentQr])" />
-          <div v-else class="payment__empty">暂未配置收款二维码，请联系平台处理。</div>
-        </div>
-        <div v-if="selectedPayType && selectedPayType !== 1 && needVoucher" class="payment__voucher">
-          <div class="payment__hint">完成转账后，请上传付款凭证供平台核实。</div>
-          <ImageUploader :model-value="voucher" :upload="uploadVoucher" @update:model-value="voucher = $event" />
-        </div>
-      </div>
-
       <!-- 时间轴 -->
       <div class="card logs" v-if="o.logs?.length">
         <div class="sec-title" style="padding: 14px 0 10px"><span>订单动态</span></div>
@@ -90,8 +69,8 @@
     </div>
 
     <div class="odetail__bar" v-if="o.status === 0 || (Number(o.pay_status) === 10 && Number(o.order_type) === 1)">
-      <button v-if="o.status === 0 && Number(o.pay_status) !== 10" class="btn-main" :disabled="!availablePayTypes.length || paying" @click="pay">
-        {{ paying ? '提交中…' : selectedPayType === 1 ? '立即支付' : (needVoucher ? '提交支付凭证' : '我已付款，提交') }}
+      <button v-if="o.status === 0 && Number(o.pay_status) !== 10" class="btn-main" :disabled="paying" @click="pay">
+        {{ paying ? '提交中…' : '申请抢单' }}
       </button>
       <button v-if="Number(o.pay_status) === 10 && Number(o.order_type) === 1" class="btn-main" @click="goToMyShop">查看我的店铺</button>
     </div>
@@ -101,53 +80,23 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { showImagePreview } from 'vant';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
-import ImageUploader from '../components/ImageUploader.vue';
 
 const route = useRoute();
 const router = useRouter();
 const o = ref({});
 const loading = ref(true);
-const sys = ref({});
-const paymentSettings = ref({});
-const selectedPayType = ref(0);
-const voucher = ref('');
-// 后台「支付凭证必传」：默认必传。关闭后线下支付不显示上传框、不校验凭证。
-const needVoucher = computed(() => String(paymentSettings.value.voucher_required ?? '1') === '1');
+// 支付方式这一环已整体去掉：未完成的订单只需「申请抢单」，等平台确认
 const paying = ref(false);
-const payOptions = computed(() => {
-  // 后台「支付凭证必传」关掉后，线下支付不再要求上传凭证，文案也要跟着改，
-  // 否则会出现「请上传凭证」的页面却找不到上传框。
-  const tail = needVoucher.value
-    ? '扫码转账后上传凭证，等待平台确认'
-    : '扫码转账后提交即可，等待平台确认';
-  return [
-    { v: 1, key: 'balance_open', t: '余额支付', d: '使用账户可用余额直接支付' },
-    { v: 2, key: 'wx_open', ready: 'wx_qr_ready', t: '微信扫码', d: tail },
-    { v: 3, key: 'zfb_open', ready: 'zfb_qr_ready', t: '支付宝扫码', d: tail },
-    {
-      v: 4,
-      key: 'bank_open',
-      t: needVoucher.value ? '线下转账凭证' : '线下转账',
-      d: needVoucher.value ? '转账后上传凭证，等待平台确认' : '转账后提交即可，等待平台确认',
-    },
-  ];
-});
-const availablePayTypes = computed(() => payOptions.value.filter((item) =>
-  String(paymentSettings.value[item.key]) === '1'
-  && (!item.ready || String(paymentSettings.value[item.ready]) === '1'),
-));
-const paymentQr = computed(() => selectedPayType.value === 2 ? sys.value.wx_image : selectedPayType.value === 3 ? sys.value.zfb_image : '');
 
 // 订单只反映付没付，没有发货/收货环节
-const statusTitle = computed(() => o.value.status_text || (Number(o.value.pay_status) === 10 ? '已支付' : '未支付'));
+const statusTitle = computed(() => o.value.status_text || (Number(o.value.pay_status) === 10 ? '已确认' : '待确认'));
 const statusDesc = computed(() => {
   if (Number(o.value.status) === 40) return '订单已关闭';
-  if (Number(o.value.pay_status) !== 10) return '请尽快完成支付';
+  if (Number(o.value.pay_status) !== 10) return '等待平台确认这笔抢单';
   if (o.value.transferred && Number(o.value.order_type) === 1) return '商品已转拍给他人';
-  return Number(o.value.order_type) === 1 ? '订单已支付，可前往我的店铺查看商品' : '订单已支付';
+  return Number(o.value.order_type) === 1 ? '平台已确认，可前往我的店铺查看商品' : '平台已确认';
 });
 
 async function load() {
@@ -162,17 +111,6 @@ async function load() {
       return;
     }
     o.value = r.data;
-    voucher.value = r.data.pay_voucher || '';
-    const [s, p] = await Promise.allSettled([api.systemInfo(), api.paymentSettings()]);
-    if (s.status === 'fulfilled') sys.value = s.value.data || {};
-    if (p.status === 'fulfilled') paymentSettings.value = p.value.data || {};
-    const original = Number(r.data.pay_type);
-    // 没有指定过支付方式时，默认落在「线下转账」上（系统默认只走线下）
-    const fallback = availablePayTypes.value.find((item) => item.v === 4)?.v
-      || availablePayTypes.value[0]?.v || 0;
-    selectedPayType.value = availablePayTypes.value.some((item) => item.v === original)
-      ? original
-      : fallback;
   } catch {
     showToast('订单加载失败');
     o.value = {};
@@ -182,38 +120,22 @@ async function load() {
 }
 
 async function pay() {
-  if (!selectedPayType.value) return showToast('当前暂无开放的支付方式');
-  if (needVoucher.value && selectedPayType.value !== 1 && !voucher.value) return showToast('请先上传支付凭证');
   paying.value = true;
   try {
-    await api.payOrder({
-      order_id: o.value.order_id,
-      pay_type: selectedPayType.value,
-      ...(selectedPayType.value === 1 || !voucher.value ? {} : { voucher: voucher.value }),
-    });
-    const isBalancePayment = selectedPayType.value === 1;
-    showToast(isBalancePayment
-      ? '支付成功，正在前往我的店铺'
-      : '付款信息已提交；平台确认后，商品会显示在我的店铺');
-    // 买家完成付款申报后直接进入店铺查看商品状态；线下转账仍需后台确认后才会入店。
-    window.setTimeout(() => router.push('/my-shop'), 450);
+    // pay_type 固定 0：只是把「已申请抢单」提交给平台，不涉及任何支付通道
+    await api.payOrder({ order_id: o.value.order_id, pay_type: 0 });
+    showToast('已提交抢单申请，等待平台确认');
+    await load();
   } catch (error) {
-    // 订单可能已在其他页面或设备上完成支付，接口会拒绝重复支付。把这个状态作为成功结果处理，
-    // 避免旧详情页继续显示“我已付款”并让用户无路可走。
     if (String(error?.msg || '').includes('订单已支付')) {
-      window.setTimeout(() => router.push('/my-shop'), 450);
+      showToast('这笔订单已经确认过了');
+      await load();
     }
   } finally { paying.value = false; }
 }
 
 function goToMyShop() {
   router.push('/my-shop');
-}
-
-async function uploadVoucher(file) {
-  const result = await api.upload(file);
-  voucher.value = result.data.url;
-  return result.data.url;
 }
 
 onMounted(load);

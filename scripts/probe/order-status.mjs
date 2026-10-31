@@ -147,7 +147,7 @@ async function main() {
       return { head, ops, st, body: document.body.innerText };
     })()`);
     check('状态列存在', adm.head.includes('状态'), JSON.stringify(adm.head.slice(0, 10)));
-    check('状态只显示已支付/未支付', adm.st.every((x) => x === '已支付' || x === '未支付'), JSON.stringify(adm.st));
+    check('状态只显示待确认/已确认', adm.st.every((x) => x === '已确认' || x === '待确认'), JSON.stringify(adm.st));
     check('操作列没有「发货」', adm.ops.every((o) => !o.includes('发货')), JSON.stringify(adm.ops.slice(0, 3)));
     check('页面没有「待发货/待收货」字样', !adm.body.includes('待发货') && !adm.body.includes('待收货'));
 
@@ -156,8 +156,8 @@ async function main() {
     await sleep(600);
     const opts = await evaluate(`[...document.querySelectorAll('.el-select-dropdown__item')].map((x) => x.innerText.trim()).filter(Boolean)`);
     // 下拉里还混着分页的「10条/页」，只校验支付状态这一组
-    const payOpts = opts.filter((o) => ['已支付', '未支付', '待付款', '待发货', '待收货', '已完成', '已取消'].includes(o));
-    check('筛选下拉只有已支付/未支付', payOpts.length === 2 && payOpts.includes('已支付') && payOpts.includes('未支付'), JSON.stringify(payOpts));
+    const payOpts = opts.filter((o) => ['已确认', '待确认', '已支付', '未支付', '待付款', '待发货', '待收货', '已完成', '已取消'].includes(o));
+    check('筛选下拉只有待确认/已确认', payOpts.length === 2 && payOpts.includes('已确认') && payOpts.includes('待确认'), JSON.stringify(payOpts));
     await evaluate(`document.body.click()`);
     await sleep(300);
 
@@ -171,8 +171,8 @@ async function main() {
       return { tabs: [...new Set(tabs)], body: body.slice(0, 300) };
     })()`);
     check('会员端 tab 没有待发货/待收货', !h5list.body.includes('待发货') && !h5list.body.includes('待收货'), JSON.stringify(h5list.tabs));
-    check('会员端出现「未支付」', h5list.body.includes('未支付'), JSON.stringify(h5list.tabs));
-    check('会员端出现「已支付」', h5list.body.includes('已支付'), JSON.stringify(h5list.tabs));
+    check('会员端出现「待确认」', h5list.body.includes('待确认'), JSON.stringify(h5list.tabs));
+    check('会员端出现「已确认」', h5list.body.includes('已确认'), JSON.stringify(h5list.tabs));
 
     // ---------- 会员端订单详情 ----------
     console.log('\n[3] 会员端订单详情');
@@ -181,7 +181,7 @@ async function main() {
     check('详情没有「快递」行', !h5detail.includes('快递'), h5detail.slice(0, 120));
     check('详情没有「确认收货」', !h5detail.includes('确认收货'), h5detail.slice(0, 120));
     check('详情没有「备货/待发货」', !h5detail.includes('备货') && !h5detail.includes('待发货'), h5detail.slice(0, 120));
-    check('详情状态为已支付', h5detail.includes('已支付'), h5detail.slice(0, 120));
+    check('详情状态为已确认', h5detail.includes('已确认'), h5detail.slice(0, 120));
 
     try {
       const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });

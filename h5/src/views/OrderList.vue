@@ -40,7 +40,7 @@
           <div class="ocard__foot">
             <span class="muted">{{ o.create_time }}</span>
             <div class="ocard__acts" @click.stop>
-              <button v-if="o.status === 0" class="mini mini--main" @click="pay(o)">去支付</button>
+              <button v-if="o.status === 0" class="mini mini--main" @click="pay(o)">申请抢单</button>
               <button v-if="o.status === 0" class="mini" @click="cancel(o)">取消</button>
               <button v-if="(o.status === 10 || o.status === 30) && !o.consignment_status && !o.transferred" class="mini mini--main" :disabled="loadingQuoteId === o.order_id" @click="openTransfer(o)">{{ loadingQuoteId === o.order_id ? '计算中…' : '转拍' }}</button>
               <button v-if="o.consignment_status" class="mini" disabled>已上架</button>
@@ -104,8 +104,8 @@ const route = useRoute();
 const router = useRouter();
 const tabs = [
   { v: 'all', label: '全部' },
-  { v: 0, label: '未支付' },
-  { v: 10, label: '已支付' },
+  { v: 0, label: '待确认' },
+  { v: 10, label: '已确认' },
 ];
 const status = ref(route.query.pay_status !== undefined
   ? (route.query.pay_status === 'all' ? 'all' : Number(route.query.pay_status))

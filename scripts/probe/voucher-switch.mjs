@@ -87,8 +87,12 @@ async function main() {
     });
 
     /** 每次都要找一件「不属于买家、在售」的商品，下单成功后就不能再用 */
+    // 抢购是提交即锁单：选商品时要跳过已被未支付订单占住的货
     const pickGoods = () => db.prepare(
-      "SELECT goods_id FROM goods WHERE type = 1 AND goods_status = 10 AND IFNULL(area_date,'') = '' AND member_id <> ? ORDER BY goods_id LIMIT 1",
+      `SELECT goods_id FROM goods
+       WHERE type = 1 AND goods_status = 10 AND IFNULL(area_date,'') = '' AND member_id <> ?
+         AND goods_id NOT IN (SELECT goods_id FROM orders WHERE IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0)
+       ORDER BY goods_id LIMIT 1`,
     ).get(buyer.member_id);
 
     const newOrder = async (payType = 4) => {

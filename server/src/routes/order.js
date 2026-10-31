@@ -33,8 +33,8 @@ function fmtOrder(o) {
     total_price: Number(o.total_price).toFixed(2),
     service_charge: Number(o.service_charge || 0).toFixed(2),
     status: o.status,
-    // 状态只看付没付：没有发货/收货环节了，别再给出「待发货」这种不存在的状态
-    status_text: Number(o.pay_status) === 10 ? '已支付' : '未支付',
+    // 没有支付与发货环节：只看平台确认没确认
+    status_text: Number(o.pay_status) === 10 ? '已确认' : '待确认',
     transferred: transferred ? 1 : 0,
     pay_status: o.pay_status,
     pay_type: o.pay_type,
@@ -103,8 +103,13 @@ function ensureStockTotal(g) {
 r.post('/toAddOrder', authMember, (req, res) => {
   const { goods_id, num = 1, address_id, remark, pay_type } = req.body;
   const m = req.member;
-  const requestedPayType = Number(pay_type) || 1;
-  if (!paymentEnabled(requestedPayType)) return res.json(fail('该支付方式暂未开放，请刷新后重新选择'));
+  // 缺省按 1（老的余额支付）；显式传 0 表示「不选支付方式，直接申请抢单」。
+  // 注意不能写 Number(pay_type) || 1 —— 0 是 falsy，会被悄悄改成 1。
+  const requestedPayType = pay_type === undefined || pay_type === null || pay_type === '' ? 1 : Number(pay_type);
+  // pay_type=0 表示「不选支付方式，直接申请抢单」—— 前台已经没有支付方式这一环了
+  if (requestedPayType !== 0 && !paymentEnabled(requestedPayType)) {
+    return res.json(fail('该支付方式暂未开放，请刷新后重新选择'));
+  }
   if (!goods_id) return res.json(fail('请选择商品'));
   let g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
@@ -269,9 +274,18 @@ r.post('/toPay', authMember, (req, res) => {
   const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), m.member_id);
   if (!o) return res.json(fail('订单不存在'));
   if (o.pay_status === 10) return res.json(fail('订单已支付'));
-  const pt = Number(pay_type) || Number(o.pay_type) || 1;
-  if (!paymentEnabled(pt)) return res.json(fail('该支付方式暂未开放，请选择其他方式'));
-  if (![1, 2, 3, 4].includes(pt)) return res.json(fail('请选择有效的支付方式'));
+  // 显式传 0 表示「申请抢单」；不传才回退到订单上记录的支付方式
+  const pt = pay_type === undefined || pay_type === null || pay_type === ''
+    ? (Number.isFinite(Number(o.pay_type)) ? Number(o.pay_type) : 1)
+    : Number(pay_type);
+  if (pt !== 0 && !paymentEnabled(pt)) return res.json(fail('该支付方式暂未开放，请选择其他方式'));
+  // 0 = 不选支付方式（前台只走「申请抢单」），其余是老的四类支付
+  if (![0, 1, 2, 3, 4].includes(pt)) return res.json(fail('请选择有效的支付方式'));
+  // 没有支付方式这一环了：只把「已申请抢单」记进订单日志，等平台确认
+  if (pt === 0) {
+    log(o.order_id, '申请抢单', 'member', '已提交平台，等待确认');
+    return res.json(ok([], '已提交抢单申请，等待平台确认'));
+  }
   if (pt === 1) {
     // 余额支付：事务内原子扣款 + 原子标记已支付，防止并发超扣/重复扣
     const cost = money2(o.total_price + o.service_charge);

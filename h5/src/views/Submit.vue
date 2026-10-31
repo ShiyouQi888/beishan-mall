@@ -46,25 +46,6 @@
         </div>
       </div>
 
-      <!-- 支付方式 -->
-      <div class="card paysel">
-        <div class="sec-title" style="padding: 14px 14px 6px"><span>支付方式</span></div>
-        <div
-          v-for="p in payTypes"
-          :key="p.v"
-          class="payitem"
-          :class="{ on: payType === p.v }"
-          @click="payType = p.v"
-        >
-          <span class="radio" :class="{ on: payType === p.v }" />
-          <div class="payitem__body">
-            <div class="payitem__t">{{ p.t }}</div>
-            <div class="payitem__d">{{ p.d }}</div>
-          </div>
-        </div>
-        <div v-if="!payTypes.length" class="payitem__empty">当前暂无开放的支付方式，请稍后再试。</div>
-      </div>
-
       <!-- 备注 -->
       <div class="card remark">
         <div class="remark__label">订单备注</div>
@@ -82,7 +63,7 @@
       </div>
 
       <div class="submit__tip">
-        <p>· 提交订单即锁定这件货，请在 {{ payTimeout }} 分钟内完成支付；超时订单自动关闭、商品重新放出。</p>
+        <p>· 提交申请后这件货会为你锁定，平台确认后即成交；超过 {{ payTimeout }} 分钟未确认，订单会自动关闭、商品重新放出。</p>
         <p>· 商品支持复检，非质量问题不予退换。</p>
       </div>
     </div>
@@ -91,8 +72,8 @@
       <div class="submit__bar-price">
         合计 <span class="price"><span class="sym">¥</span>{{ payTotal.toFixed(2) }}</span>
       </div>
-      <button class="btn-main submit__bar-btn" :disabled="loading || !g.goods_id || !payTypes.length || !!closedReason" @click="doSubmit">
-        {{ loading ? '提交中…' : '提交订单' }}
+      <button class="btn-main submit__bar-btn" :disabled="loading || !g.goods_id || !!closedReason" @click="doSubmit">
+        {{ loading ? '提交中…' : '申请抢单' }}
       </button>
     </div>
   </div>
@@ -109,38 +90,13 @@ const router = useRouter();
 const g = ref({});
 const addr = ref(null);
 const num = ref(1);
-// 系统默认走线下转账，先给个 4，真正的选择在拿到支付开关后再校正
-const payType = ref(4);
 const remark = ref('');
 const loading = ref(false);
 const feeRate = ref(0);
 // 商品已抢完 / 不在抢购时间时，这个页面不该让人继续往下走
 const closedReason = ref('');
 
-const paymentSettings = ref({});
-// 后台「支付凭证必传」：默认必传；关闭后线下支付无需上传凭证
-const needVoucher = computed(() => String(paymentSettings.value.voucher_required ?? '1') === '1');
-const allPayTypes = computed(() => {
-  const tail = needVoucher.value
-    ? '扫码转账后上传凭证，等待平台确认'
-    : '扫码转账后提交即可，等待平台确认';
-  return [
-    { v: 1, key: 'balance_open', t: '余额支付', d: '使用账户可用余额直接支付' },
-    { v: 2, key: 'wx_open', ready: 'wx_qr_ready', t: '微信扫码', d: tail },
-    { v: 3, key: 'zfb_open', ready: 'zfb_qr_ready', t: '支付宝扫码', d: tail },
-    {
-      v: 4,
-      key: 'bank_open',
-      t: needVoucher.value ? '线下转账凭证' : '线下转账',
-      d: needVoucher.value ? '转账后上传凭证，等待平台确认' : '转账后提交即可，等待平台确认',
-    },
-  ];
-});
-const payTypes = computed(() => allPayTypes.value.filter((item) =>
-  String(paymentSettings.value[item.key]) === '1'
-  && (!item.ready || String(paymentSettings.value[item.ready]) === '1'),
-));
-
+// 支付方式这一环已经整体去掉：提交即「申请抢单」，等平台确认
 const total = computed(() => Number(g.value.goods_min_price || 0) * num.value);
 const fee = computed(() => Math.round(total.value * feeRate.value) / 100);
 const payTotal = computed(() => Math.round((total.value + fee.value) * 100) / 100);
@@ -149,14 +105,9 @@ const payTimeout = ref(30);
 
 onMounted(async () => {
   try {
-    const [p, t] = await Promise.all([api.paymentSettings(), api.tradeConfig()]);
-    paymentSettings.value = p.data || {};
+    const t = await api.tradeConfig();
     payTimeout.value = Number(t.data?.pay_timeout) || 30;
-    // 只要线下转账开着就默认选它；没开才退回第一个可用方式
-    payType.value = (payTypes.value.find((p2) => p2.v === 4) || payTypes.value[0])?.v || 0;
-  } catch {
-    paymentSettings.value = {};
-  }
+  } catch {}
   try {
     const r = await api.lootDetail(route.params.id);
     // 业务失败（商品不存在/已下架）不能静默留空，否则会渲染出 ¥0.00 的空订单页
@@ -201,28 +152,20 @@ onMounted(async () => {
 
 async function doSubmit() {
   if (!g.value.goods_id) return showToast('商品信息未加载');
-  if (!payTypes.value.some((item) => item.v === payType.value)) return showToast('当前暂无开放的支付方式');
   loading.value = true;
   try {
+    // pay_type 固定 0：前台已经没有支付方式这一环，提交即申请抢单
     const r = await api.addOrder({
       goods_id: Number(route.params.id),
       num: num.value,
       address_id: addr.value?.address_id || 0,
       remark: remark.value,
-      pay_type: payType.value,
+      pay_type: 0,
     });
     const orderId = r.data.order_id;
-    if (payType.value === 1) {
-      try {
-        await api.payOrder({ order_id: orderId, pay_type: 1 });
-        showToast('支付成功');
-      } catch {
-        router.replace(`/order/detail/${orderId}`);
-        return;
-      }
-    } else {
-      showToast(needVoucher.value ? '订单已创建，请完成转账并上传凭证' : '订单已创建，请完成转账后提交');
-    }
+    // 顺手把「已申请」记进订单日志，后台能看到是谁什么时候申请的
+    try { await api.payOrder({ order_id: orderId, pay_type: 0 }); } catch {}
+    showToast('已提交抢单申请，等待平台确认');
     setTimeout(() => router.replace(`/order/detail/${orderId}`), 500);
   } catch {
   } finally {

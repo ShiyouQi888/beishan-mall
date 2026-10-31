@@ -161,9 +161,10 @@ const M = {
       { k: 'total_price', t: '总额', type: 'money', w: 110 },
       { k: 'service_charge', t: '服务费', type: 'money', w: 90, hide: true },
       // 状态只看「付没付」：这套玩法没有发货环节，别再显示待发货/待收货误导运营
-      { k: 'pay_status', t: '状态', type: 'select', opts: { 10: '已支付', 0: '未支付' }, w: 96 },
+      { k: 'pay_status', t: '状态', type: 'select', opts: { 10: '已确认', 0: '待确认' }, w: 96 },
       { k: 'status', t: '内部状态', type: 'select', opts: ORDER_STATUS, w: 100, hide: true },
-      { k: 'pay_type', t: '支付方式', type: 'select', opts: { 0: '未支付', 1: '余额', 2: '微信', 3: '支付宝', 4: '线下凭证' }, w: 110 },
+      // 支付方式这一环已下线，字段保留仅为兼容历史数据，前台后台都不再展示
+      { k: 'pay_type', t: '支付方式', type: 'select', opts: { 0: '未支付', 1: '余额', 2: '微信', 3: '支付宝', 4: '线下凭证' }, w: 110, hide: true },
       { k: 'pay_voucher', t: '支付凭证', type: 'image', w: 80, hide: true, readonly: true },
       { k: 'buyer', t: '买家', type: 'member', w: 110 },
       { k: 'seller_id', t: '卖家ID', type: 'text', w: 90, hide: true },
@@ -573,7 +574,7 @@ const SETTING_GROUPS = {
     { k: 'withdraw_zfb_open', t: '提现到支付宝', type: 'switch' },
     { k: 'withdraw_bank_open', t: '提现到银行卡', type: 'switch' },
     { k: 'withdraw_offline_open', t: '提现线下打款', type: 'switch' },
-    { k: 'order_pay_timeout', t: '支付时限(分钟)', type: 'number', tip: '下单后多久没付款就自动关单。抢购是「提交订单即锁单」，超过这个时间没付，订单会被系统关闭、商品重新放出。默认 30 分钟。' },
+    { k: 'order_pay_timeout', t: '确认时限(分钟)', type: 'number', tip: '会员提交抢单申请后，平台多久内没确认就自动关单。抢购是「提交即锁单」，超过这个时间没确认，订单会被系统关闭、商品重新放出。默认 30 分钟。' },
     { k: 'price_increase_rate', t: '转拍涨价率(%)', type: 'number', tip: '每转拍一次，在上一手成交价基础上自动加价该比例，逐轮复利：10000 → 10300 → 10609。下一轮买家付 10300 时，上一手持有人收回 10300 全额（原价 + 涨价），此后与该持有人无关。注意：涨价率要高于「上架费率 + 抢单服务费率」才有净收益，否则每转一手都在亏钱。' },
     { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number' },
     { k: 'drive_award_rate', t: '直推奖(%)', type: 'number' },

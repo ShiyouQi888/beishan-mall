@@ -207,10 +207,10 @@ async function main() {
         return { items, body: body.slice(0, 260) };
       })()`);
 
-      check('支付方式列表只有「线下转账」一项', dom.items.length === 1, JSON.stringify(dom.items.map((x) => x.text)));
-      check('该项默认就是选中的', dom.items[0]?.on === true, JSON.stringify(dom.items[0]));
-      check('列表里没有余额支付', !dom.body.includes('余额支付'), dom.body);
-      check('列表里没有微信/支付宝扫码', !dom.body.includes('微信扫码') && !dom.body.includes('支付宝扫码'), dom.body);
+      // 支付方式这一环已经整体下线：确认页不该再出现任何支付方式选项
+      check('确认页不再有支付方式选项', dom.items.length === 0, JSON.stringify(dom.items.map((x) => x.text)));
+      check('页面没有余额/微信/支付宝支付文案',
+        !dom.body.includes('余额支付') && !dom.body.includes('微信扫码') && !dom.body.includes('支付宝扫码'), dom.body.slice(0, 120));
 
       try {
         const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });

@@ -1,4 +1,4 @@
-// 未支付订单超时关闭
+// 未确认订单超时关闭
 //
 // 抢购现在改成「提交订单即锁单」：唯一一件货被人下单后，别人就抢不了了。
 // 所以必须有个兜底 —— 否则有人下一单不付款，这件货就被永久占着。
@@ -58,12 +58,12 @@ export function expireUnpaidOrders(minutes = payTimeoutMinutes()) {
     restoreStock(o.goods_id, o.num);
 
     run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
-      o.order_id, '超时关闭', 'system', `超过 ${minutesNum} 分钟未支付，订单自动关闭，商品已释放`, t);
+      o.order_id, '超时关闭', 'system', `超过 ${minutesNum} 分钟未确认，订单自动关闭，商品已释放`, t);
 
     const g = get('SELECT goods_name FROM goods WHERE goods_id = ?', o.goods_id);
     run('INSERT INTO member_msg (member_id, title, content, create_time) VALUES (?,?,?,?)',
       o.member_id, '订单已自动关闭',
-      `「${g?.goods_name || '商品'}」的订单 ${o.order_no} 超过 ${minutesNum} 分钟未支付，已自动关闭，商品已重新放出。`, t);
+      `「${g?.goods_name || '商品'}」的订单 ${o.order_no} 超过 ${minutesNum} 分钟未确认，已自动关闭，商品已重新放出。`, t);
 
     closed.push({ order_id: o.order_id, order_no: o.order_no, goods_id: o.goods_id });
   }

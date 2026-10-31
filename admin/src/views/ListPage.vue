@@ -33,9 +33,9 @@
           @keyup.enter="reload"
           @clear="reload"
         />
-        <el-select v-if="modKey === 'orders'" v-model="filters.pay_status" placeholder="支付状态" clearable style="width: 130px" @change="reload">
-          <el-option label="已支付" :value="10" />
-          <el-option label="未支付" :value="0" />
+        <el-select v-if="modKey === 'orders'" v-model="filters.pay_status" placeholder="订单状态" clearable style="width: 130px" @change="reload">
+          <el-option label="已确认" :value="10" />
+          <el-option label="待确认" :value="0" />
         </el-select>
         <el-select v-if="modKey === 'settle'" v-model="filters.kind" placeholder="账目类型" clearable style="width: 140px" @change="reload">
           <el-option label="大帐-结算" value="large" />
@@ -62,7 +62,7 @@
         </template>
         <template v-if="modKey === 'orders' && sel.length">
           <span class="muted" style="margin-left: 6px">已选 {{ sel.length }} 项</span>
-          <el-button size="small" type="success" plain @click="batchConfirmPay">批量确认收款</el-button>
+          <el-button size="small" type="success" plain @click="batchConfirmPay">批量确认抢单</el-button>
         </template>
         <template v-if="modKey === 'withdraw' && sel.length">
           <span class="muted" style="margin-left: 6px">已选 {{ sel.length }} 项</span>
@@ -219,7 +219,7 @@
                 <el-button size="small" @click="openEdit(row)">详情</el-button>
                 <el-button v-if="Number(row.is_examine) === 0" size="small" type="warning" @click="auditOrder(row, true)">审核</el-button>
                 <el-button v-if="Number(row.is_examine) === 0" size="small" type="danger" @click="auditOrder(row, false)">拒绝</el-button>
-                <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认收款</el-button>
+                <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认抢单</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
               </template>
               <template v-else-if="modKey === 'scoreExchange'">
@@ -306,11 +306,10 @@
       <el-descriptions v-if="modKey === 'orders'" :column="2" border>
         <el-descriptions-item label="订单号">{{ form.order_no || '—' }}</el-descriptions-item>
         <el-descriptions-item label="订单类型">{{ labelOf(mod.fields?.find((f) => f.k === 'type'), form.type) }}</el-descriptions-item>
-        <el-descriptions-item label="支付方式">{{ labelOf(mod.fields?.find((f) => f.k === 'pay_type'), form.pay_type) }}</el-descriptions-item>
         <el-descriptions-item label="商品">{{ form.goods_name || '—' }}</el-descriptions-item>
         <el-descriptions-item label="数量">{{ form.num ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="订单金额">¥{{ Number(form.total_price || 0).toFixed(2) }}</el-descriptions-item>
-        <el-descriptions-item label="订单状态">{{ Number(form.pay_status) === 10 ? '已支付' : '未支付' }}</el-descriptions-item>
+        <el-descriptions-item label="订单状态">{{ Number(form.pay_status) === 10 ? '已确认' : '待确认' }}</el-descriptions-item>
         <el-descriptions-item label="审核状态">{{ Number(form.is_examine) === 10 ? '已通过' : Number(form.is_examine) === 20 ? '已拒绝' : '待审核' }}</el-descriptions-item>
         <el-descriptions-item label="支付凭证" :span="2">
           <el-image
@@ -532,7 +531,7 @@
         <span>团队人数：{{ teamData.team_count || 0 }}</span>
         <span>订单数：{{ teamData.order_count || 0 }}</span>
         <span>订单金额：¥{{ Number(teamData.stats?.total_amount || 0).toFixed(2) }}</span>
-        <span>已支付：¥{{ Number(teamData.stats?.paid_amount || 0).toFixed(2) }}</span>
+        <span>已确认：¥{{ Number(teamData.stats?.paid_amount || 0).toFixed(2) }}</span>
       </div>
       <el-table :data="teamData.list || []" max-height="440" size="small">
         <el-table-column prop="order_no" label="订单号" min-width="165" />
@@ -1080,19 +1079,19 @@ async function cancelScoreExchange(row) {
 
 async function confirmPay(row) {
   await adminApi.confirmPay({ order_id: row.order_id });
-  ElMessage.success('已确认收款');
+  ElMessage.success('已确认抢单');
   load();
 }
 
-// 批量确认收款：只处理「待到账」的单，勾了别的会自动跳过
+// 批量确认抢单：只处理「待确认」的单，勾了别的会自动跳过
 async function batchConfirmPay() {
   const ids = (sel.value || []).filter((r) => Number(r.status) === 0).map((r) => r.order_id);
   if (!ids.length) return ElMessage.warning('勾选的订单都已到账，无需确认');
   try {
     await ElMessageBox.confirm(
       `确认这 ${ids.length} 笔订单已收到款？会按每笔成交价入账并完成结算，不可撤销。`,
-      '批量确认收款',
-      { type: 'warning', confirmButtonText: '确认收款', cancelButtonText: '取消' },
+      '批量确认抢单',
+      { type: 'warning', confirmButtonText: '确认抢单', cancelButtonText: '取消' },
     );
   } catch {
     return;
