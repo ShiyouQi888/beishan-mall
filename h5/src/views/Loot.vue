@@ -60,6 +60,33 @@
         </div>
         <div v-else class="empty">本场次暂未上架商品</div>
       </div>
+
+      <!-- 已转拍到未来场次的货：今天的列表按规则查不到它，但直接消失会让人以为货没了，
+           这里用「预告卡」说明它还在、下一场几点开抢、标价多少（不参与本场购买） -->
+      <div v-if="previewList.length" class="loot__preview">
+        <div class="preview-head">
+          <span>已转拍 · 下一场开抢</span>
+          <span class="sub">被买走后重新挂牌，换到场次里继续卖</span>
+        </div>
+        <div class="preview-grid">
+          <div
+            v-for="p in previewList"
+            :key="p.goods_id"
+            class="pv-card"
+            @click="$router.push(`/goods/${p.goods_id}`)"
+          >
+            <div class="pv-img">
+              <img :src="p.good_thumb" loading="lazy" />
+              <span class="pv-flag">下一场</span>
+            </div>
+            <div class="pv-name ellipsis">{{ p.goods_name }}</div>
+            <div class="pv-row">
+              <div class="price"><span class="sym">¥</span>{{ p.price }}</div>
+              <div class="pv-when">{{ p.next_text }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-else-if="!loading" class="empty">暂无抢购场次</div>
@@ -125,9 +152,13 @@ const openSig = computed(() =>
 );
 
 /** 拉场次+商品。keepId 为要保留选中的场次（切场时才换到新的进行中场次） */
+const previewList = ref([]);
+
 async function load(keepId) {
   const r = await api.lootList();
   areas.value = r.data.list || [];
+  // 已转拍到未来场次的货（本场的货被买走后重新挂牌），单独一块预告
+  previewList.value = r.data.preview || [];
   const clockRef = areas.value.find((a) => Number(a.time?.new_time) > 0);
   if (clockRef) clockSkew.value = Number(clockRef.time.new_time) - Math.floor(Date.now() / 1000);
   nowSec.value = Math.floor(Date.now() / 1000) + clockSkew.value;
@@ -319,4 +350,30 @@ onUnmounted(() => clearInterval(timer));
   font-weight: 600;
 }
 .loot-card__btn.done { background: #d8dbe0; }
+
+/* ---- 已转拍预告：不是本场能买的东西，视觉上要更淡，别和商品卡抢注意力 ---- */
+.loot__preview { margin-top: 20px; }
+.preview-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.preview-head > span:first-child { font-size: 14px; font-weight: 650; color: #22252b; }
+.preview-head .sub { font-size: 11.5px; color: #a8adb7; }
+.preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pv-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 8px;
+  border: 1px dashed #e4e7ec;
+  box-shadow: none;
+}
+.pv-img { position: relative; aspect-ratio: 1; border-radius: 9px; overflow: hidden; background: #f6f7f9; }
+.pv-img img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(0.55); opacity: 0.8; }
+.pv-flag {
+  position: absolute; left: 6px; top: 6px;
+  padding: 2px 7px; border-radius: 8px;
+  background: rgba(38, 41, 47, 0.7);
+  color: #fff; font-size: 10px; font-weight: 500;
+}
+.pv-name { font-size: 12.5px; margin: 8px 2px 0; color: #6b7280; }
+.pv-row { display: flex; align-items: center; justify-content: space-between; margin: 6px 2px 2px; }
+.pv-row .price { font-size: 15px; color: #8c93a0; }
+.pv-when { font-size: 10.5px; color: var(--brand); white-space: nowrap; }
 </style>

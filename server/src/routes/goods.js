@@ -221,7 +221,40 @@ r.get('/getLootList', (req, res) => {
     ), states);
     return { ...a, goods_list: goods };
   });
-  res.json(ok({ list }));
+
+  // 本场成交后又被转拍的货：它的开抢日期已经排到未来，按规则就不该出现在今天的列表里，
+  // 但直接消失会让用户以为「刚看到的货没了」。单独给一块「下一场开抢」的预告，
+  // 只做展示、不可购买（点进去是详情页的「xx 开抢」提示）。
+  const hhmm = (sec) => {
+    const n = Number(sec) || 0;
+    return `${String(Math.floor(n / 3600)).padStart(2, '0')}:${String(Math.floor((n % 3600) / 60)).padStart(2, '0')}`;
+  };
+  const preview = all(
+    `SELECT o.goods_id, o.goods_name, g.good_thumb, g.goods_min_price, g.area_date, g.specialarea_id
+     FROM orders o JOIN goods g ON g.goods_id = o.goods_id
+     WHERE o.type = 1 AND o.pay_status = 10 AND IFNULL(o.consignment_status, 0) = 10
+       AND g.member_id = o.member_id AND g.goods_status = 10 AND IFNULL(g.recycled, 0) = 0
+       AND IFNULL(g.area_date, '') > ?
+     ORDER BY g.area_date ASC, o.order_id DESC LIMIT 12`,
+    todayStr(),
+  ).map((x) => {
+    const a = x.specialarea_id
+      ? get('SELECT title_main, name, start_time FROM specialarea WHERE specialarea_id = ?', x.specialarea_id)
+      : null;
+    const areaName = a ? (a.title_main || a.name || '') : '';
+    return {
+      goods_id: x.goods_id,
+      goods_name: x.goods_name,
+      good_thumb: img(x.good_thumb),
+      // 显示的是「下一场」的标价，不是当前场的价格，前端会标明
+      price: Number(x.goods_min_price || 0).toFixed(2),
+      next_date: x.area_date,
+      next_area: areaName,
+      next_text: `${x.area_date.slice(5)}${a ? ` ${hhmm(a.start_time)}` : ''} 开抢`,
+    };
+  });
+
+  res.json(ok({ list, preview }));
 });
 
 // 抢购商品列表（分页，带场次筛选）
@@ -263,14 +296,20 @@ r.get('/getLootDetails', maybeMember, (req, res) => {
   const w = shown?.w || null;
   const now = new Date();
   const open = openAreaOf(areas, now);
+  // 轮转到明天的商品，今天任何场次开放都不代表能买
+  const notYetOpen = !!g.area_date && g.area_date > todayStr();
   // 提前抢购：场次还没开，但这个会员有资格提前进来
   const lead = advanceLeadOf(req.member);
   const adv = !open && lead > 0 ? openAreaOf(areas, now, lead) : null;
   res.json(
     ok({
       ...fmtGoods(g, areas),
-      // 只要这件商品关联的场次里有一个正在开放，此刻就能抢
-      is_ordinary_order: open ? 1 : 0,
+      // 只要这件商品关联的场次里有一个正在开放、且开抢日期已到，此刻才能抢
+      is_ordinary_order: open && !notYetOpen ? 1 : 0,
+      // 开抢日期还没到（转拍落到明天那种）：场次时间窗可能显示「开放中」，
+      // 但下单会被拒，所以这里单独标出来，让前端直接禁按钮并说明哪天开抢
+      not_yet_open: notYetOpen ? 1 : 0,
+      area_date: g.area_date || '',
       // 已开通提前抢购、且此刻正处在提前窗口里
       advance_open: adv && adv.advanced ? 1 : 0,
       advance_lead_left: adv && adv.advanced ? adv.lead_left : 0,

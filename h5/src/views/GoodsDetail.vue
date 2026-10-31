@@ -82,7 +82,7 @@
         <span>订单</span>
       </div>
       <button class="btn-main bar-btn" :disabled="!canBuy" @click="buy">
-        {{ canBuy ? (advanceOpen ? '提前抢购' : '立即抢购') : soldOut ? '已抢完' : lockedByOther ? '别人抢购中' : buyClosed ? '当前不在抢购时间' : '不可购买' }}
+        {{ buyBtnText }}
       </button>
     </div>
   </div>
@@ -150,8 +150,26 @@ const closedTip = computed(() => {
   }
   if (lockedByOther.value) return '这件货刚被别人抢先下单，正在等他付款；超时未付会自动放出';
   const a = g.value.specialarea;
+  // 已经排到下一场（转拍落到明天那种）：说清楚哪天几点开抢，比「不在抢购时间」有用得多
+  if (Number(g.value.not_yet_open) === 1) {
+    const day = String(g.value.area_date || '').slice(5);
+    return `已排到下一场，${day}${a ? ` ${a.start_end_time}` : ''} 开抢`;
+  }
   if (buyClosed.value && a) return `当前不在抢购时间（本场 ${a.start_end_time}-${a.start_end_time1}）`;
   return '该商品暂不可购买';
+});
+
+// 底部主按钮文案：不能买时要写清原因，别笼统写「不可购买」
+const buyBtnText = computed(() => {
+  if (canBuy.value) return advanceOpen.value ? '提前抢购' : '立即抢购';
+  if (soldOut.value) return '已抢完';
+  if (lockedByOther.value) return '别人抢购中';
+  // 已排到下一场的货：直接把开抢日期写在按钮上，比「不在抢购时间」明确
+  if (Number(g.value.not_yet_open) === 1) {
+    return `${String(g.value.area_date || '').slice(5)} 开抢`;
+  }
+  if (buyClosed.value) return '当前不在抢购时间';
+  return '暂不可购买';
 });
 
 function buy() {
