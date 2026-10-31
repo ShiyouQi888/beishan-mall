@@ -120,6 +120,8 @@ async function main() {
           service_charge: String(CFD.serviceRate),
           listing_fee_rate: String(CFD.listingRate),
           withdraw_fee: String(CFD.withdrawFee),
+          // 提现模块下线后通道默认关闭；本用例要验提现，测试库显式开银行卡通道
+          withdraw_bank_open: '10',
           price_increase_rate: String(CFD.increaseRate),
         },
       },

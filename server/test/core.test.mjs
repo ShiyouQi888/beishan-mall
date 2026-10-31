@@ -49,6 +49,8 @@ async function main() {
   db.exec('UPDATE specialarea SET start_time = 0, end_time = 86399, buy_num = 99');
   // 系统默认只开线下转账；本套用例全程用余额支付验证扣款与分账，测试库显式打开
   db.exec("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'");
+  // 提现模块下线后四个通道默认关闭；提现用例要用银行卡通道，测试库显式打开
+  db.exec("UPDATE setting_config SET `value` = '10' WHERE `key` = 'withdraw_bank_open'");
 
   /**
    * 测试专用：把所有未支付订单关掉，释放被锁的商品。

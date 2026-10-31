@@ -58,6 +58,8 @@ async function main() {
     try {
       const { db: __payDb } = await import('../../server/src/db.js');
       __payDb.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'").run();
+      // 提现模块下线后通道默认关闭；本用例要验并发提现，测试库显式开微信通道
+      __payDb.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'withdraw_wx_open'").run();
     } catch {}
   }
   const srv = spawn(process.execPath, ['src/app.js'], { cwd: SERVER, env, stdio: 'pipe' });

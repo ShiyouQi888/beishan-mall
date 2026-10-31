@@ -86,6 +86,8 @@ async function main() {
         values: {
           service_charge: '2', listing_fee_rate: '0', price_increase_rate: '3',
           drive_award_rate: '0.5', withdraw_min: '10', withdraw_fee: '0',
+          // 提现模块下线后四个通道默认关闭；本用例要验「申请→驳回→退回」，测试库显式开银行卡通道
+          withdraw_bank_open: '10',
           recycle_open: '10', recycle_daily_cap: '0',
         },
       },

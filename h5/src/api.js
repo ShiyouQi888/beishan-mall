@@ -93,8 +93,6 @@ export const api = {
   // 财务
   amountInfo: () => http.get('/finance/getAmountInfo'),
   systemInfo: () => http.get('/finance/getSystemInfo'),
-  withdraw: (d) => http.post('/finance/withdraw/apply', d),
-  withdrawList: () => http.get('/finance/withdraw/list'),
 
   // 地址
   addressList: () => http.get('/member/address/list'),

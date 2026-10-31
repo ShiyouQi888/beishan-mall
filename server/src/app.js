@@ -300,10 +300,12 @@ for (const [key, val, group] of [
   ['pay_zfb', '20', 'pay'],                 // 支付宝扫码
   ['pay_bank', '10', 'pay'],                // 线下转账（默认唯一开启）
   ['pay_voucher_required', '10', 'pay'],    // 线下支付是否必须上传凭证
-  ['withdraw_wx_open', '10', 'trade'],      // 提现到微信
-  ['withdraw_zfb_open', '10', 'trade'],     // 提现到支付宝
-  ['withdraw_bank_open', '10', 'trade'],    // 提现到银行卡
-  ['withdraw_offline_open', '10', 'trade'], // 提现线下打款
+  // 提现模块整体下线（菜单、H5 路由都已移除）：四个通道默认关闭，
+  // 万一有旧前端直接打 /finance/withdraw/apply，也会被通道校验挡掉
+  ['withdraw_wx_open', '20', 'trade'],      // 提现到微信
+  ['withdraw_zfb_open', '20', 'trade'],     // 提现到支付宝
+  ['withdraw_bank_open', '20', 'trade'],    // 提现到银行卡
+  ['withdraw_offline_open', '20', 'trade'], // 提现线下打款
   ['order_pay_timeout', '30', 'trade'],     // 下单后多久没付款就自动关闭（分钟）
   ['recycle_open', '10', 'trade'],          // 到顶自动回收开关
   ['recycle_daily_cap', '0', 'trade'],      // 每日回收总额上限（0 = 不限）

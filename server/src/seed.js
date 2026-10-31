@@ -86,10 +86,11 @@ tx(() => {
     ['consignment_rule', '转拍免上架费；商品按后台涨价率自动加价进入下一轮，成交后货款全额结算给上一手持有人。', 'trade'],
     ['withdraw_min', '10', 'trade'],
     ['withdraw_fee', '0', 'trade'],
-    ['withdraw_wx_open', '10', 'trade'],
-    ['withdraw_zfb_open', '10', 'trade'],
-    ['withdraw_bank_open', '10', 'trade'],
-    ['withdraw_offline_open', '10', 'trade'],
+    // 提现模块整体下线，四个通道默认关闭（保留字段与历史流水，随时可恢复）
+    ['withdraw_wx_open', '20', 'trade'],
+    ['withdraw_zfb_open', '20', 'trade'],
+    ['withdraw_bank_open', '20', 'trade'],
+    ['withdraw_offline_open', '20', 'trade'],
     // 支付方式默认只开线下转账，其余按需在后台打开
     ['pay_balance_open', '20', 'pay'],
     ['pay_voucher_required', '10', 'pay'],

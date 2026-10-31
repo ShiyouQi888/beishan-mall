@@ -53,10 +53,11 @@ r.get('/getSystemInfo', authMember, (req, res) => {
       withdraw_min: cfg('withdraw_min', '10'),
       withdraw_fee: cfg('withdraw_fee', '0'),
       withdraw_methods: {
-        wx: Number(cfg('withdraw_wx_open', '10')) === 10,
-        zfb: Number(cfg('withdraw_zfb_open', '10')) === 10,
-        bank: Number(cfg('withdraw_bank_open', '10')) === 10,
-        offline: Number(cfg('withdraw_offline_open', '10')) === 10,
+        // 通道默认关闭：提现模块已整体下线，缺配置时按「未开放」处理
+        wx: Number(cfg('withdraw_wx_open', '20')) === 10,
+        zfb: Number(cfg('withdraw_zfb_open', '20')) === 10,
+        bank: Number(cfg('withdraw_bank_open', '20')) === 10,
+        offline: Number(cfg('withdraw_offline_open', '20')) === 10,
       },
       zfb_image: get("SELECT `value` FROM setting_config WHERE `key`='zfb_qr'")?.value || null,
       wx_image: get("SELECT `value` FROM setting_config WHERE `key`='wx_qr'")?.value || null,
@@ -82,7 +83,8 @@ r.post('/withdraw/apply', authMember, (req, res) => {
     3: 'withdraw_bank_open',
     4: 'withdraw_offline_open',
   }[accountType];
-  if (Number(cfg(withdrawSwitch, '10')) !== 10) return res.json(fail('该提现方式暂未开放，请选择其他方式'));
+  // 兜底按「关闭」：提现模块下线后新库不会自动建这些 key，不能默认当成开放
+  if (Number(cfg(withdrawSwitch, '20')) !== 10) return res.json(fail('提现功能暂未开放'));
   if (!accountInfo) return res.json(fail('请选择收款账户'));
   const fee = money((amt * Number(cfg('withdraw_fee', '0'))) / 100);
 

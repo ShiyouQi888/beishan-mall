@@ -61,6 +61,13 @@ async function main() {
       __payDb.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'").run();
     } catch {}
   }
+  // 提现模块已下线、四个通道默认关闭；本用例要验批量审核，测试库显式开线下打款通道
+  {
+    try {
+      const { db: __wdDb } = await import('../../server/src/db.js');
+      __wdDb.prepare("UPDATE setting_config SET `value` = '10' WHERE `key` = 'withdraw_offline_open'").run();
+    } catch {}
+  }
   const srv = spawn(process.execPath, ['src/app.js'], { cwd: SERVER, env, stdio: 'pipe' });
   let log = '';
   srv.stdout.on('data', (d) => (log += d));

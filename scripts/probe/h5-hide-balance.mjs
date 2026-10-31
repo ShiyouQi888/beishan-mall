@@ -156,17 +156,14 @@ async function main() {
     check('资金流水仍在（记录里出现金额属正常）', walletAll.includes('资金流水') && walletAll.includes('+5000.00'));
     await shoot('hide-balance-wallet');
 
-    // ---- 提现 ----
-    console.log('\n[3] 申请提现');
+    // ---- 提现（模块已下线，入口与路由都封了）----
+    console.log('\n[3] 申请提现（已下线）');
     const wd = await open('/withdraw');
-    check('不再出现「可提现余额」', !wd.includes('可提现余额'), wd.slice(0, 160));
-    check('不出现余额数字 5000.00', !wd.includes('5000.00'), wd.slice(0, 160));
-    const wdInput = await evaluate(`(() => {
-      const el = document.querySelector('input[placeholder="请输入提现金额"]');
-      return { has: !!el, placeholder: el?.getAttribute('placeholder') || '' };
-    })()`);
-    check('输入框仍在（占位提示可填金额）', wdInput.has === true, JSON.stringify(wdInput));
-    check('「全部提现」入口仍在', wd.includes('全部提现'));
+    const wdHash = await evaluate('location.hash');
+    check('提现页已下线，路由被兜回首页', wdHash !== '#/withdraw', `hash=${wdHash}`);
+    check('兜回后不再出现「可提现余额」', !wd.includes('可提现余额'), wd.slice(0, 120));
+    check('不出现余额数字 5000.00', !wd.includes('5000.00'), wd.slice(0, 120));
+    check('没有提现输入框与「全部提现」', !wd.includes('全部提现'));
     await shoot('hide-balance-withdraw');
 
     check('页面无 JS 报错', errs.length === 0, errs.slice(0, 3).join(' | '));

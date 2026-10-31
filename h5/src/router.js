@@ -15,7 +15,6 @@ export default [
   { path: '/team', name: 'team', component: () => import('./views/Team.vue') },
   { path: '/commission', name: 'commission', component: () => import('./views/Commission.vue') },
   { path: '/wallet', name: 'wallet', component: () => import('./views/Wallet.vue') },
-  { path: '/withdraw', name: 'withdraw', component: () => import('./views/Withdraw.vue') },
   { path: '/address', name: 'address', component: () => import('./views/Address.vue'), meta: { hideTab: (route) => route.query.select === '1' } },
   { path: '/address/edit', name: 'addressEdit', component: () => import('./views/AddressEdit.vue'), meta: { hideTab: (route) => route.query.select === '1' } },
   { path: '/identify', name: 'identify', component: () => import('./views/Identify.vue') },
@@ -23,4 +22,6 @@ export default [
   { path: '/score/records', name: 'scoreRecords', component: () => import('./views/ScoreRecords.vue') },
   { path: '/setting', name: 'setting', component: () => import('./views/Setting.vue') },
   { path: '/notice', name: 'notice', component: () => import('./views/Notice.vue'), meta: { auth: false } },
+  // 兜底：没匹配上的地址（含已下线的 /withdraw）回首页，别留白屏
+  { path: '/:pathMatch(.*)*', redirect: '/' },
 ];

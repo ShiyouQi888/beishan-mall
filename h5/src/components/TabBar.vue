@@ -70,7 +70,7 @@ const enabled = (value) => value === undefined || value === null || value === ''
 const tabs = computed(() => definitions.filter((tab) => enabled(config.value[tab.setting])));
 
 const minePaths = [
-  '/mine', '/my-shop', '/order', '/team', '/commission', '/wallet', '/withdraw',
+  '/mine', '/my-shop', '/order', '/team', '/commission', '/wallet',
   '/address', '/identify', '/score', '/setting', '/notice',
 ];
 const isOn = (t) => {

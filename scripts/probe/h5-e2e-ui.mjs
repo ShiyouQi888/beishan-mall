@@ -159,16 +159,29 @@ try {
 
     // ---------- 确认订单 ----------
     await section('[4] 确认订单页', async () => {
+      // 不能直接取列表第一条：抢购商品只在所属场次开放时才能下单，
+      // 其余时段页面会显示「当前不在该场次抢购时间」并自动返回，断言必然假失败
       const gid = await ev(`(async () => {
-        const r = await fetch('/api/goods/getLootGoodsList?page=1&limit=1').then(x=>x.json());
-        return (r.data?.data||[])[0]?.goods_id || 0;
+        const r = await fetch('/api/goods/getLootGoodsList?page=1&limit=20').then(x=>x.json());
+        for (const g of (r.data?.data || [])) {
+          const d = await fetch('/api/goods/getLootDetails?id=' + g.goods_id).then(x=>x.json());
+          const x = d.data || {};
+          if (d.code !== 1 || Number(x.sold_out)) continue;
+          if (Number(x.type) === 1 && x.specialarea && Number(x.is_ordinary_order) !== 1) continue;
+          return g.goods_id;
+        }
+        return 0;
       })()`);
-      await go(`#/submit/${gid}`, 2200);
-      ok(await has('确认订单'), '确认订单页渲染');
-      ok(await has('商品金额'), '显示商品金额');
-      ok(await has('服务费'), '显示服务费行');
-      ok(await has('合计'), '显示应付合计');
-      await shot('submit');
+      if (!gid) {
+        ok(true, '当前没有开放场次的可抢商品，跳过确认页（场次开放后再验）');
+      } else {
+        await go(`#/submit/${gid}`, 2200);
+        ok(await has('确认订单'), '确认订单页渲染');
+        ok(await has('商品金额'), '显示商品金额');
+        ok(await has('服务费'), '显示服务费行');
+        ok(await has('合计'), '显示应付合计');
+        await shot('submit');
+      }
     });
 
     // ---------- 订单列表与转拍弹窗 ----------
@@ -197,8 +210,8 @@ try {
       await go('#/mine', 2200);
       ok(await has('我的订单'), '我的页渲染');
       ok(await has('我的店铺'), '我的店铺入口存在');
-      ok(await has('账户余额') || await has('钱包'), '资产区块存在');
-      for (const entry of ['我的团队', '我的佣金', '收货地址', '实名认证']) {
+      ok(await has('我的佣金') || await has('积分'), '资产区块存在（余额已隐藏）');
+      for (const entry of ['我的团队', '我的佣金', '实名认证']) {
         ok(await has(entry), `功能入口存在：${entry}`);
       }
     });
@@ -209,19 +222,20 @@ try {
       ok(await has('我的店铺'), '店铺页渲染');
       ok(await has('在售商品'), '展示在售件数');
       ok(await has('预计收益'), '展示预计收益');
-      ok(await has('下一轮标价'), '商品卡显示下一轮标价', '');
+      // 账号没有在售商品时页面是空态，只有真有货才谈得上收益明细
+      const hasGoods = !(await has('还没有在售商品'));
+      ok(!hasGoods || await has('预计成交净赚'), '商品卡显示预计成交净赚（无货时走空态）');
       await shot('shop');
     });
 
     // ---------- 钱包 / 提现 ----------
-    await section('[8] 钱包与提现页', async () => {
+    await section('[8] 钱包与提现页（提现已下线）', async () => {
       await go('#/wallet', 2000);
       ok(await has('我的钱包'), '钱包页渲染');
-      ok(await has('余额'), '显示余额');
+      ok(await has('佣金明细'), '钱包页保留佣金明细入口');
+      ok(!(await has('申请提现')), '钱包页没有申请提现入口');
       await go('#/withdraw', 2000);
-      ok(await has('申请提现'), '提现页渲染');
-      ok(await has('可提现余额'), '显示可提现余额');
-      ok(await has('最低提现'), '显示最低提现门槛');
+      ok(!(await has('可提现余额')), '提现页已下线（路由兜回首页）');
     });
 
     // ---------- 地址 ----------

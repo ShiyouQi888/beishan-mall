@@ -15,9 +15,9 @@
           <div class="w-item"><b>{{ info.amount?.month_money || '0.00' }}</b><span>本月收益</span></div>
           <div class="w-item"><b>{{ info.amount?.e_card_number || '0.00' }}</b><span>佣金</span></div>
         </div>
+        <!-- 提现整体下线：入口与 /withdraw 路由都已移除，钱包只留明细查询 -->
         <div class="wall__btns">
-          <button @click="$router.push('/withdraw')">申请提现</button>
-          <button class="ghost" @click="$router.push('/commission')">佣金明细</button>
+          <button @click="$router.push('/commission')">佣金明细</button>
         </div>
       </div>
 
