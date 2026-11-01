@@ -459,18 +459,36 @@ app.get('/apple-touch-icon.png', (req, res) => {
 });
 
 
+/**
+ * 静态文件的缓存头：带 hash 的资源缓存一年，入口文件必须回源验证。
+ *
+ * 坑：`maxAge:'1y', immutable:true` 是对**整个目录**生效的，index.html 和 sw.js 也在里面。
+ * 正常情况下访问 `/` 走的是 SPA 回落（sendFile，无强缓存），但反代/宝塔如果配置成
+ * `try_files ... /index.html` 或者用户直接打开 `/index.html`，就会命中这条规则 ——
+ * 于是浏览器把旧入口页缓存一年，表现就是「镜像更新了、容器也重启了，页面还是旧的」。
+ * Service Worker 同理：sw.js 被缓存住，新的缓存策略永远下不到客户端。
+ */
+const shellNoCache = (res, filePath) => {
+  // Windows 下 filePath 是反斜杠路径，Linux 容器里是斜杠：先统一再判断，
+  // 否则本地测着没问题、上了容器反而漏掉 sw.js
+  const p = String(filePath).replace(/\\/g, '/');
+  if (/\.html?$/i.test(p) || /(?:^|\/)(sw\.js|manifest\.webmanifest)$/i.test(p)) {
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  }
+};
+
 if (hasAdmin) {
   // 后台构建时 base=/admin/，资源在 /admin/assets/*
   // 精确匹配 /admin 才补斜杠，避免非严格路由把 /admin/ 也重定向到自己
   app.get(/^\/admin$/, (req, res) => res.redirect(301, '/admin/'));
   // 产物文件名带 hash，内容变了 URL 就变，可以缓存一年且不用回源验证
-  app.use('/admin', express.static(ADMIN_DIR, { index: false, maxAge: '1y', immutable: true }));
+  app.use('/admin', express.static(ADMIN_DIR, { index: false, maxAge: '1y', immutable: true, setHeaders: shellNoCache }));
   // 注意排除 /admin/api：接口走 JSON，不能被 SPA 回落吞掉
   app.get(/^\/admin(?!\/api(?:\/|$))(\/.*)?$/, (req, res) => res.sendFile(join(ADMIN_DIR, 'index.html')));
 }
 
 if (hasH5) {
-  app.use(express.static(H5_DIR, { index: false, maxAge: '1y', immutable: true }));
+  app.use(express.static(H5_DIR, { index: false, maxAge: '1y', immutable: true, setHeaders: shellNoCache }));
   // 前端用 hash 路由，深链接不经过服务端；其余路径回落到首页
   app.get(/^(?!\/(api|admin|uploads))(\/.*)?$/, (req, res) => res.sendFile(join(H5_DIR, 'index.html')));
 }
