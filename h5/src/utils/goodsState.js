@@ -6,10 +6,12 @@
 
 /**
  * 卡片状态
- * @returns {'sold'|'ended'|'upcoming'|''}
+ * @returns {'sold'|'ended'|'upcoming'|'limited'|'locked'|''}
  *   sold     = 已抢完（库存卖光 / 被买走）
  *   ended    = 本场已结束（时间到）
  *   upcoming = 未开始
+ *   limited  = 本场每人限购额度已用完（不是售罄，但这个人今天在这买不了）
+ *   locked   = 被别人锁单中
  *   ''       = 正常可买
  */
 export function cardState(g = {}) {
@@ -29,8 +31,13 @@ export function cardState(g = {}) {
       return 'ended';
     case 'upcoming':
       return 'upcoming';
-    default:
+    default: {
+      // 本场限购额度用完：货还在、别人还能抢，但这个人今天在这买不了
+      const limit = Number(g.purchase_limit) || 0;
+      const bought = Number(g.purchase_bought) || 0;
+      if (limit > 0 && bought >= limit) return 'limited';
       return '';
+    }
   }
 }
 
@@ -39,8 +46,9 @@ export const cardLabel = (state) => ({
   sold: '已抢完',
   ended: '本场已结束',
   upcoming: '未开始',
+  limited: '本场已抢满',
   locked: '抢购中',
 }[state] || '');
 
 /** 是否整张卡置灰（未开始只是暂时不能买，不置灰，否则一进首页全是灰的） */
-export const isGreyState = (state) => state === 'sold' || state === 'ended' || state === 'locked';
+export const isGreyState = (state) => state === 'sold' || state === 'ended' || state === 'locked' || state === 'limited';

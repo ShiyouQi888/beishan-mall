@@ -131,6 +131,7 @@ const btnText = (g) => {
   if (st === 'sold') return '已抢完';
   if (st === 'ended') return '已结束';
   if (st === 'upcoming') return '未开始';
+  if (st === 'limited') return '已抢满';
   if (st === 'locked') return '抢购中';
   return '去抢购';
 };

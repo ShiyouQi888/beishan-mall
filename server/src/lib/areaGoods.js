@@ -30,7 +30,9 @@ export function areaMapOfGoods(goodsIds) {
   const map = new Map(ids.map((id) => [id, []]));
   if (!ids.length) return map;
   const rows = all(
-    `SELECT sg.goods_id, s.specialarea_id, s.title_main, s.name, s.start_time, s.end_time, s.open_days
+    // buy_num 必须带上：列表要靠它算「本场每人限购」，
+    // 少这一列会让 purchase_limit 恒为 0，前端就把「已抢满」当成还能抢
+    `SELECT sg.goods_id, s.specialarea_id, s.title_main, s.name, s.start_time, s.end_time, s.open_days, s.buy_num
      FROM specialarea_goods sg
      JOIN specialarea s ON s.specialarea_id = sg.specialarea_id
      WHERE sg.goods_id IN (${ids.map(() => '?').join(',')})

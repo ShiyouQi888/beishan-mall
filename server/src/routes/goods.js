@@ -115,18 +115,41 @@ export function areaStates() {
  * 只给抢购页加灰卡、别的入口还是彩色卡片，用户点进去才发现买不了，等于没做。
  * 没关联任何场次的商品拿不到场次，状态是 none，前端不会置灰。
  */
-export const fmtList = (rows, states = null) => {
+export const fmtList = (rows, states = null, member = null) => {
   const stateMap = states || areaStates();
   const areaMap = areaMapOfGoods(rows.map((g) => g.goods_id));
-  return rows.map((g) => {
-    const areas = areaMap.get(Number(g.goods_id)) || [];
-    const shown = displayAreaOf(areas);
-    return {
-      ...fmtGoods(g, areas),
+  const picked = rows.map((g) => ({ g, shown: displayAreaOf(areaMap.get(Number(g.goods_id)) || []) }));
+
+  // 本场每人限购：一次查出这批货涉及的所有场次、今天这个会员已买了几件（跨商品合计）。
+  // 之前列表完全不返回限购状态，会员抢满额度后列表还是一片「去抢购」，
+  // 点进去才被详情页拦住 —— 看起来就像「明明抢过了还能抢」。
+  const boughtByArea = (() => {
+    if (!member?.member_id) return null;
+    const ids = [...new Set(picked.map((x) => Number(x.shown?.a?.specialarea_id) || 0).filter(Boolean))];
+    if (!ids.length) return new Map();
+    const list = all(
+      `SELECT specialarea_id, IFNULL(SUM(num),0) n FROM orders
+        WHERE member_id = ? AND type = 1 AND status <> 40 AND date(create_time) = ?
+          AND specialarea_id IN (${ids.map(() => '?').join(',')})
+        GROUP BY specialarea_id`,
+      member.member_id, todayStr(), ...ids,
+    );
+    return new Map(list.map((r) => [Number(r.specialarea_id), Number(r.n)]));
+  })();
+
+  return picked.map(({ g, shown }) => {
+    const areaId = shown ? Number(shown.a.specialarea_id) : 0;
+    const out = {
+      ...fmtGoods(g, areaMap.get(Number(g.goods_id)) || []),
       // 代表场次的状态（开放中优先，其次未开始、已结束）
       session_state: shown ? shown.w.state : 'none',
-      session_state_area: shown ? Number(shown.a.specialarea_id) : 0,
+      session_state_area: areaId,
     };
+    if (boughtByArea) {
+      out.purchase_limit = Number(shown?.a?.buy_num) || 0;
+      out.purchase_bought = boughtByArea.get(areaId) || 0;
+    }
+    return out;
   });
 };
 
@@ -167,7 +190,7 @@ r.get('/category/getCategoryGoodsList', (req, res) => {
      ${ON_SALE_FIRST} LIMIT ? OFFSET ?`,
     Number(category_id), todayStr(), todayStr(), todayStr(), pp, (cur - 1) * pp,
   );
-  res.json(ok(page(fmtList(list), total, cur, pp)));
+  res.json(ok(page(fmtList(list, null, req.member), total, cur, pp)));
 });
 
 // ---------------- 抢购场次 ----------------
@@ -207,7 +230,7 @@ function areaPayload() {
   });
 }
 
-r.get('/getLootList', (req, res) => {
+r.get('/getLootList', maybeMember, (req, res) => {
   const areas = areaPayload();
   const states = areaStates();
   const list = areas.map((a) => {
@@ -218,7 +241,7 @@ r.get('/getLootList', (req, res) => {
          AND ${LIST_VISIBLE}
        ${ON_SALE_FIRST} LIMIT 20`,
       a.specialarea_id, todayStr(), todayStr(), todayStr(),
-    ), states);
+    ), states, req.member);
     return { ...a, goods_list: goods };
   });
 
@@ -258,7 +281,7 @@ r.get('/getLootList', (req, res) => {
 });
 
 // 抢购商品列表（分页，带场次筛选）
-r.get('/getLootGoodsList', (req, res) => {
+r.get('/getLootGoodsList', maybeMember, (req, res) => {
   const { specialarea_id, page: p = 1, limit = 10 } = req.query;
   const pp = Number(limit);
   const cur = Number(p);
@@ -282,7 +305,7 @@ r.get('/getLootGoodsList', (req, res) => {
     `SELECT * FROM goods WHERE ${w} ${ON_SALE_FIRST} LIMIT ? OFFSET ?`,
     ...args, pp, (cur - 1) * pp,
   );
-  res.json(ok(page(fmtList(list), total, cur, pp)));
+  res.json(ok(page(fmtList(list, null, req.member), total, cur, pp)));
 });
 
 r.get('/getLootDetails', maybeMember, (req, res) => {
@@ -366,7 +389,7 @@ r.get('/searchShop', (req, res) => {
     `SELECT * FROM goods WHERE ${w} ORDER BY goods_sort ASC, goods_id DESC LIMIT ? OFFSET ?`,
     ...args, pp, (cur - 1) * pp,
   );
-  res.json(ok(page(fmtList(list), total, cur, pp)));
+  res.json(ok(page(fmtList(list, null, req.member), total, cur, pp)));
 });
 
 r.get('/shopgoods/getDetails', maybeMember, (req, res) => {
