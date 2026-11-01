@@ -1,7 +1,7 @@
 import express from 'express';
 import compression from 'compression';
 import cors from 'cors';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, get, run, now } from './db.js';
@@ -489,8 +489,59 @@ if (hasAdmin) {
 
 if (hasH5) {
   app.use(express.static(H5_DIR, { index: false, maxAge: '1y', immutable: true, setHeaders: shellNoCache }));
+
+  // ---- 首屏引导数据直接写进入口 HTML ----
+  // 原来 SPA 启动时用的是代码里的默认值：店名「北山商城」、底部 5 个导航全开，
+  // 等 /index/getStoreInfo、/index/getOpenNavigation 回来才替换成后台配置。
+  // 结果首次打开会先闪一下默认店名和 5 个菜单，再跳成真实名称和 3 个菜单。
+  // 这里把店名、logo、版权、主题变量、导航开关预注入，首屏第一次渲染就是最终状态。
+  // 按 mtime 缓存模板：重新构建后（hash 文件名全变了）不用重启进程就会读到新入口，
+  // 否则服务还按旧 HTML 引用已经不存在的 assets，用户看到的是白屏
+  let h5Tpl = { mtime: -1, html: '' };
+  const loadH5Template = () => {
+    const file = join(H5_DIR, 'index.html');
+    try {
+      const st = statSync(file);
+      if (h5Tpl.mtime !== st.mtimeMs) h5Tpl = { mtime: st.mtimeMs, html: readFileSync(file, 'utf-8') };
+      return h5Tpl.html;
+    } catch { return ''; }
+  };
+
+  const escapeHtml = (v) => String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+  const renderH5Index = () => {
+    const h5Template = loadH5Template();
+    if (!h5Template) return null;
+    const t = themeOf(cfg('theme_key', DEFAULT_THEME));
+    const boot = {
+      name: cfg('store_name', '示范商城'),
+      logo: cfg('store_logo', ''),
+      copyright: cfg('copyright', ''),
+      icp_number: cfg('icp_number', ''),
+      theme: { key: t.key, name: t.name, vars: t.vars },
+      nav: {
+        index_open: cfg('nav_index', '10'),
+        category_open: cfg('nav_category', '10'),
+        loot_open: cfg('nav_loot', '10'),
+        invite_open: cfg('nav_invite', '10'),
+        member_open: cfg('nav_member', '10'),
+      },
+    };
+    // JSON 里的 `<` 必须转义：店名若能填 `</script>`，不转义就直接跳出脚本标签了
+    const json = JSON.stringify(boot).replace(/</g, '\\u003c');
+    return h5Template
+      .replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(boot.name)}</title>`)
+      .replace('</head>', `<script>window.__BOOT__=${json};</script></head>`);
+  };
+
   // 前端用 hash 路由，深链接不经过服务端；其余路径回落到首页
-  app.get(/^(?!\/(api|admin|uploads))(\/.*)?$/, (req, res) => res.sendFile(join(H5_DIR, 'index.html')));
+  app.get(/^(?!\/(api|admin|uploads))(\/.*)?$/, (req, res) => {
+    const html = renderH5Index();
+    if (!html) return res.sendFile(join(H5_DIR, 'index.html'));
+    // 入口页必须每次回源，否则改了店名用户端还是旧的
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    res.type('html').send(html);
+  });
 }
 
 if (hasAdmin || hasH5) {

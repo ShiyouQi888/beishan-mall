@@ -27,7 +27,14 @@ const router = useRouter();
 
 const c = (on) => (on ? 'var(--brand)' : '#9aa0aa');
 
-const config = ref({ index_open: '10', category_open: '10', loot_open: '10', invite_open: '10', member_open: '10' });
+// 服务端会把导航开关预注入到入口 HTML（window.__BOOT__.nav）。
+// 用它当初始值，首屏第一次渲染就是后台真实配置 —— 不会再出现「先 5 个菜单、后跳成 3 个」。
+// 接口返回后仍然会再覆盖一次，保证管理后台改完刷新即可生效。
+const boot = (typeof window !== 'undefined' && window.__BOOT__) || {};
+const config = ref({
+  index_open: '10', category_open: '10', loot_open: '10', invite_open: '10', member_open: '10',
+  ...(boot.nav || {}),
+});
 const definitions = [
   {
     path: '/',

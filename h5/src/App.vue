@@ -31,7 +31,16 @@ const showTab = computed(() => {
   const hide = route.meta.hideTab;
   return !(typeof hide === 'function' ? hide(route) : hide);
 });
-const store = ref({});
+// 服务端注入的首屏数据（店名/logo/版权/主题/导航开关），见 server/src/app.js 的 renderH5Index。
+// 有它就能第一帧就渲染成正式名称与配色，不会先闪一下默认店名再跳变；接口回来后再补全。
+const boot = (typeof window !== 'undefined' && window.__BOOT__) || {};
+const store = ref({
+  name: boot.name || '',
+  logo: boot.logo || '',
+  copyright: boot.copyright || '',
+  icp_number: boot.icp_number || '',
+  theme: boot.theme || null,
+});
 provide('storeInfo', store);
 
 // 主题：把后台选中的那套 CSS 变量写到 :root，页面刷新即生效
@@ -59,6 +68,13 @@ function applyBrand(info = {}) {
     if (!icon) { icon = document.createElement('link'); icon.rel = 'icon'; document.head.appendChild(icon); }
     icon.href = info.logo;
   }
+}
+
+// 同步应用一次注入值：storeInfo 接口通常要几十到几百毫秒，
+// 等它回来才设标题的话，用户会先看到一个默认标题
+if (boot.name || boot.theme) {
+  applyTheme(store.value);
+  applyBrand(store.value);
 }
 
 onMounted(async () => {
