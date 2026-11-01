@@ -5,6 +5,20 @@
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="m15 5-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </div>
       <div class="navbar__title">我的订单</div>
+      <!-- 只刷新订单数据，不动整个页面：线上是纯静态托管，整页刷新会重新走一次
+           应用初始化（有的环境还会掉登录态），不值得为了看新状态付这个代价 -->
+      <button
+        class="navbar__refresh"
+        :class="{ 'is-spinning': refreshing }"
+        type="button"
+        aria-label="刷新订单"
+        @click="refresh"
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+          <path d="M20 4.6V9h-4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
     </div>
 
     <div class="orders__tabs">
@@ -129,8 +143,13 @@ const status = ref(route.query.pay_status !== undefined
 const list = ref([]);
 const loading = ref(true);
 
-async function load() {
-  loading.value = true;
+/**
+ * 拉订单列表。
+ * @param {boolean} silent 静默刷新：不显示「加载中…」，失败也不清空已有列表
+ *                        （点右上角刷新时用，避免列表整块闪一下白）
+ */
+async function load(silent = false) {
+  if (!silent) loading.value = true;
   try {
     const params = { page: 1, limit: 30 };
     if (route.query.consign_order_id) params.order_id = route.query.consign_order_id;
@@ -138,10 +157,25 @@ async function load() {
     const r = await api.orders(params);
     list.value = r.data.data || [];
   } catch {
-    list.value = [];
+    // 静默刷新失败时保留原列表，别让用户以为订单没了
+    if (!silent) list.value = [];
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
+}
+
+// 点右上角刷新：只重新拉数据，不重载页面
+const refreshing = ref(false);
+async function refresh() {
+  if (refreshing.value) return;
+  refreshing.value = true;
+  const started = Date.now();
+  await load(true);
+  // 转圈至少留 420ms，否则本地很快、用户看不出点过
+  const rest = 420 - (Date.now() - started);
+  if (rest > 0) await new Promise((r) => setTimeout(r, rest));
+  refreshing.value = false;
+  showToast('订单已刷新');
 }
 
 function switchTab(v) {
@@ -315,6 +349,52 @@ onUnmounted(() => {
 .prepaid { color: #1f9d5f; }
 
 .orders { background: var(--bg); }
+
+/* 导航栏右侧刷新：绝对定位，不占布局，标题仍保持居中对称 */
+.navbar__refresh {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f4f6f8;
+  color: var(--text-2);
+  transition: background .15s ease, color .15s ease;
+}
+.navbar__refresh:active { background: #e9ecf1; color: var(--brand); }
+.navbar__refresh svg { width: 17px; height: 17px; }
+.navbar__refresh.is-spinning { pointer-events: none; color: var(--brand); }
+.navbar__refresh.is-spinning svg { animation: order-refresh-spin .7s linear infinite; }
+@keyframes order-refresh-spin { to { transform: rotate(360deg); } }
+
+/* 导航栏右侧刷新：绝对定位，不占布局，标题仍保持居中对称 */
+.navbar__refresh {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f4f6f8;
+  color: var(--text-2);
+  transition: background .15s ease, color .15s ease;
+}
+.navbar__refresh:active { background: #e9ecf1; color: var(--brand); }
+.navbar__refresh svg { width: 17px; height: 17px; }
+.navbar__refresh.is-spinning { pointer-events: none; color: var(--brand); }
+.navbar__refresh.is-spinning svg { animation: order-refresh-spin .7s linear infinite; }
+@keyframes order-refresh-spin { to { transform: rotate(360deg); } }
 .orders__tabs {
   display: flex;
   background: #fff;
