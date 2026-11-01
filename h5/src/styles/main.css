@@ -276,8 +276,20 @@ img { display: block; max-width: 100%; }
   border-radius:15px;background:var(--brand-soft);color:var(--brand);font-size:21px;font-weight:700;
 }
 .app-dialog--alert .van-dialog__header::before { content:'i';background:#eef3ff;color:#5271bd;font-size:19px; }
-.app-dialog .van-dialog__message { padding:7px 24px 22px;color:#707987;font-size:13px;line-height:1.7; }
-.app-dialog .van-dialog__footer { min-height:0;gap:10px;padding:0 18px 18px;border:0; }
+
+/* 危险操作：红色感叹号 + 危险色主按钮。取消/删除不可撤销，视觉上要和普通确认拉开差别 */
+.app-dialog--danger .van-dialog__header::before {
+  content:'!';border-radius:50%;background:#fff1ee;color:#e8452c;font-size:23px;font-weight:800;
+}
+.app-dialog--danger .van-dialog__confirm {
+  background:linear-gradient(135deg,#ff6f57,#e8452c);
+  box-shadow:0 6px 16px rgba(232,69,44,.3);
+}
+.app-dialog--danger .van-dialog__cancel { background:#f3f5f7;color:#68717e; }
+.app-dialog .van-dialog__message { padding:7px 24px 22px;color:#707987;font-size:13px;line-height:1.7;white-space:pre-line; }
+/* footer 用 flex 明确等宽：只写 gap 不够，按钮会缩成文字宽度挤在左边 */
+.app-dialog .van-dialog__footer { display:flex;align-items:center;min-height:0;gap:10px;padding:0 18px 18px;border:0; }
+.app-dialog .van-dialog__footer > * { flex:1 1 0;min-width:0; }
 .app-dialog .van-dialog__cancel,.app-dialog .van-dialog__confirm {
   height:44px;border:0;border-radius:13px;font-family:var(--font);font-size:13px;font-weight:650;
 }

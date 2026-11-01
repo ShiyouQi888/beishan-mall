@@ -113,7 +113,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { showToast, showConfirmDialog } from '../utils/feedback.js';
+import { showToast, showDangerConfirm } from '../utils/feedback.js';
 import { api } from '../api.js';
 
 const route = useRoute();
@@ -167,8 +167,16 @@ function pay(o) {
 }
 
 async function cancel(o) {
+  // 取消是不可撤销的：名额会当场释放给其他人，想买得重新抢。
+  // 所以弹窗里带上具体商品，并用危险样式（红色感叹号 + 危险色主按钮），别让人手滑点掉。
+  const name = o.goods_name ? `「${o.goods_name}」` : '这笔订单';
   try {
-    await showConfirmDialog({ title: '取消订单', message: '确定取消该订单吗？' });
+    await showDangerConfirm({
+      title: '取消这笔订单？',
+      message: `${name} ¥${Number(o.total_price || 0).toFixed(2)}\n取消后名额立即释放，订单不可恢复，需要的话要重新抢购。`,
+      confirmButtonText: '确认取消',
+      cancelButtonText: '再想想',
+    });
   } catch {
     return;
   }

@@ -49,6 +49,26 @@ export function showConfirmDialog(options = {}) {
   }));
 }
 
+/**
+ * 危险操作的确认弹窗（取消订单、删除等不可撤销的动作）。
+ *
+ * 和普通确认的区别：图标是红色感叹号而不是问号、主按钮是危险色，
+ * 目的是让用户在按下去之前意识到「这一步撤不回来」。
+ * 默认按钮文案也改成可执行的动作（确认取消 / 再想想），而不是抽象的「确定/取消」。
+ */
+export function showDangerConfirm(options = {}) {
+  const opts = {
+    cancelButtonText: '再想想',
+    confirmButtonText: '确认取消',
+    ...(options || {}),
+  };
+  const customClass = opts.className;
+  return vantShowConfirmDialog({
+    ...opts,
+    className: ['app-dialog', 'app-dialog--danger', customClass].filter(Boolean),
+  });
+}
+
 export function showDialog(options = {}) {
   return vantShowDialog(dialogOptions(options, 'alert', {
     confirmButtonText: '我知道了',
