@@ -152,11 +152,13 @@ const M = {
     table: 'orders', pk: 'order_id', label: '订单',
     search: ['order_no', 'goods_name'], orderBy: 'order_id DESC',
     fields: [
-      { k: 'order_id', t: '订单ID', type: 'text', readonly: true, w: 80 },
+      // 订单ID 运营基本不看（对账用的是订单号），默认收起把宽度让给时间和手机号
+      { k: 'order_id', t: '订单ID', type: 'text', readonly: true, w: 80, hide: true },
       { k: 'order_no', t: '订单号', type: 'text', readonly: true, w: 180 },
       { k: 'goods_thumb', t: '图片', type: 'image', w: 70 },
       { k: 'goods_name', t: '商品', type: 'text' },
-      { k: 'type', t: '类型', type: 'select', opts: ORDER_TYPE, w: 110 },
+      // 订单类型这个业务里几乎恒为「抢购订单」，默认收起，把宽度让给买家手机号
+      { k: 'type', t: '类型', type: 'select', opts: ORDER_TYPE, w: 110, hide: true },
       { k: 'price', t: '单价', type: 'money', w: 100, hide: true },
       { k: 'num', t: '数量', type: 'number', w: 70, hide: true },
       { k: 'total_price', t: '总额', type: 'money', w: 110 },
@@ -173,9 +175,9 @@ const M = {
       // 支付方式这一环已下线，字段保留仅为兼容历史数据，前台后台都不再展示
       { k: 'pay_type', t: '支付方式', type: 'select', opts: { 0: '未支付', 1: '余额', 2: '微信', 3: '支付宝', 4: '线下凭证' }, w: 110, hide: true },
       { k: 'pay_voucher', t: '支付凭证', type: 'image', w: 80, hide: true, readonly: true },
-      { k: 'buyer', t: '买家', type: 'member', w: 110 },
+      { k: 'buyer', t: '买家', type: 'member', w: 132 },
       { k: 'seller_id', t: '卖家ID', type: 'text', w: 90, hide: true },
-      { k: 'create_time', t: '下单时间', type: 'text', readonly: true, w: 160 },
+      { k: 'create_time', t: '下单时间', type: 'text', readonly: true, w: 168 },
     ],
     actions: ['detail', 'audit', 'cancel'],
   },
@@ -1021,6 +1023,7 @@ r.get('/orders/export', authAdmin, (req, res) => {
   const rows = all(
     `SELECT o.*,
        (SELECT nick_name FROM member WHERE member_id = o.member_id) AS buyer_name,
+       (SELECT mobile FROM member WHERE member_id = o.member_id) AS buyer_mobile,
        (SELECT nick_name FROM member WHERE member_id = o.seller_id) AS seller_name
      FROM orders o ${w} ORDER BY o.order_id DESC LIMIT 50000`,
     ...args,
@@ -1028,7 +1031,7 @@ r.get('/orders/export', authAdmin, (req, res) => {
 
   // 实付 = 货款 + 抢单服务费 + 转拍上架费。三列都导出来，
   // 运营拿这张表跟收款流水对账时才能一笔对一笔（原来只有货款 + 服务费，上架费是隐形的）。
-  const header = ['订单号', '商品', '类型', '单价', '数量', '商品金额', '抢单服务费', '转拍上架费', '实付金额', '状态', '买家', '卖家', '下单时间', '确认时间', '备注'];
+  const header = ['订单号', '商品', '类型', '单价', '数量', '商品金额', '抢单服务费', '转拍上架费', '实付金额', '状态', '买家', '买家手机号', '卖家', '下单时间', '确认时间', '备注'];
   const body = rows.map((o) => [
     o.order_no,
     o.goods_name,
@@ -1041,6 +1044,7 @@ r.get('/orders/export', authAdmin, (req, res) => {
     money(Number(o.total_price || 0) + Number(o.service_charge || 0) + Number(o.listing_fee || 0)).toFixed(2),
     orderStateText(o),
     o.buyer_name || '',
+    o.buyer_mobile || '',
     o.seller_name || '',
     // 时间列单独走 csvTime，避免 Excel 认成日期后整列 ####
     csvTime(o.create_time),
@@ -1207,11 +1211,15 @@ function enrich(mod, row) {
     )?.c || 0);
   }
   if (mod === 'energy' || mod === 'withdraw' || mod === 'settle' || mod === 'scoreExchange') {
-    out._member = get('SELECT nick_name FROM member WHERE member_id = ?', row.member_id)?.nick_name || '';
+    const mm = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', row.member_id);
+    out._member = mm?.nick_name || '';
+    out._member_mobile = mm?.mobile || '';
     if (row.b_member_id) out._bmember = get('SELECT nick_name FROM member WHERE member_id = ?', row.b_member_id)?.nick_name || '';
   }
   if (mod === 'certification') {
-    out._member = get('SELECT nick_name FROM member WHERE member_id = ?', row.member_id)?.nick_name || '';
+    const mm = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', row.member_id);
+    out._member = mm?.nick_name || '';
+    out._member_mobile = mm?.mobile || '';
   }
   return out;
 }

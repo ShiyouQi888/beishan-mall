@@ -140,7 +140,7 @@
           :label="f.t"
           :min-width="f.w || 110"
           :fixed="f.k === mod.pk ? 'left' : undefined"
-          show-overflow-tooltip
+          :show-overflow-tooltip="!isStackedCell(f)"
         >
           <template #default="{ row }">
             <!-- 图片 -->
@@ -192,7 +192,13 @@
             </span>
 
             <!-- 会员关联 -->
-            <span v-else-if="f.type === 'member'">{{ row._member || row._buyer || row.member_id || '—' }}</span>
+            <!-- 买家/会员：昵称一行、手机号一行。昵称为空时直接显示手机号，
+                 不再退回 member_id（一串没意义的数字，运营看不懂） -->
+            <span v-else-if="f.type === 'member'" class="stacked">
+              <span v-if="memberName(row)" class="stacked__main">{{ memberName(row) }}</span>
+              <span v-if="memberMobile(row)" class="stacked__sub">{{ memberMobile(row) }}</span>
+              <span v-if="!memberName(row) && !memberMobile(row)" class="muted">—</span>
+            </span>
 
             <!-- 现持有人 -->
             <span v-else-if="f.type === 'holder'">
@@ -264,7 +270,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 300 : modKey === 'scoreExchange' ? 260 : modKey === 'goods' ? 220 : modKey === 'recycle' ? 176 : 210" fixed="right">
+        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 236 : modKey === 'scoreExchange' ? 260 : modKey === 'goods' ? 220 : modKey === 'recycle' ? 176 : 210" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <template v-if="modKey === 'orders'">
@@ -840,6 +846,12 @@ const selectOptions = (f) => {
     t,
   }));
 };
+
+// 会员名/手机号：不同模块后端给的字段名不一样（买家 _buyer、会员 _member、持有人 _holder）
+// 这类列上下堆两行，不能再让 el-table 用 tooltip 截断
+const isStackedCell = (f) => f.type === 'member';
+const memberName = (row) => row._buyer || row._member || row._holder || '';
+const memberMobile = (row) => row._buyer_mobile || row._member_mobile || row._holder_mobile || '';
 
 const labelOf = (f, v) => {
   if (typeof f.opts === 'object') return f.opts[v] ?? v ?? '—';
@@ -1691,6 +1703,10 @@ onUnmounted(() => {
 .s-sub { font-size: 11.5px; color: #a8adb7; margin-top: 3px; }
 .pager { display: flex; justify-content: flex-end; margin-top: 14px; }
 .ops { display: flex; gap: 6px; flex-wrap: wrap; }
+/* 两行堆叠单元格：主行昵称、次行手机号（表格列宽有限，横排一定被截断） */
+.stacked { display: flex; flex-direction: column; line-height: 1.35; }
+.stacked__main { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stacked__sub { color: var(--muted, #9098a3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 
 /* 订单列表的刷新按钮：图标 + 文字，刷新中图标转圈 */
 .refresh-ico { vertical-align: -1px; }
