@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS orders (
   total_price   REAL DEFAULT 0,
   service_charge REAL DEFAULT 0,          -- 服务费（历史字段）
   listing_fee   REAL DEFAULT 0,           -- 上架费（转拍时收取，对齐原站 listing_fee_amount）
+  cancel_by     INTEGER DEFAULT 0,        -- 谁取消的：1=会员自己 2=后台（0=未取消/历史数据）
   selling_price REAL DEFAULT 0,           -- 寄卖标价（转拍时设定）
   transposition_time TEXT DEFAULT '',     -- 转拍时间
   status        INTEGER DEFAULT 0,        -- 0待付款 10待发货 20待收货 30已完成 40已取消

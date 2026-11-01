@@ -165,7 +165,9 @@ const M = {
       { k: 'listing_fee', t: '上架费(预付)', type: 'money', w: 104, hide: true },
       // 状态由服务端合并 status 与 pay_status 后给出：会员取消后必须显示「已取消」，
       // 不能还挂着「待确认」—— 运营看到待确认就会去点确认收款
-      { k: 'order_state_text', t: '状态', type: 'text', readonly: true, w: 96 },
+      { k: 'order_state_text', t: '状态', type: 'orderstate', readonly: true, w: 104 },
+      // 取消来源：1=会员自己取消 2=后台取消（0=没取消）。默认隐藏，用于顶部两个筛选标签
+      { k: 'cancel_by', t: '取消来源', type: 'select', opts: { 1: '用户取消', 2: '后台取消' }, w: 100, hide: true },
       { k: 'pay_status', t: '付款状态', type: 'select', opts: { 10: '已确认', 0: '未确认' }, w: 96, hide: true },
       { k: 'status', t: '内部状态', type: 'select', opts: ORDER_STATUS, w: 100, hide: true },
       // 支付方式这一环已下线，字段保留仅为兼容历史数据，前台后台都不再展示
@@ -475,7 +477,7 @@ r.get('/dashboard', authAdmin, (req, res) => {
       },
       trend: buildTrend(),
       recent_orders: all(
-        `SELECT order_id, order_no, goods_name, total_price, pay_status, status, create_time, type
+        `SELECT order_id, order_no, goods_name, total_price, pay_status, status, cancel_by, create_time, type
          FROM orders ORDER BY order_id DESC LIMIT 6`,
       ).map((o) => ({
         order_id: o.order_id,
@@ -1631,7 +1633,7 @@ r.post('/orders/cancel', authAdmin, (req, res) => {
   if (Number(o.status) === 40) return res.json(fail('订单已取消，请勿重复操作'));
   // 只有「待付款」的拆分订单才归还库存：已成交的份额是真卖掉了，再还回去等于凭空多一份
   const unpaid = Number(o.status) === 0;
-  run('UPDATE orders SET status = 40 WHERE order_id = ?', o.order_id);
+  run('UPDATE orders SET status = 40, cancel_by = 2 WHERE order_id = ?', o.order_id);
   if (unpaid) restoreStock(o.goods_id, o.num);
   run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
     o.order_id, '后台取消', 'admin', '', now());

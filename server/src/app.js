@@ -67,6 +67,12 @@ if (!get("SELECT `value` FROM setting_config WHERE `key` = 'migrate_drop_split'"
   }
 }
 
+// 订单取消来源：会员自己在 H5 取消，还是运营在后台取消。
+// 两种都记为 status=40，但后台需要分开统计/排查，所以在订单上单独记一个字段。
+if (!db.prepare('PRAGMA table_info(orders)').all().some((c) => c.name === 'cancel_by')) {
+  db.exec('ALTER TABLE orders ADD COLUMN cancel_by INTEGER DEFAULT 0');
+  console.log('[migrate] orders.cancel_by 已添加（1=会员取消 2=后台取消）');
+}
 // 商品增加「每场放量」：库存是仓库里一共有多少，放量是这一场只拿出多少来卖。
 // 例如库存 100 件、每场只放 10 件 —— 抢满 10 件这一场就结束变灰，剩下的留在下次。
 // 0（默认）= 不限，整批库存都能卖，现有商品行为不变。

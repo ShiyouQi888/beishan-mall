@@ -149,8 +149,14 @@ export const ORDER_TYPE = { 1: '抢购订单', 2: '寄卖订单', 3: '商城订�
  * 必须先看 status：会员取消后是 status=40、pay_status 仍为 0，
  * 只看 pay_status 会把已取消的单显示成「待确认」，运营还可能再去点确认收款。
  */
-export const orderStateText = (o) => {
-  if (Number(o?.status) === 40) return '已取消';
+export const orderStateText = (o, memberSide = false) => {
+  if (Number(o?.status) === 40) {
+    const by = Number(o?.cancel_by);
+    // 会员看自己的单：自己撤的写「已取消」，被平台撤的要让他知道是谁动的
+    if (memberSide) return by === 2 ? '平台已取消' : '已取消';
+    // 后台看单：两种取消要能一眼分开，否则运营分不清是会员撤回还是同事操作
+    return by === 1 ? '用户取消' : by === 2 ? '后台取消' : '已取消';
+  }
   return Number(o?.pay_status) === 10 ? '已确认' : '待确认';
 };
 export const PAY_TYPE = { 1: '余额支付', 2: '微信支付', 3: '支付宝', 4: '线下凭证' };

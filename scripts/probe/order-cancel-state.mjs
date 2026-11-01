@@ -127,6 +127,8 @@ async function main() {
     ok(cc.code === 1, '取消成功', cc.msg);
     eq(get('SELECT status FROM orders WHERE order_id = ?', oid).status, 40, '库里 status=40');
 
+    eq(get('SELECT cancel_by FROM orders WHERE order_id = ?', oid).cancel_by, 1, '取消来源记为 1（会员自己取消）');
+
     const list = await api('/api/order/getOrder?page=1&limit=20', { token: tk });
     const row = (list.data?.data || []).find((x) => Number(x.order_id) === Number(oid));
     ok(!!row, '订单仍在我的订单列表里（取消不等于删除）');
@@ -145,7 +147,8 @@ async function main() {
     section('[3] 后台订单列表同步显示「已取消」');
     const adminList = await api('/admin/api/orders/list?page=1&limit=50', { token: at });
     const arow = (adminList.data?.data || []).find((x) => Number(x.order_id) === Number(oid));
-    eq(arow?.order_state_text, '已取消', '后台列表状态列 = 已取消');
+    eq(arow?.order_state_text, '用户取消', '后台列表区分出「用户取消」');
+    eq(arow?.cancel_by, 1, '取消来源字段随列表返回');
 
     // ---------- 4. 后台不能确认收款 ----------
     section('[4] 后台「确认收款」必须拦住已取消订单');
@@ -159,6 +162,41 @@ async function main() {
     ok(batch.code !== 1, '批量确认没有把它算成功', JSON.stringify(batch.data));
     ok(/取消/.test(String(batch.msg || '')), '批量确认的提示也说明已取消', batch.msg);
 
+    // ---------- 4b. 后台取消 ----------
+    section('[4b] 后台取消：来源记为 2，列表显示「后台取消」');
+    const reg2 = await api('/api/member/registerAnAccount', {
+      method: 'POST', body: { phone: '13960000002', password: 'cancel123456', code: 'boss01', nickName: '被后台取消' },
+    });
+    ok(reg2.code === 1, '第二个会员注册', reg2.msg);
+    const tk2 = (await api('/api/member/accountLogin', { method: 'POST', body: { phone: '13960000002', password: 'cancel123456' } })).data.token;
+    const od2 = await api('/api/order/toAddOrder', { method: 'POST', token: tk2, body: { goods_id: gid, num: 1, pay_type: 0 } });
+    ok(od2.code === 1, '第二个会员下单', od2.msg);
+    const oid2 = od2.data.order_id;
+
+    const ac = await api('/admin/api/orders/cancel', { method: 'POST', token: at, body: { order_id: oid2 } });
+    ok(ac.code === 1, '后台取消成功', ac.msg);
+    eq(get('SELECT cancel_by FROM orders WHERE order_id = ?', oid2).cancel_by, 2, '取消来源记为 2（后台取消）');
+
+    const adminList2 = await api('/admin/api/orders/list?page=1&limit=50', { token: at });
+    const arow2 = (adminList2.data?.data || []).find((x) => Number(x.order_id) === Number(oid2));
+    eq(arow2?.order_state_text, '后台取消', '后台列表区分出「后台取消」');
+
+    // 会员看自己的单：被平台撤的要说明是谁动的
+    const h5Detail2 = await api(`/api/order/detail?order_id=${oid2}`, { token: tk2 });
+    eq(h5Detail2.data?.status_text, '平台已取消', '会员端看到「平台已取消」');
+
+    section('[4c] 两个筛选标签各自只命中自己的那一类');
+    const onlyUser = await api('/admin/api/orders/list?page=1&limit=50&cancel_by=1', { token: at });
+    const rowsU = onlyUser.data?.data || [];
+    ok(rowsU.length > 0 && rowsU.every((x) => Number(x.cancel_by) === 1), '用户取消：只返回 cancel_by=1');
+    ok(rowsU.some((x) => Number(x.order_id) === Number(oid)), '用户取消里能看到第一单');
+    ok(!rowsU.some((x) => Number(x.order_id) === Number(oid2)), '用户取消里没有后台取消那一单');
+
+    const onlyAdmin = await api('/admin/api/orders/list?page=1&limit=50&cancel_by=2', { token: at });
+    const rowsA = onlyAdmin.data?.data || [];
+    ok(rowsA.length > 0 && rowsA.every((x) => Number(x.cancel_by) === 2), '后台取消：只返回 cancel_by=2');
+    ok(rowsA.some((x) => Number(x.order_id) === Number(oid2)), '后台取消里能看到第二单');
+
     // ---------- 5. 统计口径 ----------
     section('[5] 已取消的订单不进入任何业务量统计');
     const dashAfter = await api('/admin/api/dashboard', { token: at });
@@ -171,7 +209,7 @@ async function main() {
     // 首页最近订单里也要标成已取消
     const recent = (dashAfter.data?.recent_orders || []).find((x) => Number(x.order_id) === Number(oid));
     ok(!!recent, '最近订单里能看到这笔');
-    eq(recent?.status_text, '已取消', '最近订单状态文案 = 已取消');
+    eq(recent?.status_text, '用户取消', '最近订单状态文案 = 用户取消');
   } finally {
     srv.kill('SIGTERM');
     await sleep(300);

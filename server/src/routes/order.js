@@ -38,7 +38,7 @@ function fmtOrder(o) {
     status: o.status,
     // 没有支付与发货环节：看平台确认没确认；已取消的必须单独标出来，
     // 否则会员取消后订单在列表里仍显示「待确认」，看起来像没生效
-    status_text: orderStateText(o),
+    status_text: orderStateText(o, true),
     transferred: transferred ? 1 : 0,
     pay_status: o.pay_status,
     pay_type: o.pay_type,
@@ -457,7 +457,8 @@ r.post('/cancel', authMember, (req, res) => {
   const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), req.member.member_id);
   if (!o) return res.json(fail('订单不存在'));
   if (o.status !== 0) return res.json(fail('当前状态不可取消'));
-  run('UPDATE orders SET status = 40 WHERE order_id = ?', o.order_id);
+  // cancel_by 记来源：后台要能区分「会员自己撤回」和「运营取消」
+  run('UPDATE orders SET status = 40, cancel_by = 1 WHERE order_id = ?', o.order_id);
   // 拆分商品的下单时就扣了份数，取消要把份额还回去，否则没付款的单也会一直占着库存
   restoreStock(o.goods_id, o.num);
   log(o.order_id, '订单取消', 'member');
