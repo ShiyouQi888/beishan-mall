@@ -66,6 +66,13 @@
       <div class="poster-designer__section">
         <div class="poster-designer__section-title"><span class="poster-designer__step">02</span><div><h3>邀请文案</h3><p>实时显示在海报预览中</p></div></div>
         <el-form label-position="top" class="poster-designer__form">
+          <!-- 投影作用于全部文字层：海报背景多半是照片，纯白字压在花草/天空上会糊，加一点阴影立刻清楚 -->
+          <el-form-item label="文字投影">
+            <el-select v-model="shadowLevel" size="small" aria-label="选择文字投影强度">
+              <el-option v-for="opt in SHADOW_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+            </el-select>
+            <small>背景图比较花时选「明显」。主标题、副标题、说明文字、邀请码会统一生效，和会员保存下来的海报效果一致。</small>
+          </el-form-item>
           <div v-for="layer in textLayers" :key="layer.id" class="poster-designer__text-layer">
             <div class="poster-designer__text-layer-head">
               <strong>{{ layer.label }}</strong>
@@ -125,6 +132,37 @@ const qrImage = ref('');
 const dragging = ref('');
 const start = ref(null);
 const qrSize = computed(() => Number(props.values.poster_qr_size) || 220);
+
+// 文字投影：0 无 / 1 轻微 / 2 适中 / 3 明显
+// 参数按设计稿 750×1334 定义，预览按 stageScale 缩放，H5 canvas 用同一套数值 —— 两边观感才一致
+const SHADOW_OPTIONS = [
+  { value: 0, label: '无' },
+  { value: 1, label: '轻微' },
+  { value: 2, label: '适中（推荐）' },
+  { value: 3, label: '明显' },
+];
+const SHADOW_LEVELS = {
+  0: { blur: 0, alpha: 0, dy: 0 },
+  1: { blur: 6, alpha: 0.3, dy: 1 },
+  2: { blur: 10, alpha: 0.42, dy: 2 },
+  3: { blur: 18, alpha: 0.6, dy: 3 },
+};
+const shadowLevel = computed({
+  get() {
+    const raw = props.values.poster_text_shadow;
+    if (raw === '' || raw === null || raw === undefined) return 2;
+    const v = Number(raw);
+    return Number.isInteger(v) && v >= 0 && v <= 3 ? v : 2;
+  },
+  // 写回 values，保存时才会带上这个键（不写回的话后台存不进去，下次又变默认值）
+  set(v) { props.values.poster_text_shadow = v; },
+});
+const textShadowCss = computed(() => {
+  const s = SHADOW_LEVELS[shadowLevel.value] || SHADOW_LEVELS[2];
+  if (!s.blur) return 'none';
+  const k = stageScale.value;
+  return `0 ${(s.dy * k).toFixed(1)}px ${(s.blur * k).toFixed(1)}px rgba(0, 0, 0, ${s.alpha})`;
+});
 const posterBackgroundPresets = [{ label: '推荐 750 × 1334 px', width: 750, height: 1334 }];
 const posterLogoPresets = [{ label: '推荐 512 × 512 px', width: 512, height: 512 }];
 const textLayers = [
@@ -172,6 +210,7 @@ function itemStyle(kind) {
     style.color = props.values[`poster_${kind}_color`] || textStyleDefaults[kind].color;
     const align = props.values[`poster_${kind}_align`];
     style.textAlign = ['left', 'center', 'right'].includes(align) ? align : textStyleDefaults[kind].align;
+    style.textShadow = textShadowCss.value;
   }
   return style;
 }

@@ -138,8 +138,17 @@ function drawPosterText(ctx, text, config, kind, defaults, weight = 500, maxLine
   const anchorX = x + (align === 'center' ? maxWidth / 2 : align === 'right' ? maxWidth : 0);
   ctx.save();
   ctx.fillStyle = config[`${kind}_color`] || '#ffffff';
-  ctx.shadowColor = 'rgba(0,0,0,.3)';
-  ctx.shadowBlur = 10;
+  // 文字投影强度（后台「海报配置 → 文字投影」）：0 无 / 1 轻微 / 2 适中 / 3 明显。
+  // 数值与后台预览共用同一套档位，否则预览看着清楚、导出的图却糊成一团。
+  const shadowRaw = config.text_shadow;
+  const level = shadowRaw === '' || shadowRaw === null || shadowRaw === undefined
+    ? 2 : Math.min(3, Math.max(0, Math.round(Number(shadowRaw)) || 0));
+  const shadow = [[0, 0, 0], [6, 0.3, 1], [10, 0.42, 2], [18, 0.6, 3]][level];
+  if (shadow[0] > 0) {
+    ctx.shadowColor = `rgba(0,0,0,${shadow[1]})`;
+    ctx.shadowBlur = shadow[0];
+    ctx.shadowOffsetY = shadow[2];
+  }
   ctx.textAlign = align;
   ctx.font = `${weight} ${size}px sans-serif`;
   drawWrappedText(ctx, content, anchorX, y + size, maxWidth, size * 1.35, maxLines);

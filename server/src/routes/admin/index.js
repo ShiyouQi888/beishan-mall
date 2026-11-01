@@ -666,6 +666,8 @@ const SETTING_GROUPS = {
     { k: 'storage_ext', t: '允许的扩展名', type: 'text' },
   ],
   poster: [
+    // 文字投影强度：0 无 / 1 轻微 / 2 适中 / 3 明显（后台设计器里选，H5 生成海报时按同一套数值绘制）
+    { k: 'poster_text_shadow', t: '文字投影', type: 'number' },
     { k: 'poster_bg', t: '海报底图', type: 'image' },
     { k: 'poster_logo', t: '海报 Logo', type: 'image' },
     { k: 'poster_qr_x', t: '二维码 X 坐标', type: 'number' },

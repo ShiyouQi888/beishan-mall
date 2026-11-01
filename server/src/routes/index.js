@@ -92,6 +92,9 @@ r.get('/index/getShareInfo', (req, res) => {
 r.get('/index/getInvitePoster', (req, res) => {
   res.json(ok({
     background: cfg('poster_bg', ''),
+    // 文字投影强度：0 无 / 1 轻微 / 2 适中 / 3 明显。
+    // 这里是白名单式拼字段，后台新增的配置项不在这里透出，前端就拿不到（会一直用默认值）。
+    text_shadow: cfgNumber('poster_text_shadow', 2),
     logo: cfg('poster_logo', cfg('store_logo', '')),
     qr_x: cfgNumber('poster_qr_x', 265),
     qr_y: cfgNumber('poster_qr_y', 850),
