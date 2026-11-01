@@ -119,6 +119,7 @@ cd h5     && npm install && npm run dev                   # 5273
 | [`docs/admin-manual.md`](docs/admin-manual.md) | **后台操作手册**（逐菜单说明 + 业务 SOP + FAQ） |
 | [`docs/target-system-spec.md`](docs/target-system-spec.md) | 原站算法与字段实证 |
 | [`docs/api-coverage.md`](docs/api-coverage.md) | 接口覆盖与实现说明 |
+| [`docs/docker-ops.md`](docs/docker-ops.md) | **Docker 运维手册**（构建发版 / 数据备份 / 故障排查） |
 | [`docs/streambeat-split-inference.md`](docs/streambeat-split-inference.md) | 历史推断记录（流拍与按份拆分均已下线） |
 
 ### 演示账号
