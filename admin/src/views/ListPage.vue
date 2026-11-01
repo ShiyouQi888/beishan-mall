@@ -365,8 +365,24 @@
         <el-descriptions-item label="订单类型">{{ labelOf(mod.fields?.find((f) => f.k === 'type'), form.type) }}</el-descriptions-item>
         <el-descriptions-item label="商品">{{ form.goods_name || '—' }}</el-descriptions-item>
         <el-descriptions-item label="数量">{{ form.num ?? '—' }}</el-descriptions-item>
+        <!-- 买家带上手机号：客服要联系买家时不用再跳去会员管理里翻 -->
+        <el-descriptions-item label="买家">
+          <template v-if="form._buyer || form._buyer_mobile">
+            {{ form._buyer || '未设置昵称' }}
+            <span v-if="form._buyer_mobile" class="muted detail-mobile">{{ form._buyer_mobile }}</span>
+          </template>
+          <span v-else class="muted">—</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="卖家">
+          <template v-if="Number(form.seller_id) > 0">
+            {{ form._seller || '未设置昵称' }}
+            <span v-if="form._seller_mobile" class="muted detail-mobile">{{ form._seller_mobile }}</span>
+          </template>
+          <span v-else>平台</span>
+        </el-descriptions-item>
         <el-descriptions-item label="商品金额">¥{{ Number(form.total_price || 0).toFixed(2) }}</el-descriptions-item>
-        <el-descriptions-item label="订单状态">{{ Number(form.pay_status) === 10 ? '已确认' : '待确认' }}</el-descriptions-item>
+        <!-- 状态必须用后端合并后的文案：只看 pay_status 会把已取消的单显示成「待确认」 -->
+        <el-descriptions-item label="订单状态">{{ form.order_state_text || (Number(form.pay_status) === 10 ? '已确认' : '待确认') }}</el-descriptions-item>
         <!-- 实付由三笔构成：货款 + 抢单服务费 + 转拍上架费（下单时一并收取）。
              只显示货款的话，运营按会员转来的钱对账永远差一截 -->
         <el-descriptions-item label="抢单服务费">¥{{ Number(form.service_charge || 0).toFixed(2) }}</el-descriptions-item>
@@ -385,7 +401,12 @@
           />
           <span v-else>—</span>
         </el-descriptions-item>
+        <el-descriptions-item label="支付方式">
+          {{ labelOf(mod.fields?.find((f) => f.k === 'pay_type'), form.pay_type) }}
+        </el-descriptions-item>
         <el-descriptions-item label="下单时间">{{ form.create_time || '—' }}</el-descriptions-item>
+        <el-descriptions-item v-if="form.pay_time" label="确认时间">{{ form.pay_time }}</el-descriptions-item>
+        <el-descriptions-item label="备注" :span="2">{{ form.remark || '—' }}</el-descriptions-item>
       </el-descriptions>
       <el-form
         v-else
@@ -1039,6 +1060,11 @@ function openEdit(row) {
   editing.value = true;
   for (const k of Object.keys(form)) delete form[k];
   for (const f of mod.value.fields || []) form[f.k] = row[f.k];
+  // 列表行还带了 enrich 补出来的展示字段（_buyer / _buyer_mobile / _seller / order_state_text 等），
+  // 它们不在列定义里，不复制过去详情弹窗就取不到 —— 买家、卖家会显示成「—」
+  for (const [k, v] of Object.entries(row)) {
+    if (k.startsWith('_') || k === 'order_state_text' || k === 'transferred') form[k] = v;
+  }
   // 换了一条记录，之前记住的文本域已经不在这个弹窗里了
   richFieldKey.value = '';
   if (modKey.value === 'orders') {
@@ -1189,9 +1215,39 @@ async function cancelScoreExchange(row) {
 }
 
 async function confirmPay(row) {
-  await adminApi.confirmPay({ order_id: row.order_id });
-  ElMessage.success('已确认抢单');
-  load();
+  // 确认抢单 = 认定收到货款并完成成交，钱货都动，不可撤销，必须先弹卡片核对
+  const buyer = row._buyer || '未设置昵称';
+  const mobile = row._buyer_mobile || '—';
+  try {
+    await ElMessageBox.confirm(
+      `<div class="confirm-card">
+        <p class="confirm-card__ask">确认已收到这笔货款？确认后订单立即成交，商品归买家所有，不可撤销。</p>
+        <dl>
+          <div><dt>订单号</dt><dd>${row.order_no || '—'}</dd></div>
+          <div><dt>商品</dt><dd>${row.goods_name || '—'}</dd></div>
+          <div><dt>买家</dt><dd>${buyer} · ${mobile}</dd></div>
+          <div><dt>实付金额</dt><dd class="confirm-card__money">¥${payTotalOf(row).toFixed(2)}</dd></div>
+        </dl>
+      </div>`,
+      '确认抢单',
+      {
+        type: 'warning',
+        confirmButtonText: '确认收款',
+        cancelButtonText: '再想想',
+        dangerouslyUseHTMLString: true,
+        customClass: 'order-confirm-box',
+      },
+    );
+  } catch {
+    return;
+  }
+  const r = await adminApi.confirmPay({ order_id: row.order_id });
+  if (r.code === 1) {
+    ElMessage.success(r.msg || '已确认抢单');
+    load();
+  } else {
+    ElMessage.error(r.msg || '确认失败');
+  }
 }
 
 // 批量确认抢单：只处理「待确认」的单，勾了别的会自动跳过
@@ -1707,6 +1763,7 @@ onUnmounted(() => {
 .stacked { display: flex; flex-direction: column; line-height: 1.35; }
 .stacked__main { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stacked__sub { color: var(--muted, #9098a3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.detail-mobile { margin-left: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
 
 /* 订单列表的刷新按钮：图标 + 文字，刷新中图标转圈 */
 .refresh-ico { vertical-align: -1px; }

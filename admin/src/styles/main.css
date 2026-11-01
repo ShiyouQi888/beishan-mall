@@ -141,6 +141,15 @@ a { text-decoration: none; color: inherit; }
   border-radius: 6px;
   font-weight: 500;
 }
+/* 确认抢单弹窗：ElMessageBox 渲染在 body 下，只能写全局样式 */
+.order-confirm-box .confirm-card__ask { margin: 0 0 12px; color: #5a6270; font-size: 13px; line-height: 1.65; }
+.order-confirm-box .confirm-card dl { margin: 0; border: 1px solid #eef0f4; border-radius: 10px; overflow: hidden; background: #fbfcfd; }
+.order-confirm-box .confirm-card dl > div { display: flex; justify-content: space-between; gap: 14px; padding: 9px 12px; font-size: 13px; }
+.order-confirm-box .confirm-card dl > div + div { border-top: 1px solid #f1f3f7; }
+.order-confirm-box .confirm-card dt { flex: none; color: #9098a3; }
+.order-confirm-box .confirm-card dd { margin: 0; color: #2b323d; text-align: right; word-break: break-all; }
+.order-confirm-box .confirm-card__money { color: #d4380d; font-weight: 700; }
+
 .tag-ok { background: #eefaf3; color: #1f9d5f; }
 .tag-warn { background: #fff7e8; color: #c88a1e; }
 .tag-off { background: #f2f4f7; color: #7d848f; }

@@ -173,7 +173,8 @@ const M = {
       { k: 'pay_status', t: '付款状态', type: 'select', opts: { 10: '已确认', 0: '未确认' }, w: 96, hide: true },
       { k: 'status', t: '内部状态', type: 'select', opts: ORDER_STATUS, w: 100, hide: true },
       // 支付方式这一环已下线，字段保留仅为兼容历史数据，前台后台都不再展示
-      { k: 'pay_type', t: '支付方式', type: 'select', opts: { 0: '未支付', 1: '余额', 2: '微信', 3: '支付宝', 4: '线下凭证' }, w: 110, hide: true },
+      // 0 不是「未支付」而是「申请抢单」：这套玩法前台只提交申请，等平台确认
+      { k: 'pay_type', t: '支付方式', type: 'select', opts: { 0: '申请抢单', 1: '余额', 2: '微信', 3: '支付宝', 4: '线下凭证' }, w: 110, hide: true },
       { k: 'pay_voucher', t: '支付凭证', type: 'image', w: 80, hide: true, readonly: true },
       { k: 'buyer', t: '买家', type: 'member', w: 132 },
       { k: 'seller_id', t: '卖家ID', type: 'text', w: 90, hide: true },
@@ -1192,7 +1193,11 @@ function enrich(mod, row) {
     const b = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', row.member_id);
     out._buyer = b?.nick_name || '';
     out._buyer_mobile = b?.mobile || '';
-    if (row.seller_id) out._seller = get('SELECT nick_name FROM member WHERE member_id = ?', row.seller_id)?.nick_name || '';
+    if (row.seller_id) {
+      const sm = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', row.seller_id);
+      out._seller = sm?.nick_name || '';
+      out._seller_mobile = sm?.mobile || '';
+    }
     // 已转拍出去的单不需要发货，前端据此隐藏发货按钮、状态显示为「已转拍」
     out.transferred = isTransferredOut(row) ? 1 : 0;
   }
