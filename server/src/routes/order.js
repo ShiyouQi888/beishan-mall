@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { all, get, run, tx, now } from '../db.js';
-import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, priceIncreaseRate, calcNextPrice, assetUrl, ORDER_STATUS, ORDER_TYPE, PAY_TYPE } from '../lib/helper.js';
+import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, priceIncreaseRate, calcNextPrice, assetUrl, ORDER_STATUS, ORDER_TYPE, PAY_TYPE, orderStateText } from '../lib/helper.js';
 import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate, goodsStillOwnedBySeller } from '../lib/settle.js';
 import { deductStock, restoreStock, isPieceSale } from '../lib/stock.js';
@@ -36,8 +36,9 @@ function fmtOrder(o) {
     // H5 订单列表/详情就算前端算好了「实付 = 货款 + 服务费 + 上架费」也永远减不出上架费。
     listing_fee: Number(o.listing_fee || 0).toFixed(2),
     status: o.status,
-    // 没有支付与发货环节：只看平台确认没确认
-    status_text: Number(o.pay_status) === 10 ? '已确认' : '待确认',
+    // 没有支付与发货环节：看平台确认没确认；已取消的必须单独标出来，
+    // 否则会员取消后订单在列表里仍显示「待确认」，看起来像没生效
+    status_text: orderStateText(o),
     transferred: transferred ? 1 : 0,
     pay_status: o.pay_status,
     pay_type: o.pay_type,
@@ -307,6 +308,10 @@ r.post('/toPay', authMember, (req, res) => {
   const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), m.member_id);
   if (!o) return res.json(fail('订单不存在'));
   if (o.pay_status === 10) return res.json(fail('订单已支付'));
+  // 会员取消后 status=40、pay_status 还是 0，原来这里没有任何校验：
+  // 从订单详情或历史页再点一次「支付」，这笔已撤回的单会被直接扣款成交（钱扣了、货也过户）。
+  // 下面 pt===0 的分支单独拦过，但余额支付那条路没拦，必须在最前面统一拦住。
+  if (Number(o.status) === 40) return res.json(fail('订单已取消，不能再支付'));
   // 显式传 0 表示「申请抢单」；不传才回退到订单上记录的支付方式
   const pt = pay_type === undefined || pay_type === null || pay_type === ''
     ? (Number.isFinite(Number(o.pay_type)) ? Number(o.pay_type) : 1)

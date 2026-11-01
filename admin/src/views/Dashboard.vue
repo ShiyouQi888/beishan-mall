@@ -62,7 +62,7 @@
             </div>
             <div class="r-right">
               <div class="money money-red">¥{{ o.total_price }}</div>
-              <span class="tag-status" :class="o.pay_status === 10 ? 'tag-ok' : 'tag-warn'">{{ o.status_text }}</span>
+              <span class="tag-status" :class="o.pay_status === 10 ? 'tag-ok' : (o.pay_status === 40 ? 'tag-off' : 'tag-warn')">{{ o.status_text }}</span>
             </div>
           </div>
         </div>

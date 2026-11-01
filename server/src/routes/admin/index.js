@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { themeOptions } from '../../lib/themes.js';
 import { isSuperRole } from '../../lib/nodes.js';
 import { all, get, run, tx, now, today } from '../../db.js';
-import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE } from '../../lib/helper.js';
+import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE, orderStateText } from '../../lib/helper.js';
 import { hashPwd, verifyPwd, needsRehash, signAdmin, randomCode } from '../../lib/auth.js';
 import { settleOrder, goodsStillOwnedBySeller } from '../../lib/settle.js';
 import { restoreStock } from '../../lib/stock.js';
@@ -163,8 +163,10 @@ const M = {
       { k: 'service_charge', t: '服务费', type: 'money', w: 90, hide: true },
       // 上架费现在随下单一起收，等于订单的第三块构成：货款 + 服务费 + 上架费 = 买家实付
       { k: 'listing_fee', t: '上架费(预付)', type: 'money', w: 104, hide: true },
-      // 状态只看「付没付」：这套玩法没有发货环节，别再显示待发货/待收货误导运营
-      { k: 'pay_status', t: '状态', type: 'select', opts: { 10: '已确认', 0: '待确认' }, w: 96 },
+      // 状态由服务端合并 status 与 pay_status 后给出：会员取消后必须显示「已取消」，
+      // 不能还挂着「待确认」—— 运营看到待确认就会去点确认收款
+      { k: 'order_state_text', t: '状态', type: 'text', readonly: true, w: 96 },
+      { k: 'pay_status', t: '付款状态', type: 'select', opts: { 10: '已确认', 0: '未确认' }, w: 96, hide: true },
       { k: 'status', t: '内部状态', type: 'select', opts: ORDER_STATUS, w: 100, hide: true },
       // 支付方式这一环已下线，字段保留仅为兼容历史数据，前台后台都不再展示
       { k: 'pay_type', t: '支付方式', type: 'select', opts: { 0: '未支付', 1: '余额', 2: '微信', 3: '支付宝', 4: '线下凭证' }, w: 110, hide: true },
@@ -458,8 +460,9 @@ r.get('/dashboard', authAdmin, (req, res) => {
         goods_total: num('SELECT COUNT(*) c FROM goods'),
         goods_online: num('SELECT COUNT(*) c FROM goods WHERE goods_status = 10 AND IFNULL(recycled, 0) = 0'),
         goods_capped: num('SELECT COUNT(*) c FROM goods WHERE IFNULL(recycled, 0) <> 0'),
-        order_total: num('SELECT COUNT(*) c FROM orders'),
-        order_today: num('SELECT COUNT(*) c FROM orders WHERE create_time >= ?', d),
+        // 已取消的订单不算业务量：会员取消后不该继续体现在「订单总数/今日订单」里
+        order_total: num('SELECT COUNT(*) c FROM orders WHERE IFNULL(status, 0) <> 40'),
+        order_today: num('SELECT COUNT(*) c FROM orders WHERE IFNULL(status, 0) <> 40 AND create_time >= ?', d),
         turnover_total: money(sum('SELECT IFNULL(SUM(total_price),0) v FROM orders WHERE pay_status = 10')),
         turnover_today: money(sum('SELECT IFNULL(SUM(total_price),0) v FROM orders WHERE pay_status = 10 AND create_time >= ?', d)),
         // 平台自己的收入：抢单服务费 + 转拍上架费（直推奖是支出，放在财务大盘）
@@ -472,16 +475,16 @@ r.get('/dashboard', authAdmin, (req, res) => {
       },
       trend: buildTrend(),
       recent_orders: all(
-        `SELECT order_id, order_no, goods_name, total_price, pay_status, create_time, type
+        `SELECT order_id, order_no, goods_name, total_price, pay_status, status, create_time, type
          FROM orders ORDER BY order_id DESC LIMIT 6`,
       ).map((o) => ({
         order_id: o.order_id,
         order_no: o.order_no,
         goods_name: o.goods_name,
         total_price: Number(o.total_price).toFixed(2),
-        // 订单早就不看发货了，这里也只区分「付没付」
-        pay_status: Number(o.pay_status) === 10 ? 10 : 0,
-        status_text: Number(o.pay_status) === 10 ? '已确认' : '待确认',
+        // 三态：已确认 / 待确认 / 已取消（原来只有前两种，取消的单会显示成「待确认」）
+        status_text: orderStateText(o),
+        pay_status: Number(o.pay_status) === 10 ? 10 : (Number(o.status) === 40 ? 40 : 0),
         create_time: o.create_time,
       })),
       recent_members: all('SELECT member_id, nick_name, mobile, create_time FROM member ORDER BY member_id DESC LIMIT 6'),
@@ -1034,7 +1037,7 @@ r.get('/orders/export', authAdmin, (req, res) => {
     Number(o.service_charge || 0).toFixed(2),
     Number(o.listing_fee || 0).toFixed(2),
     money(Number(o.total_price || 0) + Number(o.service_charge || 0) + Number(o.listing_fee || 0)).toFixed(2),
-    Number(o.pay_status) === 10 ? '已确认' : '待确认',
+    orderStateText(o),
     o.buyer_name || '',
     o.seller_name || '',
     // 时间列单独走 csvTime，避免 Excel 认成日期后整列 ####
@@ -1179,6 +1182,7 @@ function enrich(mod, row) {
     out._member = mm ? `${mm.nick_name || '会员'} · ${mm.mobile}` : '—';
   }
   if (mod === 'orders') {
+    out.order_state_text = orderStateText(row);
     const b = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', row.member_id);
     out._buyer = b?.nick_name || '';
     out._buyer_mobile = b?.mobile || '';
@@ -1640,6 +1644,9 @@ function confirmPayOne(orderId) {
   const o = get('SELECT * FROM orders WHERE order_id = ?', Number(orderId));
   if (!o) { const e = new Error('订单不存在'); e.biz = true; throw e; }
   if (o.pay_status === 10) { const e = new Error('订单已确认'); e.biz = true; throw e; }
+  // 会员取消后 status=40 但 pay_status 还是 0，不拦住的话运营会把一笔已取消的单
+  // 「确认收款」，钱进账、货也过户，等于把会员撤回的申请又强行成交了
+  if (Number(o.status) === 40) { const e = new Error('订单已被取消，不能确认收款'); e.biz = true; throw e; }
   // 后台开了「支付凭证必传」才拦；关了就是运营自己承担无凭证确认的风险。
   // pay_type=0 是「申请抢单」——前台已经整体去掉支付方式与凭证上传，
   // 这类订单永远不会有凭证，不能拿凭证去卡它，否则新单永远确认不了。

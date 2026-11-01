@@ -143,6 +143,16 @@ function adminRequestAllowed(req, allowedPaths) {
 export const GOODS_STATUS = { 10: '上架', 20: '下架' };
 export const ORDER_STATUS = { 0: '待付款', 10: '待发货', 20: '待收货', 30: '已完成', 40: '已取消' };
 export const ORDER_TYPE = { 1: '抢购订单', 2: '寄卖订单', 3: '商城订单', 4: '寄买订单' };
+
+/**
+ * 订单对外状态文案（H5、后台列表、导出共用一份）。
+ * 必须先看 status：会员取消后是 status=40、pay_status 仍为 0，
+ * 只看 pay_status 会把已取消的单显示成「待确认」，运营还可能再去点确认收款。
+ */
+export const orderStateText = (o) => {
+  if (Number(o?.status) === 40) return '已取消';
+  return Number(o?.pay_status) === 10 ? '已确认' : '待确认';
+};
 export const PAY_TYPE = { 1: '余额支付', 2: '微信支付', 3: '支付宝', 4: '线下凭证' };
 
 /** 金额两位小数 */

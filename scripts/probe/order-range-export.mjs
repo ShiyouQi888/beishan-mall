@@ -93,7 +93,8 @@ async function main() {
   check('带下载文件名', /attachment; filename="orders-\d{8}\.csv"/.test(disp), disp);
   check('有 UTF-8 BOM（Excel 不乱码）', buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf, buf.slice(0, 3).toString('hex'));
   const lines = text.replace(/^\ufeff/, '').split('\r\n');
-  check('表头正确', lines[0] === '订单号,商品,类型,单价,数量,总额,服务费,状态,买家,卖家,下单时间,确认时间,备注', lines[0]);
+  // 导出列已扩到「商品金额 / 抢单服务费 / 转拍上架费 / 实付金额」，运营按实付对账
+  check('表头正确', lines[0] === '订单号,商品,类型,单价,数量,商品金额,抢单服务费,转拍上架费,实付金额,状态,买家,卖家,下单时间,确认时间,备注', lines[0]);
   check('行数 = 今日订单数 + 表头', lines.filter(Boolean).length === dbToday + 1, `${lines.filter(Boolean).length} vs ${dbToday + 1}`);
   check('金额保留两位小数', lines.length < 2 || /,\d+\.\d{2},\d+,/.test(lines[1] || ''), lines[1] || '(今日无单)');
   // 时间列包成 ="..."，Excel 才不会把它当日期压成 ####
