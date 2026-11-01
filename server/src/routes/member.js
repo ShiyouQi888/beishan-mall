@@ -90,6 +90,21 @@ r.get('/getMemberDetails', authMember, (req, res) => {
     today(),
   )?.v;
 
+  // 「今日订单」必须由服务端算：原来前端只拉 1 条订单再去筛今天，结果只能是 0 或 1，
+  // 而且用 toISOString() 取的是 UTC 日期，北京时间 0~8 点下的单会被判成「不是今天」。
+  // 口径：我今天下的单，已取消的不算。
+  const todayOrders = get(
+    'SELECT COUNT(*) c FROM orders WHERE member_id = ? AND IFNULL(status, 0) <> 40 AND create_time >= ?',
+    m.member_id, today(),
+  )?.c || 0;
+  // 粉丝订单：直推下级（p_id = 我）的累计订单数，同样排除已取消
+  const teamOrders = get(
+    `SELECT COUNT(*) c FROM orders o
+       JOIN member mm ON mm.member_id = o.member_id
+      WHERE mm.p_id = ? AND IFNULL(o.status, 0) <> 40`,
+    m.member_id,
+  )?.c || 0;
+
   res.json(
     ok({
       member_id: m.member_id,
@@ -107,6 +122,8 @@ r.get('/getMemberDetails', authMember, (req, res) => {
       certification_name: m.certification_name || '',
       invitation_code: m.invitation_code,
       todayAchievement: '0.00',
+      today_orders: todayOrders,
+      team_orders: teamOrders,
       todayProfit: money(todayProfit),
       todayCommission: money(todayProfit),
       teamAchievements: '0.00',

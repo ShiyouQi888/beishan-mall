@@ -143,11 +143,13 @@ function go(f) {
 async function load() {
   if (!logged.value) return;
   try {
-    const [m, o, t] = await Promise.allSettled([api.me(), api.orders({ page: 1, limit: 1 }), api.indirection()]);
-    if (m.status === 'fulfilled') me.value = m.value.data || {};
-    if (o.status === 'fulfilled') {
-      const list = o.value.data?.data || [];
-      stats.orders = list.filter((x) => x.create_time?.startsWith(new Date().toISOString().slice(0, 10))).length;
+    // 今日订单 / 粉丝订单都由服务端统计，前端不再拉一页订单自己数
+    // （原来只取 limit:1 一条，再按 UTC 日期筛，数字永远只能是 0 或 1）
+    const [m, t] = await Promise.allSettled([api.me(), api.indirection()]);
+    if (m.status === 'fulfilled') {
+      me.value = m.value.data || {};
+      stats.orders = Number(me.value.today_orders) || 0;
+      stats.teamOrders = Number(me.value.team_orders) || 0;
     }
     if (t.status === 'fulfilled') stats.team = (t.value.data || []).length;
     // 我的店铺摘要：在售件数 + 预计收益
