@@ -87,6 +87,15 @@
           <el-option v-for="o in (optsCache.specialarea || [])" :key="o.id" :label="o.name" :value="o.id" />
         </el-select>
         <el-button @click="reload">查询</el-button>
+        <!-- 订单没有自动刷新（只有商品/回收有），运营等新单时得有个明确的刷新入口，
+             不用为了看一眼去改筛选条件再改回来 -->
+        <el-button v-if="modKey === 'orders'" :disabled="loading" @click="reload">
+          <svg class="refresh-ico" :class="{ spin: loading }" viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">
+            <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            <path d="M20 4.6V9h-4.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span class="refresh-ico__text">刷新</span>
+        </el-button>
         <template v-if="modKey === 'category'">
           <el-button size="small" @click="batchHomeShow(10)">全部上首页</el-button>
           <el-button size="small" type="warning" plain @click="batchHomeShow(20)">关闭全部分类</el-button>
@@ -1682,6 +1691,12 @@ onUnmounted(() => {
 .s-sub { font-size: 11.5px; color: #a8adb7; margin-top: 3px; }
 .pager { display: flex; justify-content: flex-end; margin-top: 14px; }
 .ops { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* 订单列表的刷新按钮：图标 + 文字，刷新中图标转圈 */
+.refresh-ico { vertical-align: -1px; }
+.refresh-ico.spin { animation: list-refresh-spin .8s linear infinite; }
+.refresh-ico__text { margin-left: 5px; }
+@keyframes list-refresh-spin { to { transform: rotate(360deg); } }
 
 /* 取消来源筛选标签：可点切换，选中用实心红 */
 .cancel-tabs { display: flex; align-items: center; gap: 8px; }
