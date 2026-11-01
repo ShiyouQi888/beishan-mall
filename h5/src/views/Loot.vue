@@ -52,7 +52,10 @@
             <div class="loot-card__name ellipsis">{{ g.goods_name }}</div>
             <div class="loot-card__row">
               <div class="price"><span class="sym">¥</span>{{ Number(g.goods_min_price).toFixed(0) }}</div>
-              <div class="loot-card__btn" :class="{ done: greyOut(g) || !current.is_ordinary_order }">
+              <!-- 按钮只跟商品自身状态走，不要再叠加「当前 tab 场次是否开放」：
+                   商品可能同时挂在多个场次，当前这场结束了但别的场还开着，
+                   叠加的结果就是「卡片亮着、按钮灰着、文字写着去抢购」—— 三个信号互相打架 -->
+              <div class="loot-card__btn" :class="{ done: greyOut(g) }">
                 {{ btnText(g) }}
               </div>
             </div>
