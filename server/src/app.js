@@ -73,6 +73,18 @@ if (!db.prepare('PRAGMA table_info(orders)').all().some((c) => c.name === 'cance
   db.exec('ALTER TABLE orders ADD COLUMN cancel_by INTEGER DEFAULT 0');
   console.log('[migrate] orders.cancel_by 已添加（1=会员取消 2=后台取消）');
 }
+// 订单转让：记转让次数与最后一次时间，列表要能一眼看出「这单转过手」。
+// 转让流水本身在 order_transfer 表里（schema.sql 建表），这里只补订单上的冗余计数。
+for (const [col, ddl] of [
+  ['transfer_count', 'ALTER TABLE orders ADD COLUMN transfer_count INTEGER DEFAULT 0'],
+  ['last_transfer_time', "ALTER TABLE orders ADD COLUMN last_transfer_time TEXT DEFAULT ''"],
+]) {
+  if (!db.prepare('PRAGMA table_info(orders)').all().some((c) => c.name === col)) {
+    db.exec(ddl);
+    console.log(`[migrate] orders.${col} 已添加`);
+  }
+}
+
 // 商品增加「每场放量」：库存是仓库里一共有多少，放量是这一场只拿出多少来卖。
 // 例如库存 100 件、每场只放 10 件 —— 抢满 10 件这一场就结束变灰，剩下的留在下次。
 // 0（默认）= 不限，整批库存都能卖，现有商品行为不变。

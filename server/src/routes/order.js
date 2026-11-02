@@ -429,7 +429,45 @@ r.get('/getOrder', authMember, (req, res) => {
   const total = get(`SELECT COUNT(*) c FROM orders WHERE ${w}`, ...args).c;
   const list = all(`SELECT * FROM orders WHERE ${w} ORDER BY order_id DESC LIMIT ? OFFSET ?`, ...args, pp, (cur - 1) * pp);
   const applied = appliedIdSet(list.map((o) => o.order_id));
-  res.json(ok(page(list.map((o) => ({ ...fmtOrder(o), applied: applied.has(Number(o.order_id)) ? 1 : 0 })), total, cur, pp)));
+
+  // 「我转出的订单」：后台把单转给别人后，这笔单在列表里会凭空消失，会员第一反应是「我的订单没了」。
+  // 只在「全部」第一页补几条只读记录 —— 不动分页与各 tab 的语义，转出量本来就少（只有后台操作才产生）。
+  let outList = [];
+  const noFilter = (v) => v === undefined || v === '' || v === 'all';
+  if (!order_id && noFilter(status) && noFilter(pay_status) && noFilter(dataType) && cur === 1) {
+    const mine = new Set(list.map((o) => Number(o.order_id)));
+    outList = all(
+      `SELECT t.order_id, t.to_member_id, t.create_time AS transfer_time
+         FROM order_transfer t
+         JOIN (SELECT order_id, MAX(transfer_id) mid FROM order_transfer
+                WHERE from_member_id = ? GROUP BY order_id) x ON x.mid = t.transfer_id
+        ORDER BY t.transfer_id DESC LIMIT 20`,
+      req.member.member_id,
+    )
+      // 又转回自己名下的不重复展示（那是正常订单）
+      .filter((t) => !mine.has(Number(t.order_id)))
+      .map((t) => {
+        const o = get('SELECT * FROM orders WHERE order_id = ?', t.order_id);
+        if (!o) return null;
+        const to = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', t.to_member_id);
+        return {
+          ...fmtOrder(o),
+          // 已转出：订单不再属于他，任何操作都不该出现
+          transferred_out: 1,
+          transferred: 0,
+          status_text: '已转出',
+          transfer_time: t.transfer_time,
+          out_to_name: to?.nick_name || '',
+          // 手机号打码：受让方是谁，原买家只需要能认出来，不需要完整号码
+          out_to_mobile: String(to?.mobile || '').replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2'),
+          applied: 0,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  const data = list.map((o) => ({ ...fmtOrder(o), applied: applied.has(Number(o.order_id)) ? 1 : 0, transferred_out: 0 }));
+  res.json(ok(page([...data, ...outList], total + outList.length, cur, pp)));
 });
 
 r.get('/detail', authMember, (req, res) => {

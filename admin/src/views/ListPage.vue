@@ -270,13 +270,16 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 236 : modKey === 'scoreExchange' ? 260 : modKey === 'goods' ? 220 : modKey === 'recycle' ? 176 : 210" fixed="right">
+        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 292 : modKey === 'scoreExchange' ? 260 : modKey === 'goods' ? 220 : modKey === 'recycle' ? 176 : 210" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <template v-if="modKey === 'orders'">
                 <el-button size="small" @click="openEdit(row)">详情</el-button>
                 <!-- 确认抢单就等于通过，不需要再单独审核一次 -->
                 <el-button v-if="row.status === 0" size="small" type="success" @click="confirmPay(row)">确认抢单</el-button>
+                <!-- 转让：未付款=把名额给别人，已付款=订单归别人。
+                     已取消的单没有可转的东西，直接不显示 -->
+                <el-button v-if="row.status !== 40" size="small" type="primary" plain @click="openTransfer(row)">转让</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
               </template>
               <template v-else-if="modKey === 'scoreExchange'">
@@ -408,6 +411,24 @@
         <el-descriptions-item v-if="form.pay_time" label="确认时间">{{ form.pay_time }}</el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ form.remark || '—' }}</el-descriptions-item>
       </el-descriptions>
+      <!-- 转让记录：这单换过几次手、谁经手的，只能从这里看 -->
+      <div v-if="modKey === 'orders' && transferHistory.length" class="transfer-log">
+        <div class="transfer-log__title">转让记录</div>
+        <div v-for="t in transferHistory" :key="t.transfer_id" class="transfer-log__item">
+          <div class="transfer-log__line">
+            <span class="transfer-log__from">{{ t.from_name || `会员${t.from_member_id}` }}</span>
+            <span class="muted">{{ t.from_mobile }}</span>
+            <span class="transfer-log__arrow">→</span>
+            <span class="transfer-log__to">{{ t.to_name || `会员${t.to_member_id}` }}</span>
+            <span class="muted">{{ t.to_mobile }}</span>
+          </div>
+          <div class="transfer-log__meta">
+            {{ t.create_time }} · {{ t.reason }} · 操作人 {{ t.operator || 'admin' }}
+            <span v-if="Number(t.paid_before) === 1"> · 已成交，线下结算参考 ¥{{ Number(t.amount || 0).toFixed(2) }}</span>
+            <span v-else> · 未付款，仅转移名额</span>
+          </div>
+        </div>
+      </div>
       <el-form
         v-else
         :label-width="modKey === 'goods' ? '92px' : '124px'"
@@ -542,6 +563,123 @@
       <template #footer>
         <el-button @click="dialog = false">{{ modKey === 'orders' ? '关闭' : '取消' }}</el-button>
         <el-button v-if="modKey !== 'orders' && modKey !== 'recycle'" type="primary" :loading="saving" @click="save">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 订单转让 -->
+    <el-dialog v-model="transferDlg" title="订单转让" width="580px" destroy-on-close>
+      <div class="tr-order">
+        <div class="tr-order__row">
+          <span class="muted">订单号</span>
+          <span>{{ transferRow.order_no || '—' }}</span>
+        </div>
+        <div class="tr-order__row">
+          <span class="muted">商品</span>
+          <span class="ellipsis">{{ transferRow.goods_name || '—' }}</span>
+        </div>
+        <div class="tr-order__row">
+          <span class="muted">金额</span>
+          <span>¥{{ payTotalOf(transferRow).toFixed(2) }}</span>
+        </div>
+        <div class="tr-order__row">
+          <span class="muted">原买家</span>
+          <span>
+            {{ transferRow._buyer || '未设置昵称' }}
+            <span v-if="transferRow._buyer_mobile" class="muted">{{ transferRow._buyer_mobile }}</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- 两种语义必须说清楚，否则运营会把「转名额」和「转订单」搞混 -->
+      <el-alert
+        v-if="Number(transferRow.pay_status) === 10"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="该订单已成交"
+        description="转让后订单与商品一并归新买家，货款由双方线下结清。平台不退款、不收款、不动余额。"
+        class="tr-alert"
+      />
+      <el-alert
+        v-else
+        type="info"
+        :closable="false"
+        show-icon
+        title="该订单尚未付款"
+        description="转让后名额归新买家，由他继续付款；原买家不再持有该单，也无法再操作它。"
+        class="tr-alert"
+      />
+
+      <el-form label-width="88px" style="margin-top: 14px">
+        <el-form-item label="接手会员" required>
+          <el-select
+            v-model="transferForm.to_member_id"
+            filterable
+            remote
+            clearable
+            reserve-keyword
+            :remote-method="searchCandidates"
+            :loading="candidateLoading"
+            placeholder="输入手机号 / 昵称 / 会员ID 搜索"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="m in candidateOptions"
+              :key="m.member_id"
+              :value="m.member_id"
+              :label="`${m.nick_name || '未设置昵称'} · ${m.mobile}`"
+              :disabled="m.disabled === 1 || m.is_current === 1"
+            >
+              <div class="tr-opt">
+                <span>{{ m.nick_name || '未设置昵称' }} · {{ m.mobile }}</span>
+                <span class="muted">
+                  余额 ¥{{ Number(m.amount || 0).toFixed(2) }}
+                  <template v-if="m.area_limit > 0"> · 本场已抢 {{ m.area_bought }}/{{ m.area_limit }}</template>
+                  <template v-if="m.disabled === 1"> · 已禁用</template>
+                  <template v-if="m.is_current === 1"> · 就是原买家</template>
+                </span>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+
+        <!-- 选中的会员要能看到「他已经抢了几件」，转让会占用他的本场额度 -->
+        <el-form-item v-if="pickedCandidate" label="接手人">
+          <div class="tr-picked">
+            <b>{{ pickedCandidate.nick_name || '未设置昵称' }}</b>
+            <span class="muted">{{ pickedCandidate.mobile }} · 余额 ¥{{ Number(pickedCandidate.amount || 0).toFixed(2) }}</span>
+            <div v-if="pickedCandidate.area_limit > 0" class="tr-picked__limit" :class="{ 'is-over': pickedCandidate.over_limit === 1 }">
+              本场已抢 {{ pickedCandidate.area_bought }} 件（限购 {{ pickedCandidate.area_limit }} 件）
+              <template v-if="pickedCandidate.over_limit === 1">，转让后会超出限购 —— 请确认这是你的本意</template>
+            </div>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="转让原因" required>
+          <el-select v-model="transferForm.reason" style="width: 100%">
+            <el-option v-for="r in TRANSFER_REASONS" :key="r" :label="r" :value="r" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input
+            v-model="transferForm.remark"
+            type="textarea"
+            :rows="2"
+            maxlength="80"
+            show-word-limit
+            placeholder="例如：会员用朋友账号代拍，现转到本人名下"
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="transferDlg = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="transferring"
+          :disabled="!transferForm.to_member_id"
+          @click="doTransfer"
+        >确认转让</el-button>
       </template>
     </el-dialog>
 
@@ -1056,6 +1194,99 @@ function openCreate() {
   dialog.value = true;
 }
 
+// ---------- 订单转让 ----------
+// 两种语义：未付款 = 把名额给别人（新买家自己去付款）；已付款 = 订单归别人。
+// 两种都不动账，货款由会员之间线下结清 —— 平台介入退款会凭空造出资金流水。
+const TRANSFER_REASONS = ['帮人代拍', '账号错误', '客服调整', '线下已结清', '其它'];
+const transferDlg = ref(false);
+const transferRow = ref({});
+const transferForm = reactive({ to_member_id: null, reason: '客服调整', remark: '' });
+const candidateOptions = ref([]);
+const candidateLoading = ref(false);
+const transferring = ref(false);
+const transferHistory = ref([]);
+const pickedCandidate = computed(
+  () => candidateOptions.value.find((m) => Number(m.member_id) === Number(transferForm.to_member_id)) || null,
+);
+
+function openTransfer(row) {
+  transferRow.value = row;
+  transferForm.to_member_id = null;
+  transferForm.reason = Number(row.pay_status) === 10 ? '客服调整' : '帮人代拍';
+  transferForm.remark = '';
+  candidateOptions.value = [];
+  transferDlg.value = true;
+}
+
+let candidateTimer = null;
+function searchCandidates(kw) {
+  clearTimeout(candidateTimer);
+  const key = String(kw || '').trim();
+  if (!key) { candidateOptions.value = []; return; }
+  // 每敲一个字就发一次请求会把接口打满，等 260ms 再说
+  candidateTimer = setTimeout(async () => {
+    candidateLoading.value = true;
+    try {
+      const r = await adminApi.transferCandidates({ keyword: key, order_id: transferRow.value.order_id });
+      candidateOptions.value = r.data || [];
+    } catch {
+      candidateOptions.value = [];
+    } finally {
+      candidateLoading.value = false;
+    }
+  }, 260);
+}
+
+async function doTransfer() {
+  const m = pickedCandidate.value;
+  if (!m) { ElMessage.warning('请先选择接手会员'); return; }
+  const paid = Number(transferRow.value.pay_status) === 10;
+  const reason = transferForm.remark.trim()
+    ? `${transferForm.reason}：${transferForm.remark.trim()}`
+    : transferForm.reason;
+  try {
+    await ElMessageBox.confirm(
+      `<div class="confirm-card">
+        <p class="confirm-card__ask">${paid
+          ? '这笔订单已成交。转让后订单与商品一并归新买家，货款由双方线下结清，平台不退款、不收款。操作不可撤销。'
+          : '这笔订单尚未付款。转让后名额归新买家，由他继续付款。操作不可撤销。'}</p>
+        <dl>
+          <div><dt>订单号</dt><dd>${transferRow.value.order_no || '—'}</dd></div>
+          <div><dt>商品</dt><dd>${transferRow.value.goods_name || '—'}</dd></div>
+          <div><dt>原买家</dt><dd>${transferRow.value._buyer || '未设置昵称'} · ${transferRow.value._buyer_mobile || '—'}</dd></div>
+          <div><dt>接手人</dt><dd>${m.nick_name || '未设置昵称'} · ${m.mobile}</dd></div>
+          <div><dt>金额</dt><dd class="confirm-card__money">¥${payTotalOf(transferRow.value).toFixed(2)}</dd></div>
+        </dl>
+      </div>`,
+      '确认转让',
+      {
+        type: 'warning',
+        confirmButtonText: '确认转让',
+        cancelButtonText: '再想想',
+        dangerouslyUseHTMLString: true,
+        customClass: 'order-confirm-box',
+      },
+    );
+  } catch {
+    return;
+  }
+  transferring.value = true;
+  try {
+    const r = await adminApi.transferOrder({
+      order_id: transferRow.value.order_id,
+      to_member_id: m.member_id,
+      reason,
+    });
+    ElMessage.success(r.msg || '已转让');
+    transferDlg.value = false;
+    load();
+  } catch {
+    // 请求拦截器已经弹过具体原因，这里不重复提示
+  } finally {
+    transferring.value = false;
+  }
+}
+
 function openEdit(row) {
   editing.value = true;
   for (const k of Object.keys(form)) delete form[k];
@@ -1070,6 +1301,12 @@ function openEdit(row) {
   if (modKey.value === 'orders') {
     form.is_examine = row.is_examine;
     form.pay_status = row.pay_status;
+    // 转让记录单独拉：列表行里只有次数，没有流水。换一条记录先清空，
+    // 否则会短暂显示上一条订单的转让历史
+    transferHistory.value = [];
+    adminApi.transferHistory(row.order_id)
+      .then((r) => { transferHistory.value = r.data || []; })
+      .catch(() => {});
   }
   if ('password' in form) form.password = '';
   dialog.value = true;
@@ -1764,6 +2001,28 @@ onUnmounted(() => {
 .stacked__main { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stacked__sub { color: var(--muted, #9098a3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .detail-mobile { margin-left: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* ---- 订单转让 ---- */
+.tr-order { border: 1px solid #eef0f4; border-radius: 10px; background: #fbfcfd; padding: 10px 12px; }
+.tr-order__row { display: flex; justify-content: space-between; gap: 14px; font-size: 13px; line-height: 1.95; }
+.tr-order__row > .muted { flex: none; }
+.tr-order__row > span:last-child { text-align: right; word-break: break-all; }
+.tr-alert { margin-top: 12px; }
+.tr-opt { display: flex; justify-content: space-between; gap: 12px; }
+.tr-opt .muted { font-size: 11.5px; }
+.tr-picked { font-size: 13px; line-height: 1.7; }
+.tr-picked .muted { margin-left: 6px; font-size: 12px; }
+.tr-picked__limit { color: #7c8593; font-size: 12px; }
+.tr-picked__limit.is-over { color: #d4380d; font-weight: 600; }
+
+.transfer-log { margin-top: 14px; border-top: 1px dashed #eef0f4; padding-top: 12px; }
+.transfer-log__title { font-size: 13px; font-weight: 600; color: #2b323d; margin-bottom: 6px; }
+.transfer-log__item { font-size: 12.5px; line-height: 1.7; padding: 5px 0; }
+.transfer-log__item + .transfer-log__item { border-top: 1px solid #f5f6f8; }
+.transfer-log__from { color: #9098a3; }
+.transfer-log__to { color: #2b323d; font-weight: 600; }
+.transfer-log__arrow { margin: 0 4px; color: #c3c9d2; }
+.transfer-log__meta { color: #9098a3; font-size: 11.5px; }
 
 /* 订单列表的刷新按钮：图标 + 文字，刷新中图标转圈 */
 .refresh-ico { vertical-align: -1px; }

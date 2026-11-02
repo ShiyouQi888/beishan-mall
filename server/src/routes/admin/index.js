@@ -5,7 +5,8 @@ import { all, get, run, tx, now, today } from '../../db.js';
 import { ok, fail, page, money, authAdmin, GOODS_STATUS, ORDER_STATUS, ORDER_TYPE, orderStateText } from '../../lib/helper.js';
 import { hashPwd, verifyPwd, needsRehash, signAdmin, randomCode } from '../../lib/auth.js';
 import { settleOrder, goodsStillOwnedBySeller } from '../../lib/settle.js';
-import { restoreStock } from '../../lib/stock.js';
+import { restoreStock, isPieceSale } from '../../lib/stock.js';
+import { sessionBoughtOf, sessionLimitOf } from '../../lib/purchaseLimit.js';
 import { areasOfGoods, areaMapOfGoods, setGoodsAreas, addGoodsToArea, removeGoodsFromArea, clearAreaLinks } from '../../lib/areaGoods.js';
 import { priceCapOf } from '../../lib/priceCap.js';
 import { todayStr, addDays } from '../../lib/sessionWindow.js';
@@ -155,7 +156,9 @@ const M = {
       // 订单ID 运营基本不看（对账用的是订单号），默认收起把宽度让给时间和手机号
       { k: 'order_id', t: '订单ID', type: 'text', readonly: true, w: 80, hide: true },
       { k: 'order_no', t: '订单号', type: 'text', readonly: true, w: 180 },
-      { k: 'goods_thumb', t: '图片', type: 'image', w: 70 },
+      // 图片默认收起：加了「转让」之后操作列变宽，这一列 70px 让给下单时间，
+      // 否则时间会被挤成「2026-11-02 11:3」。需要看图可在列设置里打开
+      { k: 'goods_thumb', t: '图片', type: 'image', w: 70, hide: true },
       { k: 'goods_name', t: '商品', type: 'text' },
       // 订单类型这个业务里几乎恒为「抢购订单」，默认收起，把宽度让给买家手机号
       { k: 'type', t: '类型', type: 'select', opts: ORDER_TYPE, w: 110, hide: true },
@@ -168,6 +171,9 @@ const M = {
       // 状态由服务端合并 status 与 pay_status 后给出：会员取消后必须显示「已取消」，
       // 不能还挂着「待确认」—— 运营看到待确认就会去点确认收款
       { k: 'order_state_text', t: '状态', type: 'orderstate', readonly: true, w: 104 },
+      // 转让痕迹：转过几次、最后一次是什么时候。默认收起，详情里会显示完整流水
+      { k: 'transfer_count', t: '转让次数', type: 'number', readonly: true, w: 90, hide: true },
+      { k: 'last_transfer_time', t: '最近转让', type: 'text', readonly: true, w: 160, hide: true },
       // 取消来源：1=会员自己取消 2=后台取消（0=没取消）。默认隐藏，用于顶部两个筛选标签
       { k: 'cancel_by', t: '取消来源', type: 'select', opts: { 1: '用户取消', 2: '后台取消' }, w: 100, hide: true },
       { k: 'pay_status', t: '付款状态', type: 'select', opts: { 10: '已确认', 0: '未确认' }, w: 96, hide: true },
@@ -1731,6 +1737,176 @@ r.post('/orders/confirm-pay-batch', authAdmin, (req, res) => {
   const msg = failed.length ? `已确认 ${done.length} 笔，${failed.length} 笔跳过` : `已确认 ${done.length} 笔收款`;
   res.json(ok({ done: done.length, failed }, msg));
 });
+
+// ==================== 订单转让 ====================
+// 两种语义，都只改归属，平台一分钱不动：
+//   未付款订单转让 → 把这个抢购名额给别人（按件商品 = 转名额，唯一一件 = 转锁单）
+//   已付款订单转让 → 订单归新买家，货款由双方线下结清（系统只记参考金额）
+//
+// 为什么坚持不动账：抢购订单的 seller_id 恒为 0（货款本来就归平台），
+// 系统里没有「把钱退给原买家」的合法路径；硬记一笔退款会让财务流水凭空多出资金。
+// 会员之间怎么结，平台不介入，也就不会有对不上的账。
+
+const TRANSFER_REASONS = ['帮人代拍', '账号错误', '客服调整', '线下已结清', '其它'];
+const maskMobile = (m) => String(m || '').replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2');
+const bizErr = (msg) => { const e = new Error(msg); e.biz = true; return e; };
+
+/**
+ * 一笔订单能不能转让。不能转就直接抛业务异常，文案要能直接给运营看。
+ * @returns {{ g: object, paid: boolean }}
+ */
+function transferCheck(o) {
+  if (!o) throw bizErr('订单不存在');
+  if (Number(o.status) === 40) throw bizErr('订单已取消，不能转让');
+  const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
+  if (!g) throw bizErr('商品不存在，无法转让');
+  const paid = Number(o.pay_status) === 10;
+  if (paid) {
+    // 按件出售的一批货：名额成交即消耗，货权始终留在原持有人手里，
+    // 买家手上只有一份「已成交份额」，没有可转的东西
+    if (isPieceSale(g)) throw bizErr('按件出售的订单成交后没有货权，不能转让');
+    // 挂牌中的货随时可能被别人买走，此时改归属会和成交并发打架，要求先下架
+    if (Number(o.consignment_status) === 10) {
+      throw bizErr('该商品正在挂牌转拍，请先在商品管理里下架后再转让');
+    }
+    if (Number(g.member_id) !== Number(o.member_id)) {
+      throw bizErr('商品已不在原买家名下（可能已被转拍卖出），不能转让');
+    }
+  }
+  return { g, paid };
+}
+
+// 搜索接手会员：手机号 / 昵称 / 会员ID，顺带给出「他本场已抢几件」，
+// 转让会占用他的限购额度，超了得让运营自己看见
+r.get('/orders/transfer-candidates', authAdmin, (req, res) => {
+  const kw = String(req.query.keyword || '').trim();
+  const orderId = Number(req.query.order_id) || 0;
+  if (!kw) return res.json(ok([]));
+  const o = orderId ? get('SELECT * FROM orders WHERE order_id = ?', orderId) : null;
+  const area = o?.specialarea_id
+    ? get('SELECT * FROM specialarea WHERE specialarea_id = ?', o.specialarea_id)
+    : null;
+  const limit = sessionLimitOf(area);
+  const like = `%${kw}%`;
+  const rows = all(
+    `SELECT member_id, nick_name, mobile, disabled, amount FROM member
+      WHERE mobile LIKE ? OR nick_name LIKE ? OR CAST(member_id AS TEXT) = ?
+      ORDER BY (mobile = ?) DESC, member_id DESC LIMIT 12`,
+    like, like, kw, kw,
+  );
+  res.json(ok(rows.map((m) => {
+    const bought = sessionBoughtOf(m.member_id, area?.specialarea_id);
+    return {
+      member_id: m.member_id,
+      nick_name: m.nick_name || '',
+      mobile: m.mobile || '',
+      disabled: Number(m.disabled) === 20 ? 1 : 0,
+      amount: money(m.amount),
+      area_bought: bought,
+      area_limit: limit,
+      // 超限只提示不拦：运营本来就是在做例外处理，替他拦反而堵死
+      over_limit: limit > 0 && bought >= limit ? 1 : 0,
+      is_current: o && Number(o.member_id) === Number(m.member_id) ? 1 : 0,
+    };
+  })));
+});
+
+// 执行转让
+r.post('/orders/transfer', authAdmin, (req, res) => {
+  const orderId = Number(req.body?.order_id);
+  const toId = Number(req.body?.to_member_id);
+  const reason = String(req.body?.reason || '').trim().slice(0, 100);
+  if (!orderId || !toId) return res.json(fail('请选择订单与接手会员'));
+  // 原因必填：过几个月回头看这笔单为什么换了人，只能靠这句话
+  if (!reason) return res.json(fail('请填写转让原因'));
+
+  const o = get('SELECT * FROM orders WHERE order_id = ?', orderId);
+  let ctx;
+  try {
+    ctx = transferCheck(o);
+  } catch (e) {
+    if (e.biz) return res.json(fail(e.message));
+    throw e;
+  }
+  if (Number(o.member_id) === toId) return res.json(fail('接手会员与原买家是同一人'));
+  const to = get('SELECT * FROM member WHERE member_id = ?', toId);
+  if (!to) return res.json(fail('接手会员不存在'));
+  if (Number(to.disabled) === 20) return res.json(fail('该会员已被禁用，不能接手订单'));
+
+  const { g, paid } = ctx;
+  const amount = money(o.total_price);
+  try {
+    tx(() => {
+      // 带 member_id 做乐观锁：两个人同时点转让时只有一个能成功，
+      // 否则第二个会把「已经转给别人」的单再转一次，流水与实物全错位
+      const r1 = run(
+        `UPDATE orders SET member_id = ?, transfer_count = IFNULL(transfer_count, 0) + 1, last_transfer_time = ?
+          WHERE order_id = ? AND member_id = ?`,
+        toId, now(), orderId, o.member_id,
+      );
+      if (Number(r1.changes) !== 1) throw bizErr('订单归属已变化，请刷新后重试');
+
+      let moved = 0;
+      if (paid) {
+        // 已成交的整件货：货权必须跟着订单走，否则新买家拿到的是一个「没有货的订单」
+        const r2 = run(
+          'UPDATE goods SET member_id = ?, update_time = ? WHERE goods_id = ? AND member_id = ?',
+          toId, now(), g.goods_id, o.member_id,
+        );
+        if (Number(r2.changes) !== 1) throw bizErr('商品持有人已变化，请刷新后重试');
+        moved = 1;
+      }
+
+      run(
+        `INSERT INTO order_transfer (order_id, from_member_id, to_member_id, goods_moved, paid_before, amount, reason, operator, create_time)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        orderId, o.member_id, toId, moved, paid ? 1 : 0, amount, reason,
+        req.admin?.nick_name || req.admin?.user_name || 'admin', now(),
+      );
+      run(
+        'INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
+        orderId, '订单转让', 'admin',
+        `会员 ${o.member_id} → ${toId}（${reason}）；${paid
+          ? `已成交，货权同步过户，线下结算参考 ¥${amount.toFixed(2)}，平台未动账`
+          : '未付款，仅转移名额，新买家自行付款'}`,
+        now(),
+      );
+    });
+  } catch (e) {
+    if (e.biz) return res.json(fail(e.message));
+    throw e;
+  }
+  res.json(ok(
+    { order_id: orderId, from_member_id: o.member_id, to_member_id: toId },
+    paid ? '已转让，货权同步过户；货款由双方线下结清，平台未动账' : '已转让，新买家可在「我的订单」继续付款',
+  ));
+});
+
+// 转让流水（详情弹窗展示）
+r.get('/orders/transfer-history', authAdmin, (req, res) => {
+  const orderId = Number(req.query.order_id) || 0;
+  if (!orderId) return res.json(ok([]));
+  res.json(ok(all(
+    `SELECT t.transfer_id, t.order_id, t.from_member_id, t.to_member_id, t.goods_moved,
+            t.paid_before, t.amount, t.reason, t.operator, t.create_time,
+            fm.nick_name AS from_name, fm.mobile AS from_mobile,
+            tm.nick_name AS to_name, tm.mobile AS to_mobile
+       FROM order_transfer t
+       LEFT JOIN member fm ON fm.member_id = t.from_member_id
+       LEFT JOIN member tm ON tm.member_id = t.to_member_id
+      WHERE t.order_id = ? ORDER BY t.transfer_id ASC`,
+    orderId,
+  ).map((r) => ({
+    ...r,
+    amount: money(r.amount),
+    // 手机号对外一律打码：后台列表已经能看到完整号，流水里没必要再暴露一遍
+    from_mobile: maskMobile(r.from_mobile),
+    to_mobile: maskMobile(r.to_mobile),
+  }))));
+});
+
+// 转让原因字典（前端下拉）
+r.get('/orders/transfer-reasons', authAdmin, (req, res) => res.json(ok(TRANSFER_REASONS)));
 
 // 给会员加减余额 / 佣金
 r.post('/member/adjust', authAdmin, (req, res) => {

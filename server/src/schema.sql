@@ -233,6 +233,24 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS idx_order_member ON orders(member_id);
 CREATE INDEX IF NOT EXISTS idx_order_type ON orders(type, status);
 
+-- 订单转让流水：后台把一笔订单从 A 会员转到 B 会员名下。
+-- 两种语义：未付款订单转让 = 把抢购名额给别人；已付款订单转让 = 订单归新买家，
+-- 货款由双方线下结清。两种都只改归属，平台不退款、不收款、不动余额。
+CREATE TABLE IF NOT EXISTS order_transfer (
+  transfer_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id       INTEGER NOT NULL,
+  from_member_id INTEGER NOT NULL,
+  to_member_id   INTEGER NOT NULL,
+  goods_moved    INTEGER DEFAULT 0,       -- 是否同时过户了商品持有人（已付款的整件货才过）
+  paid_before    INTEGER DEFAULT 0,       -- 转让时订单是否已成交（决定线下要不要结款）
+  amount         REAL DEFAULT 0,          -- 线下结算参考金额（只记录，系统不动账）
+  reason         TEXT DEFAULT '',
+  operator       TEXT DEFAULT '',
+  create_time    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_transfer_order ON order_transfer(order_id);
+CREATE INDEX IF NOT EXISTS idx_transfer_from ON order_transfer(from_member_id);
+
 CREATE TABLE IF NOT EXISTS order_log (
   log_id     INTEGER PRIMARY KEY AUTOINCREMENT,
   order_id   INTEGER NOT NULL,

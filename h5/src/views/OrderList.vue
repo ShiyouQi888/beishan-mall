@@ -34,11 +34,17 @@
     <div class="section-pad orders__list">
       <div v-if="loading" class="empty">加载中…</div>
       <template v-else-if="list.length">
-        <div v-for="o in list" :key="o.order_id" class="ocard card" @click="$router.push(`/order/detail/${o.order_id}`)">
+        <div
+          v-for="o in list"
+          :key="o.order_id"
+          class="ocard card"
+          :class="{ 'ocard--out': o.transferred_out }"
+          @click="openDetail(o)"
+        >
           <div class="ocard__head">
             <span class="ocard__type">{{ o.order_type_text }}</span>
             <span class="ocard__no">{{ o.order_no }}</span>
-            <span class="ocard__status">{{ o.status_text }}</span>
+            <span class="ocard__status" :class="{ 'ocard__status--out': o.transferred_out }">{{ o.status_text }}</span>
           </div>
           <div class="ocard__body">
             <div class="ocard__img"><img :src="o.goods_thumb" /></div>
@@ -50,6 +56,10 @@
                 <div class="muted">× {{ o.num }}</div>
               </div>
               <!-- 卡片主价是成交价；带服务费/上架费的单要再露一行实付，否则会员点进去才发现金额不一样 -->
+              <!-- 转让后订单已不归自己，说清楚转给谁、什么时候转的，比让订单凭空消失好 -->
+              <div class="ocard__out" v-if="o.transferred_out">
+                已于 {{ o.transfer_time }} 转给 {{ o.out_to_name || o.out_to_mobile }}
+              </div>
               <div class="ocard__pay" v-if="extraFeeOf(o) > 0">
                 实付 ¥{{ payTotalOf(o).toFixed(2) }}
                 <span class="muted">（含{{ feeText(o) }}）</span>
@@ -58,7 +68,7 @@
           </div>
           <div class="ocard__foot">
             <span class="muted">{{ o.create_time }}</span>
-            <div class="ocard__acts" @click.stop>
+            <div class="ocard__acts" v-if="!o.transferred_out" @click.stop>
               <button v-if="o.status === 0" class="mini mini--main" :disabled="Number(o.applied) === 1" @click="pay(o)">{{ Number(o.applied) === 1 ? '已提交' : '申请抢单' }}</button>
               <button v-if="o.status === 0" class="mini" @click="cancel(o)">取消</button>
               <button v-if="(o.status === 10 || o.status === 30) && !o.consignment_status && !o.transferred" class="mini mini--main" :disabled="loadingQuoteId === o.order_id" @click="openTransfer(o)">{{ loadingQuoteId === o.order_id ? '计算中…' : '转拍' }}</button>
@@ -148,6 +158,15 @@ const loading = ref(true);
  * @param {boolean} silent 静默刷新：不显示「加载中…」，失败也不清空已有列表
  *                        （点右上角刷新时用，避免列表整块闪一下白）
  */
+// 已转出的单点进详情只会拿到「订单不存在」，不如就地说明
+function openDetail(o) {
+  if (o.transferred_out) {
+    showToast(`该订单已转给 ${o.out_to_mobile || '其他会员'}，如需找回请联系客服`);
+    return;
+  }
+  router.push(`/order/detail/${o.order_id}`);
+}
+
 async function load(silent = false) {
   if (!silent) loading.value = true;
   try {
@@ -444,6 +463,32 @@ onUnmounted(() => {
 }
 .ocard__no { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ocard__status { color: var(--text-1); font-weight: 600; font-size: 12px; }
+
+/* 已转出：整张卡降饱和，一眼看出它不再属于自己，但内容仍可读 */
+.ocard--out { opacity: .82; }
+.ocard__status--out { color: #9098a3; }
+.ocard__out {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: #f5f6f8;
+  color: #7c8593;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* 已转出：整张卡降饱和，一眼看出它不再属于自己，但内容仍可读 */
+.ocard--out { opacity: .82; }
+.ocard__status--out { color: #9098a3; }
+.ocard__out {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: #f5f6f8;
+  color: #7c8593;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
 
 .ocard__body { display: flex; gap: 11px; padding: 12px 0; }
 .ocard__img {
