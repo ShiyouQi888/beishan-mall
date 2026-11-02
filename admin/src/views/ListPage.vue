@@ -660,6 +660,7 @@
             :loading="candidateLoading"
             placeholder="输入手机号 / 昵称 / 会员ID 搜索"
             style="width: 100%"
+            @change="onPickCandidate"
           >
             <el-option
               v-for="m in candidateOptions"
@@ -1256,6 +1257,12 @@ function openCreate() {
   dialog.value = true;
 }
 
+// 昵称是会员自己填的、商品名是运营填的，塞进 dangerouslyUseHTMLString 之前必须转义。
+// 不转：有人把昵称改成 <img src=x onerror=...>，管理员一点「转让/确认抢单」就在后台页面里执行脚本。
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
 // ---------- 订单转让 ----------
 // 两种语义：未付款 = 把名额给别人（新买家自己去付款）；已付款 = 订单归别人。
 // 两种都不动账，货款由会员之间线下结清 —— 平台介入退款会凭空造出资金流水。
@@ -1267,9 +1274,19 @@ const candidateOptions = ref([]);
 const candidateLoading = ref(false);
 const transferring = ref(false);
 const transferHistory = ref([]);
-const pickedCandidate = computed(
-  () => candidateOptions.value.find((m) => Number(m.member_id) === Number(transferForm.to_member_id)) || null,
-);
+const pickedMember = ref(null);
+// 下拉重新搜索会替换候选列表，已选的那个人可能不在新列表里。
+// 只从候选里找的话，接手人信息会突然消失、点确认还会提示「请先选择接手会员」——
+// 所以另存一份已选对象兜底。
+const pickedCandidate = computed(() => {
+  const id = Number(transferForm.to_member_id);
+  const hit = candidateOptions.value.find((m) => Number(m.member_id) === id);
+  if (hit) return hit;
+  return pickedMember.value && Number(pickedMember.value.member_id) === id ? pickedMember.value : null;
+});
+function onPickCandidate(id) {
+  pickedMember.value = candidateOptions.value.find((m) => Number(m.member_id) === Number(id)) || null;
+}
 
 function openTransfer(row) {
   transferRow.value = row;
@@ -1277,6 +1294,7 @@ function openTransfer(row) {
   transferForm.reason = Number(row.pay_status) === 10 ? '客服调整' : '帮人代拍';
   transferForm.remark = '';
   candidateOptions.value = [];
+  pickedMember.value = null;
   transferDlg.value = true;
 }
 
@@ -1313,10 +1331,10 @@ async function doTransfer() {
           ? '这笔订单已成交。转让后订单与商品一并归新买家，货款由双方线下结清，平台不退款、不收款。操作不可撤销。'
           : '这笔订单尚未付款。转让后名额归新买家，由他继续付款。操作不可撤销。'}</p>
         <dl>
-          <div><dt>订单号</dt><dd>${transferRow.value.order_no || '—'}</dd></div>
-          <div><dt>商品</dt><dd>${transferRow.value.goods_name || '—'}</dd></div>
-          <div><dt>原买家</dt><dd>${transferRow.value._buyer || '未设置昵称'} · ${transferRow.value._buyer_mobile || '—'}</dd></div>
-          <div><dt>接手人</dt><dd>${m.nick_name || '未设置昵称'} · ${m.mobile}</dd></div>
+          <div><dt>订单号</dt><dd>${esc(transferRow.value.order_no) || '—'}</dd></div>
+          <div><dt>商品</dt><dd>${esc(transferRow.value.goods_name) || '—'}</dd></div>
+          <div><dt>原买家</dt><dd>${esc(transferRow.value._buyer) || '未设置昵称'} · ${esc(transferRow.value._buyer_mobile) || '—'}</dd></div>
+          <div><dt>接手人</dt><dd>${esc(m.nick_name) || '未设置昵称'} · ${esc(m.mobile)}</dd></div>
           <div><dt>金额</dt><dd class="confirm-card__money">¥${payTotalOf(transferRow.value).toFixed(2)}</dd></div>
         </dl>
       </div>`,
@@ -1515,15 +1533,15 @@ async function cancelScoreExchange(row) {
 
 async function confirmPay(row) {
   // 确认抢单 = 认定收到货款并完成成交，钱货都动，不可撤销，必须先弹卡片核对
-  const buyer = row._buyer || '未设置昵称';
-  const mobile = row._buyer_mobile || '—';
+  const buyer = esc(row._buyer) || '未设置昵称';
+  const mobile = esc(row._buyer_mobile) || '—';
   try {
     await ElMessageBox.confirm(
       `<div class="confirm-card">
         <p class="confirm-card__ask">确认已收到这笔货款？确认后订单立即成交，商品归买家所有，不可撤销。</p>
         <dl>
-          <div><dt>订单号</dt><dd>${row.order_no || '—'}</dd></div>
-          <div><dt>商品</dt><dd>${row.goods_name || '—'}</dd></div>
+          <div><dt>订单号</dt><dd>${esc(row.order_no) || '—'}</dd></div>
+          <div><dt>商品</dt><dd>${esc(row.goods_name) || '—'}</dd></div>
           <div><dt>买家</dt><dd>${buyer} · ${mobile}</dd></div>
           <div><dt>实付金额</dt><dd class="confirm-card__money">¥${payTotalOf(row).toFixed(2)}</dd></div>
         </dl>
@@ -1964,6 +1982,13 @@ watch(() => route.fullPath, () => {
   filters.kind = '';
   filters.disabled = '';
   filters.source = '';
+  // 订单专属筛选也要清：否则从订单页带着「持有人/已转让/取消来源」跳到别的模块，
+  // 回来时列表是筛过的，运营却看不出为什么少了一大半
+  filters.pay_status = '';
+  filters.cancel_by = '';
+  filters.transferred = '';
+  filters.member_id = '';
+  filters.area_id = '';
   // 换模块时时间范围也要归零，否则从订单页跳到商品页会带着 range 参数
   filters.range = '';
   filters.date_start = '';
