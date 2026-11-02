@@ -1016,6 +1016,15 @@ r.get('/orders/export', authAdmin, (req, res) => {
     where.push('o.status = ?');
     args.push(Number(req.query.status));
   }
+  // 导出必须跟列表用同一套筛选：列表点「用户取消」再导出，
+  // 结果却把全部订单都导出来，对账时会以为数据错了
+  if (req.query.cancel_by !== undefined && req.query.cancel_by !== '') {
+    where.push('o.cancel_by = ?');
+    args.push(Number(req.query.cancel_by));
+  }
+  if (req.query.transferred === '1') {
+    where.push('IFNULL(o.transfer_count, 0) > 0');
+  }
   const rc = rangeClause(req.query.range, req.query.date_start, req.query.date_end, 'o.create_time');
   if (req.query.range === 'custom' && !rc) {
     return res.json(fail('自定义日期格式不正确，应为 YYYY-MM-DD'));
@@ -1031,14 +1040,22 @@ r.get('/orders/export', authAdmin, (req, res) => {
     `SELECT o.*,
        (SELECT nick_name FROM member WHERE member_id = o.member_id) AS buyer_name,
        (SELECT mobile FROM member WHERE member_id = o.member_id) AS buyer_mobile,
-       (SELECT nick_name FROM member WHERE member_id = o.seller_id) AS seller_name
+       (SELECT nick_name FROM member WHERE member_id = o.seller_id) AS seller_name,
+       -- 原持有人 = 最近一次转让的转出方。转过的单要能看出「这货原来在谁手里」，
+       -- 只导当前买家的话，对账时对不上历史
+       (SELECT fm.nick_name FROM order_transfer t
+          JOIN member fm ON fm.member_id = t.from_member_id
+         WHERE t.order_id = o.order_id ORDER BY t.transfer_id DESC LIMIT 1) AS prev_holder_name,
+       (SELECT fm.mobile FROM order_transfer t
+          JOIN member fm ON fm.member_id = t.from_member_id
+         WHERE t.order_id = o.order_id ORDER BY t.transfer_id DESC LIMIT 1) AS prev_holder_mobile
      FROM orders o ${w} ORDER BY o.order_id DESC LIMIT 50000`,
     ...args,
   );
 
   // 实付 = 货款 + 抢单服务费 + 转拍上架费。三列都导出来，
   // 运营拿这张表跟收款流水对账时才能一笔对一笔（原来只有货款 + 服务费，上架费是隐形的）。
-  const header = ['订单号', '商品', '类型', '单价', '数量', '商品金额', '抢单服务费', '转拍上架费', '实付金额', '状态', '买家', '买家手机号', '卖家', '下单时间', '确认时间', '备注'];
+  const header = ['订单号', '商品', '类型', '单价', '数量', '商品金额', '抢单服务费', '转拍上架费', '实付金额', '状态', '买家', '买家手机号', '原持有人', '原持有人手机号', '转让次数', '卖家', '下单时间', '确认时间', '备注'];
   const body = rows.map((o) => [
     o.order_no,
     o.goods_name,
@@ -1052,6 +1069,9 @@ r.get('/orders/export', authAdmin, (req, res) => {
     orderStateText(o),
     o.buyer_name || '',
     o.buyer_mobile || '',
+    o.prev_holder_name || '',
+    o.prev_holder_mobile || '',
+    Number(o.transfer_count || 0) || '',
     o.seller_name || '',
     // 时间列单独走 csvTime，避免 Excel 认成日期后整列 ####
     csvTime(o.create_time),
@@ -1096,6 +1116,11 @@ r.get('/:module/list', authAdmin, (req, res) => {
     if (req.query.pay_status !== undefined && req.query.pay_status !== '') {
       where.push('pay_status = ?');
       args.push(Number(req.query.pay_status));
+    }
+    // 「已转让」标签：只筛转过手的订单。transfer_count 是冗余计数，
+    // 不必回查 order_transfer（那会让列表每条都多一次子查询）
+    if (req.query.transferred === '1') {
+      where.push('IFNULL(transfer_count, 0) > 0');
     }
     // 时间范围：今日 / 昨日 / 本周 / 本月 / 自定义（口径见 lib/dateRange.js）
     const rc = rangeClause(req.query.range, req.query.date_start, req.query.date_end);

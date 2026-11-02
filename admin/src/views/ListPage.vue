@@ -37,19 +37,6 @@
           <el-option label="已确认" :value="10" />
           <el-option label="待确认" :value="0" />
         </el-select>
-        <!-- 取消来源标签：红色警示色。会员自己撤的单和运营取消的单要能分开看，
-             排查「为什么这单没了」时第一时间分得清是谁动的 -->
-        <div v-if="modKey === 'orders'" class="cancel-tabs">
-          <el-tag
-            v-for="t in CANCEL_TABS"
-            :key="t.value"
-            :effect="filters.cancel_by === t.value ? 'dark' : 'plain'"
-            type="danger"
-            round
-            class="cancel-tabs__item"
-            @click="toggleCancelFilter(t.value)"
-          >{{ t.label }}</el-tag>
-        </div>
         <!-- 订单时间范围：快捷档 + 自定义区间 -->
         <el-radio-group v-if="modKey === 'orders'" v-model="filters.range" size="default" @change="onRangeChange">
           <el-radio-button label="">全部</el-radio-button>
@@ -119,6 +106,34 @@
         <div class="spacer" />
         <span v-if="AUTO_REFRESH_MODULES.has(modKey)" class="auto-refresh-hint">水位/库存每 20 秒自动刷新</span>
         <span class="total-hint">共 {{ total }} 条</span>
+      </div>
+
+      <!-- 快捷筛选标签单独一行：塞在工具栏里会把「时间区间」那组挤变形，
+           而且蓝色标签和「全部」选中态的蓝撞在一起，看着像同一种东西 -->
+      <div v-if="modKey === 'orders'" class="chips-row">
+        <!-- 取消来源标签：红色警示色。会员自己撤的单和运营取消的单要能分开看，
+             排查「为什么这单没了」时第一时间分得清是谁动的 -->
+        <div v-if="modKey === 'orders'" class="cancel-tabs">
+          <el-tag
+            v-for="t in CANCEL_TABS"
+            :key="t.value"
+            :effect="filters.cancel_by === t.value ? 'dark' : 'plain'"
+            type="danger"
+            round
+            class="cancel-tabs__item"
+            @click="toggleCancelFilter(t.value)"
+          >{{ t.label }}</el-tag>
+          <!-- 已转让：和「取消」不是一回事（取消是作废，转让是换人），
+               所以换一组颜色并且单独隔开，别让运营点混 -->
+          <span class="cancel-tabs__sep" />
+          <el-tag
+            :effect="filters.transferred === 1 ? 'dark' : 'plain'"
+            type="primary"
+            round
+            class="cancel-tabs__item"
+            @click="toggleTransferred"
+          >已转让</el-tag>
+        </div>
       </div>
 
       <div v-if="modKey === 'recycle'" class="module-note">
@@ -871,7 +886,7 @@ const loading = ref(false);
 const sel = ref([]);
 const optsCache = reactive({});
 
-const filters = reactive({ pay_status: '', kind: '', disabled: '', area_id: '', source: '', range: '', date_start: '', date_end: '', cancel_by: '' });
+const filters = reactive({ pay_status: '', kind: '', disabled: '', area_id: '', source: '', range: '', date_start: '', date_end: '', cancel_by: '', transferred: '' });
 
 // 取消来源筛选标签（对应 orders.cancel_by：1=会员自己取消 2=后台取消）
 const CANCEL_TABS = [
@@ -880,6 +895,11 @@ const CANCEL_TABS = [
 ];
 function toggleCancelFilter(v) {
   filters.cancel_by = filters.cancel_by === v ? '' : v;
+  reload();
+}
+/** 只筛「转过手」的订单（后端按 transfer_count > 0） */
+function toggleTransferred() {
+  filters.transferred = filters.transferred === 1 ? '' : 1;
   reload();
 }
 /** 订单状态标签配色：取消一律红色（警示），待确认黄，已确认绿 */
@@ -1694,6 +1714,9 @@ async function exportOrders() {
     if (filters.pay_status !== '' && filters.pay_status !== null && filters.pay_status !== undefined) {
       params.pay_status = filters.pay_status;
     }
+    // 列表上点了哪个标签，导出就得跟它一致 —— 否则筛了「用户取消」导出的却是全部
+    if (filters.cancel_by !== '' && filters.cancel_by !== undefined) params.cancel_by = filters.cancel_by;
+    if (filters.transferred === 1) params.transferred = 1;
     if (filters.range) params.range = filters.range;
     if (filters.range === 'custom') {
       params.date_start = filters.date_start;
@@ -2030,10 +2053,18 @@ onUnmounted(() => {
 .refresh-ico__text { margin-left: 5px; }
 @keyframes list-refresh-spin { to { transform: rotate(360deg); } }
 
+/* 快捷筛选标签行：跟在工具栏下面单独一行，避免把时间区间那组挤变形 */
+.chips-row { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; }
+
+/* 快捷筛选标签行：跟在工具栏下面单独一行，避免把时间区间那组挤变形 */
+.chips-row { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; }
+
 /* 取消来源筛选标签：可点切换，选中用实心红 */
 .cancel-tabs { display: flex; align-items: center; gap: 8px; }
 .cancel-tabs__item { cursor: pointer; user-select: none; font-weight: 500; }
 .cancel-tabs__item:hover { opacity: .82; }
+/* 取消组与转让组之间拉一条细线，表示这是两个维度 */
+.cancel-tabs__sep { width: 1px; height: 16px; background: #e6e9ef; margin: 0 2px; }
 .ops :deep(.el-button + .el-button) { margin-left: 0; }
 
 .thumb-lg { width: 62px; height: 62px; border-radius: 8px; object-fit: cover; background: #f4f6f9; }

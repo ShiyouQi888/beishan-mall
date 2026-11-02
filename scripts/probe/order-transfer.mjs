@@ -251,6 +251,34 @@ async function main() {
     eq(hs[1]?.to_member_id, C.id, '第二条：转给 C');
     ok(/^\d{3}\*{4}\d{4}$/.test(String(hs[0]?.from_mobile || '')), '流水里手机号打码');
 
+    // ---------- 6b. 「已转让」筛选与导出 ----------
+    section('[6b] 已转让标签与导出列');
+    const onlyT = await api('/admin/api/orders/list?page=1&limit=50&transferred=1', { token: at });
+    const rowsT = onlyT.data?.data || [];
+    ok(rowsT.length > 0 && rowsT.every((x) => Number(x.transfer_count) > 0), '已转让：只返回转过手的订单');
+    ok(rowsT.some((x) => Number(x.order_id) === Number(O1)), '已转让里能看到转过两次的那一单');
+    ok(!rowsT.some((x) => Number(x.order_id) === Number(O3)), '没转过手的订单不在结果里');
+
+    // 导出必须跟筛选一致，且带出「原持有人」
+    const csv = async (qs) => {
+      const res = await fetch(`${BASE}/admin/api/orders/export${qs}`, { headers: { token: at } });
+      return (await res.text()).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+    };
+    const linesT = await csv('?transferred=1');
+    const headT = linesT[0].split(',');
+    ok(headT.includes('原持有人') && headT.includes('原持有人手机号') && headT.includes('转让次数'), '导出表头含原持有人与转让次数');
+    ok(linesT.length - 1 === rowsT.length, '导出条数与列表筛选一致', `${linesT.length - 1} vs ${rowsT.length}`);
+
+    const colPrev = headT.indexOf('原持有人手机号');
+    const o1no = get('SELECT order_no FROM orders WHERE order_id = ?', O1).order_no;
+    const lineO1 = linesT.find((l) => l.includes(o1no));
+    ok(!!lineO1, '导出里能找到这笔转让单');
+    if (lineO1) {
+      const cells = lineO1.split(',');
+      eq(cells[colPrev], B.phone, '原持有人手机号是转让前的 B');
+      eq(cells[headT.indexOf('转让次数')], '2', '转让次数导出为 2');
+    }
+
     // 转让后商品能继续转拍（C 是当前持有人）
     const quote = await api(`/api/order/getConsignmentQuote?order_id=${O1}`, { token: C.token });
     ok(quote.code === 1, '新持有人可以发起转拍报价', quote.msg);
