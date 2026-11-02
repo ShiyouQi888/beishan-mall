@@ -72,7 +72,7 @@ const stats = reactive({ child: 0, team: 0 });
 const posterConfig = ref({});
 const posterVisible = ref(false);
 const posterPreview = ref('');
-const noticeHtml = ref('<p>· 好友通过您的邀请码注册后成为您的直推会员。</p><p>· 好友完成交易后，您可获得对应比例的佣金奖励。</p><p>· 佣金实时结算至您的佣金账户，可申请提现。</p>');
+const noticeHtml = ref('<p>· 好友通过您的邀请码注册后成为您的直推会员。</p><p>· 好友完成交易后，您可获得对应比例的佣金奖励。</p><p>· 佣金实时结算至您的佣金账户。</p>');
 
 // 邀请规则来自后台富文本配置，渲染前净化
 const safeNotice = computed(() => sanitizeHtml(noticeHtml.value));
