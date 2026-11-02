@@ -279,6 +279,23 @@ async function main() {
       eq(cells[headT.indexOf('转让次数')], '2', '转让次数导出为 2');
     }
 
+    // ---------- 6c. 按持有人筛选与导出 ----------
+    section('[6c] 按持有人筛选与导出');
+    const onlyC = await api(`/admin/api/orders/list?page=1&limit=50&member_id=${C.id}`, { token: at });
+    const rowsC = onlyC.data?.data || [];
+    ok(rowsC.length > 0 && rowsC.every((x) => Number(x.member_id) === C.id), '按持有人：只返回该会员的订单');
+    ok(rowsC.some((x) => Number(x.order_id) === Number(O1)), 'C 名下能看到转让过来的那一单');
+    ok(!rowsC.some((x) => Number(x.order_id) === Number(O3)), 'A 名下的订单不在 C 的结果里');
+
+    const linesC = await csv(`?member_id=${C.id}`);
+    const headC = linesC[0].split(',');
+    const colBuyerMobile = headC.indexOf('买家手机号');
+    eq(linesC.length - 1, rowsC.length, '导出条数与持有人筛选一致');
+    ok(
+      linesC.slice(1).every((l) => l.split(',')[colBuyerMobile] === C.phone),
+      '导出的每一行买家都是 C',
+    );
+
     // 转让后商品能继续转拍（C 是当前持有人）
     const quote = await api(`/api/order/getConsignmentQuote?order_id=${O1}`, { token: C.token });
     ok(quote.code === 1, '新持有人可以发起转拍报价', quote.msg);

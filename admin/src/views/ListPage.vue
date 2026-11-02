@@ -37,6 +37,29 @@
           <el-option label="已确认" :value="10" />
           <el-option label="待确认" :value="0" />
         </el-select>
+        <!-- 按持有人筛：订单的归属人（转让后就是新买家）。
+             要查「某人名下有哪些单」「某人一共买了多少」都从这里选，导出也跟着走 -->
+        <el-select
+          v-if="modKey === 'orders'"
+          v-model="filters.member_id"
+          filterable
+          remote
+          clearable
+          reserve-keyword
+          :remote-method="searchHolderOptions"
+          :loading="holderLoading"
+          placeholder="持有人（昵称/手机号）"
+          style="width: 212px"
+          @change="reload"
+          @visible-change="(v) => v && searchHolderOptions('')"
+        >
+          <el-option
+            v-for="m in holderOptions"
+            :key="m.member_id"
+            :value="m.member_id"
+            :label="`${m.nick_name || '未设置昵称'} · ${m.mobile}`"
+          />
+        </el-select>
         <!-- 订单时间范围：快捷档 + 自定义区间 -->
         <el-radio-group v-if="modKey === 'orders'" v-model="filters.range" size="default" @change="onRangeChange">
           <el-radio-button label="">全部</el-radio-button>
@@ -886,9 +909,28 @@ const loading = ref(false);
 const sel = ref([]);
 const optsCache = reactive({});
 
-const filters = reactive({ pay_status: '', kind: '', disabled: '', area_id: '', source: '', range: '', date_start: '', date_end: '', cancel_by: '', transferred: '' });
+const filters = reactive({ pay_status: '', kind: '', disabled: '', area_id: '', source: '', range: '', date_start: '', date_end: '', cancel_by: '', transferred: '', member_id: '' });
 
 // 取消来源筛选标签（对应 orders.cancel_by：1=会员自己取消 2=后台取消）
+// 持有人下拉：复用会员选项接口，按昵称/手机号远程搜
+const holderOptions = ref([]);
+const holderLoading = ref(false);
+let holderTimer = null;
+function searchHolderOptions(kw) {
+  clearTimeout(holderTimer);
+  holderTimer = setTimeout(async () => {
+    holderLoading.value = true;
+    try {
+      const r = await http.get('/member/options', { params: { keyword: String(kw || '').trim() } });
+      holderOptions.value = r.data || [];
+    } catch {
+      holderOptions.value = [];
+    } finally {
+      holderLoading.value = false;
+    }
+  }, 240);
+}
+
 const CANCEL_TABS = [
   { value: 1, label: '用户取消' },
   { value: 2, label: '后台取消' },
@@ -1717,6 +1759,8 @@ async function exportOrders() {
     // 列表上点了哪个标签，导出就得跟它一致 —— 否则筛了「用户取消」导出的却是全部
     if (filters.cancel_by !== '' && filters.cancel_by !== undefined) params.cancel_by = filters.cancel_by;
     if (filters.transferred === 1) params.transferred = 1;
+    // 筛了持有人就只导这个人的单
+    if (filters.member_id) params.member_id = filters.member_id;
     if (filters.range) params.range = filters.range;
     if (filters.range === 'custom') {
       params.date_start = filters.date_start;

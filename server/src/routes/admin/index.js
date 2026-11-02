@@ -1025,6 +1025,11 @@ r.get('/orders/export', authAdmin, (req, res) => {
   if (req.query.transferred === '1') {
     where.push('IFNULL(o.transfer_count, 0) > 0');
   }
+  // 导出跟列表同一个持有人口径：筛了谁，就只导谁的
+  if (req.query.member_id) {
+    where.push('o.member_id = ?');
+    args.push(Number(req.query.member_id));
+  }
   const rc = rangeClause(req.query.range, req.query.date_start, req.query.date_end, 'o.create_time');
   if (req.query.range === 'custom' && !rc) {
     return res.json(fail('自定义日期格式不正确，应为 YYYY-MM-DD'));
@@ -1116,6 +1121,12 @@ r.get('/:module/list', authAdmin, (req, res) => {
     if (req.query.pay_status !== undefined && req.query.pay_status !== '') {
       where.push('pay_status = ?');
       args.push(Number(req.query.pay_status));
+    }
+    // 按持有人筛：订单的 member_id 就是当前归属人（转让后已经改成新买家），
+    // 所以这里直接等值筛，不需要回查转让流水
+    if (req.query.member_id) {
+      where.push('member_id = ?');
+      args.push(Number(req.query.member_id));
     }
     // 「已转让」标签：只筛转过手的订单。transfer_count 是冗余计数，
     // 不必回查 order_transfer（那会让列表每条都多一次子查询）
