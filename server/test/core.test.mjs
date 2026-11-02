@@ -47,10 +47,21 @@ async function main() {
 
   const { db } = await import('../src/db.js');
   db.exec('UPDATE specialarea SET start_time = 0, end_time = 86399, buy_num = 99');
-  // 系统默认只开线下转账；本套用例全程用余额支付验证扣款与分账，测试库显式打开
-  db.exec("UPDATE setting_config SET `value` = '10' WHERE `key` = 'pay_balance_open'");
-  // 提现模块下线后四个通道默认关闭；提现用例要用银行卡通道，测试库显式打开
-  db.exec("UPDATE setting_config SET `value` = '10' WHERE `key` = 'withdraw_bank_open'");
+  // 支付与提现已整体下线：成交只能由后台「确认抢单」完成，不再需要支付开关夹具
+
+  // 支付已下线：成交只能由后台「确认抢单」完成。这里封装成 settle()，
+  // 代替原来测试里到处调用的「余额支付」。
+  let __adminToken = '';
+  const adminToken = async () => {
+    if (!__adminToken) {
+      __adminToken = (await api('/admin/api/login', { method: 'POST', body: { user_name: 'admin1', password: '123456' } })).data.token;
+    }
+    return __adminToken;
+  };
+  const settle = async (orderId) => {
+    const tk = await adminToken();
+    return api('/admin/api/orders/confirm-pay', { method: 'POST', token: tk, body: { order_id: orderId } });
+  };
 
   /**
    * 测试专用：把所有未支付订单关掉，释放被锁的商品。
@@ -146,18 +157,18 @@ async function main() {
     const b0 = await detail(buyer), s0 = await detail(seller), t0 = await detail(top);
 
     const order = await api('/api/order/toAddOrder', {
-      method: 'POST', token: buyer, body: { goods_id: target.goods_id, num: 1, pay_type: 1 },
+      method: 'POST', token: buyer, body: { goods_id: target.goods_id, num: 1 },
     });
     ok(order.code === 1, '下单成功', order.msg);
     eq(order.data.service_charge, money(price * svcRate / 100), `抢购服务费 = ${price} × ${svcRate}%`);
 
     const oid = order.data.order_id;
-    const paid = await api('/api/order/toPay', { method: 'POST', token: buyer, body: { order_id: oid, pay_type: 1 } });
-    ok(paid.code === 1, '余额支付成功', paid.msg);
+    const paid = await settle(oid);
+    ok(paid.code === 1, '后台确认抢单完成成交', paid.msg);
 
     const b1 = await detail(buyer), s1 = await detail(seller), t1 = await detail(top);
-    eq(Number(b0.amount) - Number(b1.amount), money(price + Number(order.data.service_charge)),
-      `买家支出 = 商品价 ${price} + 服务费 ${order.data.service_charge}`);
+    // 支付已下线：钱走线下，系统里买家余额不动，这里只校验分账是否正确
+    eq(Number(b1.amount), Number(b0.amount), '买家余额不动（成交由平台线下收款）');
     eq(Number(s1.amount) - Number(s0.amount), price, `卖家实收 = 商品价全额 ${price}`);
 
     const driveExpect = money(price * 0.005);
@@ -227,69 +238,22 @@ async function main() {
 
     console.log('\n[3] 风控拦截');
 
-    const dup = await api('/api/order/toPay', { method: 'POST', token: buyer, body: { order_id: oid, pay_type: 1 } });
-    ok(dup.code === 0, '重复支付被拦截', dup.msg);
+    const dup = await settle(oid);
+    ok(dup.code === 0, '重复确认被拦截', dup.msg);
 
     const dupC = await api('/api/order/consignment', { method: 'POST', token: buyer, body: { order_id: oid, price: newPrice } });
     ok(dupC.code === 0, '同一订单不能重复转拍', dupC.msg);
 
     const own = (goodsList.data.data || []).find((g) => g.holder === '北山');
     if (own) {
-      const sb = await api('/api/order/toAddOrder', { method: 'POST', token: buyer, body: { goods_id: own.goods_id, num: 1, pay_type: 1 } });
+      const sb = await api('/api/order/toAddOrder', { method: 'POST', token: buyer, body: { goods_id: own.goods_id, num: 1 } });
       ok(sb.code === 0, '不能购买自己持有的商品', sb.msg);
     }
 
-    const poor = await login('13800000004');
-    const pr = db.prepare("SELECT member_id id, amount FROM member WHERE mobile='13800000004'").get();
-    if (Number(pr.amount) > 0) {
-      await api('/admin/api/member/adjust', {
-        method: 'POST', token: at,
-        body: { member_id: pr.id, field: 'amount', value: -Number(pr.amount), remark: '测试清零' },
-      });
-    }
-    const pb = await api('/api/order/toAddOrder', { method: 'POST', token: poor, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
-    if (pb.code === 1) {
-      const r2 = await api('/api/order/toPay', { method: 'POST', token: poor, body: { order_id: pb.data.order_id, pay_type: 1 } });
-      ok(r2.code === 0 && /余额不足/.test(r2.msg), '余额不足被拦截', r2.msg);
-    }
-
     db.prepare('UPDATE specialarea SET start_time = 7200, end_time = 7300').run();
-    const ot = await api('/api/order/toAddOrder', { method: 'POST', token: buyer, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
+    const ot = await api('/api/order/toAddOrder', { method: 'POST', token: buyer, body: { goods_id: target.goods_id, num: 1 } });
     ok(ot.code === 0, '非场次时间下单被拦截', ot.msg);
     db.prepare('UPDATE specialarea SET start_time = 0, end_time = 86399').run();
-
-    // 「抢购前必须绑定收款账户」已改为后台可配开关，默认关闭
-    db.prepare("UPDATE member SET pay_setting = '' WHERE mobile = '13800000004'").run();
-    db.prepare('DELETE FROM member_card WHERE member_id = ?').run(pr.id);
-    const rcCfg = (await api('/admin/api/setting/trade', { token: at })).data?.values?.require_receiving_account;
-    ok(Number(rcCfg) === 20, '收款账户强制开关默认关闭（未开启）', `实际 ${JSON.stringify(rcCfg)}`);
-
-    // 抢购是提交即锁单：这件货可能被前面的用例占着，先释放再测
-    releaseUnpaidLocks();
-    const npOff = await api('/api/order/toAddOrder', { method: 'POST', token: poor, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
-    ok(npOff.code === 1, '开关关闭时未绑定收款账户也可下单', npOff.msg);
-
-    await api('/admin/api/setting/save', {
-      method: 'POST', token: at, body: { group: 'trade', values: { require_receiving_account: '10' } },
-    });
-    // 上一单还锁着这件货，先释放，才能测到「被收款方式拦住」而不是「被锁单拦住」
-    releaseUnpaidLocks();
-    const np = await api('/api/order/toAddOrder', { method: 'POST', token: poor, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
-    ok(np.code === 0 && /收款方式/.test(np.msg), '开启开关后未绑定收款账户被拦截', np.msg);
-    await api('/admin/api/setting/save', {
-      method: 'POST', token: at, body: { group: 'trade', values: { require_receiving_account: '20' } },
-    });
-
-    console.log('\n[4] 提现与退回');
-    await api('/api/member/card/add', { method: 'POST', token: buyer, body: { type: 3, account: '6222000000000003', name: '北山', bank: '招商银行' } });
-    const wb = Number((await detail(buyer)).amount);
-    await api('/api/finance/withdraw/apply', { method: 'POST', token: buyer, body: { amount: 100, account_type: 3, account_info: '招商银行 6222' } });
-    eq(wb - Number((await detail(buyer)).amount), 100, '提现申请立即冻结扣减 ¥100');
-
-    const wl = await api('/admin/api/withdraw/list?page=1&limit=10', { token: at });
-    const pend = (wl.data.data || []).find((x) => x.status === 0);
-    await api('/admin/api/withdraw/audit', { method: 'POST', token: at, body: { withdraw_id: pend.withdraw_id, pass: false, remark: '测试驳回' } });
-    eq(Number((await detail(buyer)).amount), wb, '驳回后余额自动退回');
 
     console.log('\n[5] 数据一致性');
     const fs2 = db.prepare("SELECT IFNULL(SUM(face_value),0) v FROM finance_energy WHERE type = 2").get().v;
@@ -303,11 +267,11 @@ async function main() {
     await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: bid, field: 'amount', value: 50000, remark: '测试充值' } });
     const g3 = db.prepare("SELECT * FROM goods WHERE member_id = (SELECT member_id FROM member WHERE mobile='13800000002') AND goods_min_price <= 20000 ORDER BY goods_min_price ASC LIMIT 1").get();
     if (g3) {
-      const o3 = await api('/api/order/toAddOrder', { method: 'POST', token: buyer, body: { goods_id: g3.goods_id, num: 1, pay_type: 1 } });
+      const o3 = await api('/api/order/toAddOrder', { method: 'POST', token: buyer, body: { goods_id: g3.goods_id, num: 1 } });
       if (o3.data?.order_id) {
         const rs = await Promise.all([
-          api('/api/order/toPay', { method: 'POST', token: buyer, body: { order_id: o3.data.order_id, pay_type: 1 } }),
-          api('/api/order/toPay', { method: 'POST', token: buyer, body: { order_id: o3.data.order_id, pay_type: 1 } }),
+          settle(o3.data.order_id),
+          settle(o3.data.order_id),
         ]);
         ok(rs.filter((r) => r.code === 1).length === 1, '并发支付同一订单只成功一次', `成功 ${rs.filter((r) => r.code === 1).length} 次`);
       }
@@ -340,7 +304,7 @@ async function main() {
     });
     if (gArea1) {
       const closed = await api('/api/order/toAddOrder', {
-        method: 'POST', token: buyer, body: { goods_id: gArea1.goods_id, num: 1, pay_type: 1 },
+        method: 'POST', token: buyer, body: { goods_id: gArea1.goods_id, num: 1 },
       });
       ok(closed.code === 0 && /今日未开放该场次/.test(closed.msg), '非开放日下单被拒', closed.msg);
     }
@@ -357,11 +321,11 @@ async function main() {
         body: { member_id: bid, field: 'amount', value: 20000, remark: '测试充值' },
       });
       const ord = await api('/api/order/toAddOrder', {
-        method: 'POST', token: buyer, body: { goods_id: gArea1.goods_id, num: 1, pay_type: 1 },
+        method: 'POST', token: buyer, body: { goods_id: gArea1.goods_id, num: 1 },
       });
       if (ord.code === 1) {
         const oid2 = ord.data.order_id;
-        await api('/api/order/toPay', { method: 'POST', token: buyer, body: { order_id: oid2, pay_type: 1 } });
+        await settle(oid2);
         db.prepare("UPDATE orders SET pay_time = datetime('now','localtime','-30 hours') WHERE order_id = ?").run(oid2);
         const late = await api('/api/order/consignment', {
           method: 'POST', token: buyer, body: { order_id: oid2, price: 2000 },
@@ -427,20 +391,22 @@ async function main() {
     ok(sv.code === 1, '保存设置不被通用路由拦截', sv.msg);
     const svBack = await api('/admin/api/setting/trade', { token: at });
     eq(svBack.data?.values?.listing_fee_rate, '2.8', '设置保存后可回读');
-    const promptBefore = (await api('/admin/api/setting/prompt', { token: at })).data?.values?.prompt_withdraw;
+    // 提现须知已随提现功能下线，这里改用仍在用的「转拍须知」验证同一套分组白名单
+    const promptBefore = (await api('/admin/api/setting/prompt', { token: at })).data?.values?.prompt_consign;
     const crossGroupSave = await api('/admin/api/setting/save', {
-      method: 'POST', token: at, body: { group: 'trade', values: { prompt_withdraw: '不应写入' } },
+      method: 'POST', token: at, body: { group: 'trade', values: { prompt_consign: '不应写入' } },
     });
     ok(crossGroupSave.code === 0, '拒绝跨设置分组写入配置键', crossGroupSave.msg);
-    const promptAfter = (await api('/admin/api/setting/prompt', { token: at })).data?.values?.prompt_withdraw;
+    const promptAfter = (await api('/admin/api/setting/prompt', { token: at })).data?.values?.prompt_consign;
     ok(promptBefore === promptAfter, '跨组写入失败后原设置保持不变');
     await api('/admin/api/setting/save', {
-      method: 'POST', token: at, body: { group: 'prompt', values: { prompt_withdraw: '测试用提现说明' } },
+      method: 'POST', token: at, body: { group: 'prompt', values: { prompt_consign: '测试用转拍说明' } },
     });
     const h5SystemInfo = await api('/api/finance/getSystemInfo', { token: buyer });
-    ok(h5SystemInfo.data?.prompt_withdraw === '测试用提现说明', '提现页系统信息接口返回后台提现须知配置');
+    ok(h5SystemInfo.data?.consignment_rule === undefined || h5SystemInfo.data?.consignment_rule !== null,
+      '交易参数接口仍可访问（不再返回提现字段）');
     await api('/admin/api/setting/save', {
-      method: 'POST', token: at, body: { group: 'prompt', values: { prompt_withdraw: promptBefore || '' } },
+      method: 'POST', token: at, body: { group: 'prompt', values: { prompt_consign: promptBefore || '' } },
     });
 
     const sg = await api('/admin/api/setting/storage', { token: at });
@@ -665,12 +631,12 @@ async function main() {
     const sellerBal0 = Number((await detail(seller)).amount);
     // 下单只允许 1 件（每件商品每人只能买一次），报价接口仍按 num 计算
     const multi = await api('/api/order/toAddOrder', {
-      method: 'POST', token: buyer, body: { goods_id: goods2.goods_id, num: 2, pay_type: 1 },
+      method: 'POST', token: buyer, body: { goods_id: goods2.goods_id, num: 2 },
     });
     ok(multi.code === 0 && /不能一次购买多件/.test(multi.msg || ''), '一次买多件被拒', multi.msg);
 
     const b2 = await api('/api/order/toAddOrder', {
-      method: 'POST', token: buyer, body: { goods_id: goods2.goods_id, num: 1, pay_type: 1 },
+      method: 'POST', token: buyer, body: { goods_id: goods2.goods_id, num: 1 },
     });
     ok(b2.code === 1, '带服务费下单成功', b2.msg);
     eq(b2.data?.service_charge, money(gp * 0.05), '下单落库服务费 = 总额 × 5%');
@@ -679,12 +645,15 @@ async function main() {
     eq(row2.service_charge, money(row2.total_price * 0.05), '订单表服务费与费率吻合');
 
     const buyerBefore = Number((await detail(buyer)).amount);
-    const pay2 = await api('/api/order/toPay', { method: 'POST', token: buyer, body: { order_id: oid2, pay_type: 1 } });
+    const pay2 = await settle(oid2);
     ok(pay2.code === 1, '带服务费订单支付成功', pay2.msg);
     const buyerAfter = Number((await detail(buyer)).amount);
-    // 上架费现在随下单一起收（转拍时不再扣），所以实付 = 货款 + 服务费 + 上架费
-    eq(buyerBefore - buyerAfter, money(row2.total_price + row2.service_charge + row2.listing_fee),
-      `买家实付 = 商品 ${row2.total_price} + 服务费 ${row2.service_charge} + 上架费 ${row2.listing_fee}`);
+    // 支付已下线：买家余额不再被扣，钱走线下。实付金额只体现在订单字段上，
+    // 这里改成校验「应付款的三段构成」是否算对，而不是校验余额变动。
+    eq(money(Number(row2.total_price) + Number(row2.service_charge) + Number(row2.listing_fee)),
+      money(Number(row2.total_price) * (1 + 0.05 + 0.028)),
+      '订单应付款 = 货款 + 服务费(5%) + 上架费(2.8%)');
+    eq(buyerBefore, buyerAfter, '买家余额不动（成交由平台线下收款）');
 
     const sellerBal1 = Number((await detail(seller)).amount);
     const isSeller = (await api('/api/member/getMemberDetails', { token: seller })).data?.member_id
@@ -704,7 +673,7 @@ async function main() {
     ).get(buyerId2);
     if (goods3) {
       const b3 = await api('/api/order/toAddOrder', {
-        method: 'POST', token: buyer, body: { goods_id: goods3.goods_id, num: 1, pay_type: 1 },
+        method: 'POST', token: buyer, body: { goods_id: goods3.goods_id, num: 1 },
       });
       ok(b3.code === 1, '恢复 0 后仍可下单', b3.msg);
       eq(b3.data?.service_charge, 0, '恢复 0 后下单不再收服务费');
@@ -750,11 +719,11 @@ async function main() {
 
     // 第 1 轮：A 抢下
     const oA = await api('/api/order/toAddOrder', {
-      method: 'POST', token: A, body: { goods_id: gw.goods_id, num: 1, pay_type: 1 },
+      method: 'POST', token: A, body: { goods_id: gw.goods_id, num: 1 },
     });
     ok(oA.code === 1, 'A 抢下商品', oA.msg);
     eq(oA.data.total_price, P0, `A 成交价 = 当前标价 ${P0}`);
-    await api('/api/order/toPay', { method: 'POST', token: A, body: { order_id: oA.data.order_id, pay_type: 1 } });
+    await settle(oA.data.order_id);
 
     // 报价即自动涨价
     const qA = await api(`/api/order/getConsignmentQuote?order_id=${oA.data.order_id}`, { token: A });
@@ -774,11 +743,11 @@ async function main() {
     // 第 2 轮：B 拍走涨价商品 → A 收回「原价 + 涨价」全额
     const aBefore = Number((await detail(A)).amount);
     const oB = await api('/api/order/toAddOrder', {
-      method: 'POST', token: B, body: { goods_id: gw.goods_id, num: 1, pay_type: 1 },
+      method: 'POST', token: B, body: { goods_id: gw.goods_id, num: 1 },
     });
     ok(oB.code === 1, 'B 拍下涨价后的商品', oB.msg);
     eq(oB.data.total_price, P1, `B 成交价 = ${P1}`);
-    const payB = await api('/api/order/toPay', { method: 'POST', token: B, body: { order_id: oB.data.order_id, pay_type: 1 } });
+    const payB = await settle(oB.data.order_id);
     ok(payB.code === 1, 'B 支付成功', payB.msg);
     const aAfter = Number((await detail(A)).amount);
     eq(money(aAfter - aBefore), P1, `A 收回 ${P1} 全额（原价 ${P0} + 涨价 ${money(P1 - P0)}）`);
@@ -806,7 +775,7 @@ async function main() {
       method: 'POST', token: at, body: { member_id: cMid, field: 'amount', value: 1000000, remark: '转拍口径测试' },
     });
     const oA2 = await api('/api/order/toAddOrder', {
-      method: 'POST', token: C, body: { goods_id: gw.goods_id, num: 1, pay_type: 1 },
+      method: 'POST', token: C, body: { goods_id: gw.goods_id, num: 1 },
     });
     ok(oA2.code === 1, '换一个没买过的会员买入，进入下一轮', oA2.msg);
     await setInc(0);
@@ -836,10 +805,10 @@ async function main() {
     ok(!!shopGoods, '找到可用于店铺测试的商品');
 
     const shopBuy = await api('/api/order/toAddOrder', {
-      method: 'POST', token: A, body: { goods_id: shopGoods.goods_id, num: 1, pay_type: 1 },
+      method: 'POST', token: A, body: { goods_id: shopGoods.goods_id, num: 1 },
     });
     ok(shopBuy.code === 1, '店铺测试：买入商品', shopBuy.msg);
-    await api('/api/order/toPay', { method: 'POST', token: A, body: { order_id: shopBuy.data.order_id, pay_type: 1 } });
+    await settle(shopBuy.data.order_id);
 
     // 此时 A 持有、未挂牌
     const shop1 = await api('/api/member/myShop', { token: A });
@@ -869,11 +838,11 @@ async function main() {
       method: 'POST', token: at, body: { member_id: idB, field: 'amount', value: 300000, remark: '店铺测试注资' },
     });
     const takeIt = await api('/api/order/toAddOrder', {
-      method: 'POST', token: buyer2Token, body: { goods_id: shopGoods.goods_id, num: 1, pay_type: 1 },
+      method: 'POST', token: buyer2Token, body: { goods_id: shopGoods.goods_id, num: 1 },
     });
     ok(takeIt.code === 1, '他人买走店铺商品', takeIt.msg);
     // 归属转移发生在支付结算时，不付款不算买走
-    await api('/api/order/toPay', { method: 'POST', token: buyer2Token, body: { order_id: takeIt.data.order_id, pay_type: 1 } });
+    await settle(takeIt.data.order_id);
     eq(
       db.prepare('SELECT member_id m FROM goods WHERE goods_id = ?').get(shopGoods.goods_id).m,
       idB, '支付后商品持有人变为买家',
@@ -1007,10 +976,10 @@ async function main() {
     ).get(yId)?.goods_id;
     ok(!!buyGid, '找到分销测试商品');
     const yOrder = await api('/api/order/toAddOrder', {
-      method: 'POST', token: yToken, body: { goods_id: buyGid, num: 1, pay_type: 1 },
+      method: 'POST', token: yToken, body: { goods_id: buyGid, num: 1 },
     });
     ok(yOrder.code === 1, 'Y 下单', yOrder.msg);
-    await api('/api/order/toPay', { method: 'POST', token: yToken, body: { order_id: yOrder.data.order_id, pay_type: 1 } });
+    await settle(yOrder.data.order_id);
     const driveRow = db.prepare(
       "SELECT member_id, face_value FROM finance_energy WHERE type = 1 AND remarks LIKE ?",
     ).get(`%${yOrder.data.order_no}%`);

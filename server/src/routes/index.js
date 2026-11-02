@@ -183,27 +183,7 @@ r.get('/index/getGroupAfterSalesAgreement', (req, res) => {
   );
 });
 
-// 支付开关：库里统一用 10 开 / 20 关（与后台开关组件一致），对外仍返回 '1'/'0'
-const switchOn = (key, def = '20') => (Number(cfg(key, def)) === 10 ? '1' : '0');
-r.get('/index/getPaySeeting', (req, res) => {
-  res.json(
-    ok({
-      // 默认只有线下转账开着，其余需要在后台按需打开
-      balance_open: switchOn('pay_balance_open', '20'),
-      wx_open: switchOn('pay_wx', '20'),
-      zfb_open: switchOn('pay_zfb', '20'),
-      bank_open: switchOn('pay_bank', '10'),
-      // 线下支付是否必须上传付款凭证（后台「支付凭证必传」开关）
-      voucher_required: switchOn('pay_voucher_required', '10'),
-      wx_qr_ready: cfg('wx_qr', '') ? '1' : '0',
-      zfb_qr_ready: cfg('zfb_qr', '') ? '1' : '0',
-    }),
-  );
-});
-
-r.get('/getPayGatWay', (req, res) => {
-  res.json(ok({ is_open: Number(cfg('pay_gateway_open', '10')) }));
-});
+// 支付相关接口（getPaySeeting / getPayGatWay）已随支付功能一起下线。
 
 // 寄卖开关
 r.get('/index/close_consignment', (req, res) => {
@@ -220,8 +200,7 @@ r.get('/index/getTradeConfig', (req, res) => {
       price_increase_rate: cfg('price_increase_rate', '3'),
       drive_award_rate: cfg('drive_award_rate', '0.5'),
       consignment_open: cfg('consignment_open', '10'),
-      withdraw_min: cfg('withdraw_min', '10'),
-      withdraw_fee: cfg('withdraw_fee', '1'),
+      // 支付已下线，这个超时现在只用于「提交抢单后平台多久没确认就自动关单」
       pay_timeout: Number(cfg('order_pay_timeout', '30')) || 30,
     }),
   );

@@ -59,6 +59,23 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
   return res.json();
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await seed();
   {
@@ -140,7 +157,7 @@ async function main() {
     // 取消后不应再允许取消 / 支付
     const again = await api('/api/order/cancel', { method: 'POST', token: tk, body: { order_id: oid } });
     ok(again.code !== 1, '重复取消被拒', again.msg);
-    const pay = await api('/api/order/toPay', { method: 'POST', token: tk, body: { order_id: oid, pay_type: 1 } });
+    const pay = await __settle(oid);
     ok(pay.code !== 1, '已取消订单不能支付', pay.msg);
 
     // ---------- 3. 后台列表 ----------

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { all, get, run, tx, now } from '../db.js';
-import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, priceIncreaseRate, calcNextPrice, assetUrl, ORDER_STATUS, ORDER_TYPE, PAY_TYPE, orderStateText } from '../lib/helper.js';
+import { ok, fail, authMember, page, money, cfg, calcServiceCharge, serviceChargeRate, priceIncreaseRate, calcNextPrice, assetUrl, ORDER_STATUS, ORDER_TYPE, orderStateText } from '../lib/helper.js';
 import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate, goodsStillOwnedBySeller } from '../lib/settle.js';
 import { deductStock, restoreStock, isPieceSale } from '../lib/stock.js';
@@ -41,9 +41,6 @@ function fmtOrder(o) {
     status_text: orderStateText(o, true),
     transferred: transferred ? 1 : 0,
     pay_status: o.pay_status,
-    pay_type: o.pay_type,
-    pay_type_text: PAY_TYPE[o.pay_type] || '',
-    pay_voucher: o.pay_voucher,
     consignment_status: o.consignment_status,
     is_examine: o.is_examine,
     create_time: o.create_time,
@@ -81,22 +78,6 @@ function serviceCharge(amount) {
   return calcServiceCharge(amount);
 }
 
-// 支付方式默认口径：只有线下转账是开的（与 app.js 的默认配置一致）
-const PAY_SWITCHES = {
-  1: ['pay_balance_open', '20'],
-  2: ['pay_wx', '20'],
-  3: ['pay_zfb', '20'],
-  4: ['pay_bank', '10'],
-};
-
-function paymentEnabled(type) {
-  const config = PAY_SWITCHES[type];
-  if (!config || Number(cfg(config[0], config[1])) !== 10) return false;
-  if (type === 2 && !cfg('wx_qr', '')) return false;
-  if (type === 3 && !cfg('zfb_qr', '')) return false;
-  return true;
-}
-
 // ---------------- 下单（抢购） ----------------
 /**
  * 后台「库存」填成 >1 的抢购商品，运营的预期就是「这个价有一批货，抢一个减一个」。
@@ -121,15 +102,10 @@ function ensureStockTotal(g) {
 }
 
 r.post('/toAddOrder', authMember, (req, res) => {
-  const { goods_id, num = 1, address_id, remark, pay_type } = req.body;
+  const { goods_id, num = 1, address_id, remark } = req.body;
   const m = req.member;
-  // 缺省按 1（老的余额支付）；显式传 0 表示「不选支付方式，直接申请抢单」。
-  // 注意不能写 Number(pay_type) || 1 —— 0 是 falsy，会被悄悄改成 1。
-  const requestedPayType = pay_type === undefined || pay_type === null || pay_type === '' ? 1 : Number(pay_type);
-  // pay_type=0 表示「不选支付方式，直接申请抢单」—— 前台已经没有支付方式这一环了
-  if (requestedPayType !== 0 && !paymentEnabled(requestedPayType)) {
-    return res.json(fail('该支付方式暂未开放，请刷新后重新选择'));
-  }
+  // 支付环节已整体下线：下单只是登记一笔「抢单申请」，付不付、怎么付由平台线下确认。
+  // pay_type 固定写 0，历史数据里的 1~4 仅作留档，不再有任何代码读它。
   if (!goods_id) return res.json(fail('请选择商品'));
   let g = get('SELECT * FROM goods WHERE goods_id = ?', Number(goods_id));
   if (!g) return res.json(fail('商品不存在'));
@@ -212,17 +188,9 @@ r.post('/toAddOrder', authMember, (req, res) => {
     );
     if (locked) {
       return res.json(fail(Number(locked.member_id) === Number(m.member_id)
-        ? '你已经下过单了，请先完成支付或取消这笔订单'
-        : '这件货刚被别人抢先锁定，等他付款超时后可以再抢'));
+        ? '你已经下过单了，请先取消这笔订单再重新抢'
+        : '这件货刚被别人抢先锁定，等他取消或超时后可以再抢'));
     }
-  }
-
-  // 是否强制会员先设置收款方式由后台「交易设置」控制，默认关闭。
-  // 兼容旧版 H5：收款账户页面写入 member_card，而旧校验只检查 member.pay_setting。
-  if (areas.length && Number(cfg('require_receiving_account', '20')) === 10) {
-    const hasReceivingAccount = Boolean(m.pay_setting)
-      || Boolean(get('SELECT card_id FROM member_card WHERE member_id = ? LIMIT 1', m.member_id));
-    if (!hasReceivingAccount) return res.json(fail('请先设置收款方式'));
   }
 
   const price = Number(g.goods_min_price);
@@ -250,7 +218,7 @@ r.post('/toAddOrder', authMember, (req, res) => {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         no, m.member_id, g.member_id, g.goods_id, g.goods_name, g.good_thumb,
         orderArea ? Number(orderArea.specialarea_id) : 0,
-        1, price, numInt, total, fee, listingFee, 0, 0, requestedPayType, Number(address_id) || 0, remark || '', now(),
+        1, price, numInt, total, fee, listingFee, 0, 0, 0, Number(address_id) || 0, remark || '', now(),
       );
       orderId = Number(info.lastInsertRowid);
     });
@@ -301,100 +269,34 @@ r.get('/toServiceCharge', (req, res) => {
   }));
 });
 
-// ---------------- 支付 ----------------
-r.post('/toPay', authMember, (req, res) => {
-  const { order_id, pay_type, voucher } = req.body;
+// ---------------- 申请抢单（支付环节已整体下线） ----------------
+// 这套玩法从来没有在线支付：会员提交的是「抢单申请」，平台线下收款后在后台点确认。
+// 余额支付、微信/支付宝、线下凭证上传都已删除，只留这一个动作。
+function applyOrder(req, res) {
+  const { order_id } = req.body || {};
   const m = req.member;
   const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), m.member_id);
   if (!o) return res.json(fail('订单不存在'));
-  if (o.pay_status === 10) return res.json(fail('订单已支付'));
-  // 会员取消后 status=40、pay_status 还是 0，原来这里没有任何校验：
-  // 从订单详情或历史页再点一次「支付」，这笔已撤回的单会被直接扣款成交（钱扣了、货也过户）。
-  // 下面 pt===0 的分支单独拦过，但余额支付那条路没拦，必须在最前面统一拦住。
-  if (Number(o.status) === 40) return res.json(fail('订单已取消，不能再支付'));
-  // 显式传 0 表示「申请抢单」；不传才回退到订单上记录的支付方式
-  const pt = pay_type === undefined || pay_type === null || pay_type === ''
-    ? (Number.isFinite(Number(o.pay_type)) ? Number(o.pay_type) : 1)
-    : Number(pay_type);
-  if (pt !== 0 && !paymentEnabled(pt)) return res.json(fail('该支付方式暂未开放，请选择其他方式'));
-  // 0 = 不选支付方式（前台只走「申请抢单」），其余是老的四类支付
-  if (![0, 1, 2, 3, 4].includes(pt)) return res.json(fail('请选择有效的支付方式'));
-  // 没有支付方式这一环了：只把「已申请抢单」记进订单日志，等平台确认
-  if (pt === 0) {
-    // 幂等：一笔订单只登记一次。H5 上退出重进再点、或者网络慢连点两下，
-    // 都不该在日志里刷出一串「申请抢单」，否则后台看到的动态会失真。
-    if (Number(o.status) === 40) return res.json(fail('订单已关闭，不能再申请抢单'));
-    if (hasApplied(o.order_id)) {
-      return res.json(ok({ applied: 1 }, '这笔订单已经提交过抢单申请，请等待平台确认'));
-    }
-    log(o.order_id, '申请抢单', 'member', '已提交平台，等待确认');
-    return res.json(ok({ applied: 1 }, '已提交抢单申请，等待平台确认'));
+  if (Number(o.pay_status) === 10) return res.json(fail('订单已确认，无需再申请'));
+  if (Number(o.status) === 40) return res.json(fail('订单已取消，不能再申请抢单'));
+  // 幂等：退出重进再点、网络慢连点两下，都不该在日志里刷出一串「申请抢单」，
+  // 否则后台看到的动态会失真
+  if (hasApplied(o.order_id)) {
+    return res.json(ok({ applied: 1 }, '这笔订单已经提交过抢单申请，请等待平台确认'));
   }
-  if (pt === 1) {
-    // 余额支付：事务内原子扣款 + 原子标记已支付，防止并发超扣/重复扣
-    // 应付 = 货款 + 抢单服务费 + 转拍上架费（下单时已预付，转拍不再扣）
-    const cost = money2(o.total_price + Number(o.service_charge || 0) + Number(o.listing_fee || 0));
-    // 兜底：不管订单是怎么来的（历史脏数据 / 导入 / 后台改单），金额非正一律不扣款。
-    // 负数会被 SQL 当成「加钱」—— amount - (-x) 就是给买家送钱。
-    if (!(cost > 0)) return res.json(fail('订单金额异常，请联系客服'));
-    try {
-      tx(() => {
-        // 先确认这件货还在卖家手里：同一件货可能被多人同时下单，
-        // 先付的人买走之后，后付的人不能再成交，否则卖家收两次钱、后付者钱货两空
-        const own = goodsStillOwnedBySeller(o);
-        if (!own.ok) throw biz(own.reason);
+  log(o.order_id, '申请抢单', 'member', '已提交平台，等待确认');
+  res.json(ok({ applied: 1 }, '已提交抢单申请，等待平台确认'));
+}
 
-        const r1 = run(
-          'UPDATE member SET amount = amount - ? WHERE member_id = ? AND amount >= ?',
-          cost, m.member_id, cost,
-        );
-        if (Number(r1.changes) !== 1) throw biz('账户余额不足');
+r.post('/apply', authMember, applyOrder);
 
-        const r2 = run(
-          'UPDATE orders SET pay_type = 1, pay_voucher = ?, status = 10, pay_status = 10, pay_time = ? WHERE order_id = ? AND pay_status = 0',
-          '', now(), o.order_id,
-        );
-        if (Number(r2.changes) !== 1) throw biz('订单已支付，请勿重复操作');
-
-        // 流水备注写清构成：实付里现在混了三笔钱（货款 + 抢单服务费 + 转拍上架费），
-        // 只写订单号的话财务对账时看不出这 1048 拆成了 1000 / 20 / 28。
-        const svc = Number(o.service_charge) || 0;
-        const lst = Number(o.listing_fee) || 0;
-        const parts = [`货款 ${Number(o.total_price).toFixed(2)}`];
-        if (svc > 0) parts.push(`服务费 ${svc.toFixed(2)}`);
-        if (lst > 0) parts.push(`上架费 ${lst.toFixed(2)}`);
-        run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-          m.member_id, -cost, 2, '余额支付',
-          `订单 ${o.order_no}${parts.length > 1 ? `（${parts.join(' + ')}）` : ''}`, now());
-        settleOrder(o);
-        log(o.order_id, '支付完成', 'member', `余额支付 ¥${cost.toFixed(2)}`);
-      });
-    } catch (e) {
-      if (e.biz) return res.json(fail(e.message));
-      throw e;
-    }
-    return res.json(ok([], '支付成功'));
-  }
-  if (pt !== 1) {
-    // 线下支付不立即成交，但同样要拦：货已经被别人买走了，就别再让人去转账
-    const own = goodsStillOwnedBySeller(o);
-    if (!own.ok) return res.json(fail(own.reason));
-    // 后台「支付凭证必传」开关：关闭后会员无需上传凭证即可提交支付，后台确认收款也不再校验。
-    // 注意：开关关闭时不能顺手把 pay_voucher 写空 —— 会员可能在此之前已经传过凭证。
-    const needVoucher = Number(cfg('pay_voucher_required', '10')) === 10;
-    if (needVoucher && !voucher) return res.json(fail('请上传支付凭证'));
-    if (voucher) {
-      run('UPDATE orders SET pay_type = ?, pay_voucher = ? WHERE order_id = ?', pt, voucher, o.order_id);
-    } else {
-      run('UPDATE orders SET pay_type = ? WHERE order_id = ?', pt, o.order_id);
-    }
-    if (needVoucher) {
-      log(o.order_id, '上传支付凭证', 'member', `${PAY_TYPE[pt] || '支付'}凭证已提交`);
-      return res.json(ok([], '凭证已提交，等待平台确认'));
-    }
-    log(o.order_id, '提交支付', 'member', `${PAY_TYPE[pt] || '支付'}（未要求上传凭证）`);
-    return res.json(ok([], '已提交，等待平台确认'));
-  }
+// 兼容旧版 H5：缓存里的页面还在调 /toPay，并且带 pay_type:0。
+// 这里只放行「申请抢单」，任何支付方式一律拒绝 —— 免得老页面以为还能付款。
+r.post('/toPay', authMember, (req, res) => {
+  const pt = Number(req.body?.pay_type ?? 0);
+  if (pt > 0) return res.json(fail('支付功能已下线，提交申请后由平台确认收款'));
+  req.body = { order_id: req.body?.order_id };
+  return applyOrder(req, res);
 });
 
 // 结算与分账逻辑见 lib/settle.js（与后台确认收款共用）

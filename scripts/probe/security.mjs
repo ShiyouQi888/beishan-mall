@@ -58,6 +58,23 @@ const uploadForm = () => {
   return fd;
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await runSeed();
   const { db } = await import('../../server/src/db.js');
@@ -159,7 +176,7 @@ async function main() {
     ).run(buyer.member_id, g.goods_id);
     const dirtyId = Number(dirtyInfo.lastInsertRowid);
     const beforeBal = db.prepare('SELECT amount FROM member WHERE member_id = ?').get(buyer.member_id).amount;
-    const dirtyPay = await api('/api/order/toPay', { method: 'POST', token: mt, body: { order_id: dirtyId, pay_type: 1 } });
+    const dirtyPay = await __settle(dirtyId);
     ok(dirtyPay.code === 0 && /金额异常/.test(dirtyPay.msg), '负数金额订单不许支付', dirtyPay.msg);
     const afterBal = db.prepare('SELECT amount FROM member WHERE member_id = ?').get(buyer.member_id).amount;
     ok(Number(afterBal) === Number(beforeBal), '余额没有被反向增加', `${beforeBal} → ${afterBal}`);

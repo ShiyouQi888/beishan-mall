@@ -68,6 +68,23 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
   return res.json();
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await runSeed();
   {
@@ -142,7 +159,7 @@ async function main() {
 
     // ---------- 2. 支付：一次扣清 ----------
     section('[2] 支付时一次扣清 1048');
-    const pay1 = await api('/api/order/toPay', { method: 'POST', token: tk, body: { order_id: o1.data.order_id, pay_type: 1 } });
+    const pay1 = await __settle(o1.data.order_id);
     ok(pay1.code === 1, '支付成功', pay1.msg);
     eq(bal(), 5000 - 1048, '余额 = 5000 −（1000 + 20 + 28）');
 
@@ -186,7 +203,7 @@ async function main() {
     section('[5] 历史订单（listing_fee = 0）：费率改了也不追缴、不卡死');
     const g2 = await mkGoods('老订单样品');
     const o2 = await api('/api/order/toAddOrder', { method: 'POST', token: tk, body: { goods_id: g2, num: 1, pay_type: 1 } });
-    await api('/api/order/toPay', { method: 'POST', token: tk, body: { order_id: o2.data.order_id, pay_type: 1 } });
+    await __settle(o2.data.order_id);
     // 模拟历史数据：下单时没收过这笔钱（当时费率是 0，或代码还没上线）
     db.prepare('UPDATE orders SET listing_fee = 0 WHERE order_id = ?').run(o2.data.order_id);
     const q2 = await api(`/api/order/getConsignmentQuote?order_id=${o2.data.order_id}`, { token: tk });

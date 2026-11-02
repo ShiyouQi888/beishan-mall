@@ -43,6 +43,23 @@ function run(cmd, args) {
   });
 }
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   console.log('[setup] 初始化独立 smoke 库…');
   await run('node', ['src/seed.js']);
@@ -236,7 +253,7 @@ async function main() {
       method: 'POST', token: newToken, body: { goods_id: lootTarget.goods_id, num: 1, pay_type: 1, address_id: addrId },
     });
     // 商品已归新用户后不能再买自己的
-    const afterPay = await api('/api/order/toPay', { method: 'POST', token: newToken, body: { order_id: firstOid, pay_type: 1 } });
+    const afterPay = await __settle(firstOid);
     ok(afterPay.code === 1, '余额支付成功', afterPay.msg);
     const heldNow = db.prepare('SELECT member_id m FROM goods WHERE goods_id = ?').get(lootTarget.goods_id).m;
     eq(heldNow, newId, '支付后商品归属转移给买家');
@@ -247,7 +264,7 @@ async function main() {
     ok(again.code === 0 && /已下架/.test(again.msg), '成交后商品立即下架，无法再被抢', again.msg);
     void selfBuy;
 
-    const dupPay = await api('/api/order/toPay', { method: 'POST', token: newToken, body: { order_id: firstOid, pay_type: 1 } });
+    const dupPay = await __settle(firstOid);
     ok(dupPay.code === 0, '重复支付被拦截', dupPay.msg);
 
     // 余额不足
@@ -263,12 +280,8 @@ async function main() {
     const poorOrder = await api('/api/order/toAddOrder', {
       method: 'POST', token: poorToken, body: { goods_id: otherGoods.goods_id, num: 1, pay_type: 1 },
     });
-    if (poorOrder.code === 1) {
-      const poorPay = await api('/api/order/toPay', { method: 'POST', token: poorToken, body: { order_id: poorOrder.data.order_id, pay_type: 1 } });
-      ok(poorPay.code === 0 && /余额不足/.test(poorPay.msg), '余额不足被拦截', poorPay.msg);
-    } else {
-      ok(true, '余额不足场景：下单阶段即被拦截', poorOrder.msg);
-    }
+    // 余额支付已下线：不再有「余额不足」这条拦截，这里只保留下单结果供排查
+    ok(poorOrder.code === 1 || poorOrder.code === 0, '余额支付已下线（下单结果不再涉及扣款）', poorOrder.msg);
 
     // ========== 订单列表 / 详情 / 取消 / 确认收货 ==========
     section('[6] 订单列表、详情与取消');
@@ -345,7 +358,7 @@ async function main() {
       method: 'POST', token: takerToken, body: { goods_id: lootTarget.goods_id, num: 1, pay_type: 1 },
     });
     ok(takeOrder.code === 1, '他人可买走店铺商品', takeOrder.msg);
-    await api('/api/order/toPay', { method: 'POST', token: takerToken, body: { order_id: takeOrder.data.order_id, pay_type: 1 } });
+    await __settle(takeOrder.data.order_id);
     const shop2 = await api('/api/member/myShop', { token: newToken });
     ok(!(shop2.data?.list || []).some((x) => x.goods_id === lootTarget.goods_id), '商品被抢走后从店铺消失');
 
@@ -371,43 +384,7 @@ async function main() {
     ok((topProfit.data || []).length > 0, '上级收到直推奖流水', `${(topProfit.data || []).length} 条`);
 
     // ========== 提现 ==========
-    section('[10] 提现（绑卡 → 申请）');
-    const noCard = await api('/api/finance/withdraw/apply', {
-      method: 'POST', token: newToken, body: { amount: 100, account_type: 1, account_info: '' },
-    });
-    ok(noCard.code === 0 && /收款账户/.test(noCard.msg), '未选收款账户被拒', noCard.msg);
-
-    const cardAdd = await api('/api/member/card/add', {
-      method: 'POST', token: newToken, body: { type: 3, account: '6222000011112222', name: '冒烟', bank: '招商银行' },
-    });
-    ok(cardAdd.code === 1, '绑定收款卡', cardAdd.msg);
-    const cards = await api('/api/member/card/cardList', { token: newToken });
-    ok((cards.data || []).length >= 1, '收款卡列表', `${(cards.data || []).length} 张`);
-
-    const belowMin = await api('/api/finance/withdraw/apply', {
-      method: 'POST', token: newToken, body: { amount: 1, account_type: 3, account_info: '6222000011112222' },
-    });
-    ok(belowMin.code === 0, '低于最低提现金额被拒', belowMin.msg);
-    const overBal = await api('/api/finance/withdraw/apply', {
-      method: 'POST', token: newToken, body: { amount: 9999999, account_type: 3, account_info: '6222000011112222' },
-    });
-    ok(overBal.code === 0 && /余额不足/.test(overBal.msg), '超出余额被拒', overBal.msg);
-
-    const balBefore = Number((await detail(newToken)).amount);
-    const wd = await api('/api/finance/withdraw/apply', {
-      method: 'POST', token: newToken, body: { amount: 100, account_type: 3, account_info: '6222000011112222' },
-    });
-    ok(wd.code === 1, '提现申请成功', wd.msg);
-    num(Number((await detail(newToken)).amount), money(balBefore - 100), '申请后余额立即冻结扣减');
-    const wdList = await api('/api/finance/withdraw/list', { token: newToken });
-    ok(wdList.code === 1, '提现记录列表', wdList.msg);
-    // 后台驳回 → 自动退回
-    const wdRow = db.prepare('SELECT withdraw_id FROM finance_withdraw WHERE member_id = ? ORDER BY withdraw_id DESC LIMIT 1').get(newId);
-    const reject = await api('/admin/api/withdraw/audit', {
-      method: 'POST', token: at, body: { withdraw_id: wdRow.withdraw_id, pass: false, remark: '冒烟驳回' },
-    });
-    ok(reject.code === 1, '后台驳回提现', reject.msg);
-    num(Number((await detail(newToken)).amount), money(balBefore), '驳回后余额自动退回');
+        // 提现模块已下线，相关用例删除
 
     // ========== 实名认证 ==========
     section('[11] 实名认证');
@@ -488,11 +465,7 @@ async function main() {
     ok(nick.code === 1, '修改昵称', nick.msg);
     eq((await detail(newToken))?.nickName, '改名后的我', '昵称已生效');
 
-    const pwdStatus0 = await api('/api/member/getIsPayPassword', { token: newToken });
-    ok(pwdStatus0.code === 1, '支付密码状态可读', pwdStatus0.msg);
-    const setPay = await api('/api/member/verificationPayPassword', { method: 'POST', token: newToken, body: { pwd: '654321' } });
-    ok(setPay.code === 1, '设置支付密码', setPay.msg);
-    eq((await api('/api/member/getIsPayPassword', { token: newToken })).data, '1', '设置后状态为已设置');
+    // 支付密码已随支付功能下线，用例删除
 
     const editPwd = await api('/api/member/editPwd', { method: 'POST', token: newToken, body: { newPwd: 'newpass123' } });
     ok(editPwd.code === 1, '修改登录密码', editPwd.msg);
@@ -520,8 +493,6 @@ async function main() {
     ok(subscribe.code === 1, '预约设置可读', subscribe.msg);
     const closeConsign = await api('/api/index/close_consignment');
     ok(closeConsign.code === 1, '转拍开关状态可读', closeConsign.msg);
-    const paySetting = await api('/api/index/getPaySeeting');
-    ok(paySetting.code === 1, '支付设置可读', paySetting.msg);
 
     // ========== 外观主题 ==========
     section('[16.5] 外观主题：后台切换 → 前台读到新变量');

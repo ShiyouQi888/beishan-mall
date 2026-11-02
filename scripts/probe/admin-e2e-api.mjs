@@ -42,6 +42,23 @@ function run(cmd, args) {
   });
 }
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   console.log('[setup] 初始化独立后台冒烟库…');
   await run('node', ['src/seed.js']);
@@ -106,7 +123,7 @@ async function main() {
       ['goods', 'goods_id'], ['category', 'category_id'], ['specialarea', 'specialarea_id'],
       ['member', 'member_id'], ['orders', 'order_id'], ['certification', 'certification_id'],
       ['recycle', 'recycle_id'], ['delivery', 'template_id'],
-      ['energy', 'energy_id'], ['withdraw', 'withdraw_id'], ['settle', 'id'],
+      ['energy', 'energy_id'], ['settle', 'id'],
       ['banner', 'banner_id'], ['navigation', 'id'], ['notice', 'id'],
       ['storeuser', 'store_user_id'], ['role', 'role_id'],
     ];
@@ -162,7 +179,7 @@ async function main() {
     const pkMap = {
       goods: 'goods_id', category: 'category_id', specialarea: 'specialarea_id', member: 'member_id',
       certification: 'certification_id', delivery: 'template_id',
-      energy: 'energy_id', withdraw: 'withdraw_id', settle: 'id', banner: 'banner_id',
+      energy: 'energy_id', settle: 'id', banner: 'banner_id',
       navigation: 'id', notice: 'id', storeuser: 'store_user_id', role: 'role_id',
     };
     const created = {};
@@ -211,7 +228,7 @@ async function main() {
     // ================= 4. 业务记录不可删除 =================
     section('[4] 业务记录的删除保护');
     // 订单/流水/提现/结算/实名：通用删除直接禁止
-    for (const mod of ['orders', 'energy', 'withdraw', 'settle', 'certification']) {
+    for (const mod of ['orders', 'energy', 'settle', 'certification']) {
       const r = await api(`/admin/api/${mod}/remove`, { method: 'POST', token: at, body: { id: 1 } });
       ok(r.code === 0 && /审计/.test(r.msg), `禁止删除：${mod}`, r.msg);
     }
@@ -239,9 +256,8 @@ async function main() {
     const od = await api(`/admin/api/orders/detail?id=${tOid}`, { token: at });
     ok(od.code === 1 && od.data?.order_id === tOid, '订单详情');
     // 新规则：线下转账必须先由会员上传支付凭证，后台才能确认收款
-    await api('/api/order/toPay', { method: 'POST', token: buyerToken, body: { order_id: tOid, pay_type: 4, voucher: '/uploads/demo-1.svg' } });
     const confirmPay = await api('/admin/api/orders/confirm-pay', { method: 'POST', token: at, body: { order_id: tOid } });
-    ok(confirmPay.code === 1, '线下凭证：确认收款', confirmPay.msg);
+    ok(confirmPay.code === 1, '后台确认收款（无凭证环节）', confirmPay.msg);
     eq(db.prepare('SELECT pay_status FROM orders WHERE order_id = ?').get(tOid).pay_status, 10, '确认收款后 pay_status=10');
     // 发货环节已整体下线：接口没了，订单状态也不会再走到「待收货」
     const deliver = await api('/admin/api/orders/deliver', { method: 'POST', token: at, body: { order_id: tOid } });
@@ -342,7 +358,7 @@ async function main() {
       : { code: 0, msg: '无可买商品' };
     ok(subOrder.code === 1, '构造有上级的买家订单', subOrder.msg);
     if (subOrder.code === 1) {
-      const subPay = await api('/api/order/toPay', { method: 'POST', token: subToken, body: { order_id: subOrder.data.order_id, pay_type: 1 } });
+      const subPay = await __settle(subOrder.data.order_id);
       ok(subPay.code === 1, '买家订单支付（补发前提）', subPay.msg);
       // 模拟「当时漏发」：清掉支付时自动产生的直推奖记录，再走补发
       const tag = `订单 ${subOrder.data.order_no} 大账买单直推奖`;
@@ -364,32 +380,11 @@ async function main() {
       ok(true, '无待审实名记录（跳过）');
     }
 
-    // 提现审核：通过 + 驳回退回
-    const wdId = db.prepare(
-      `INSERT INTO finance_withdraw (member_id, amount, fee, actual_amount, account_info, status, create_time)
-       VALUES (?,?,?,?,?,0,datetime('now','localtime'))`,
-    ).run(mid, 200, 2, 198, '冒烟卡');
-    const wdRowId = Number(wdId.lastInsertRowid);
-    const wdPass = await api('/admin/api/withdraw/audit', { method: 'POST', token: at, body: { withdraw_id: wdRowId, pass: true, remark: '冒烟通过' } });
-    ok(wdPass.code === 1, '提现审核通过', wdPass.msg);
-    eq(db.prepare('SELECT status FROM finance_withdraw WHERE withdraw_id = ?').get(wdRowId).status, 10, '提现状态=已通过');
-    const wdAgain = await api('/admin/api/withdraw/audit', { method: 'POST', token: at, body: { withdraw_id: wdRowId, pass: false } });
-    ok(wdAgain.code === 0, '已处理提现不可重复审核', wdAgain.msg);
-
-    const wd2 = db.prepare(
-      `INSERT INTO finance_withdraw (member_id, amount, fee, actual_amount, account_info, status, create_time)
-       VALUES (?,?,?,?,?,0,datetime('now','localtime'))`,
-    ).run(mid, 300, 3, 297, '冒烟卡2');
-    const wd2Id = Number(wd2.lastInsertRowid);
-    db.prepare('UPDATE member SET amount = amount - 300 WHERE member_id = ?').run(mid);
-    const beforeReject = Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(mid).amount);
-    const wdReject = await api('/admin/api/withdraw/audit', { method: 'POST', token: at, body: { withdraw_id: wd2Id, pass: false, remark: '冒烟驳回' } });
-    ok(wdReject.code === 1, '提现驳回', wdReject.msg);
-    num(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(mid).amount, money(beforeReject + 300), '驳回后金额退回');
+    // 提现模块已整体下线：审核接口与用例一并删除
 
     // ================= 10. 设置组 =================
     section('[9] 设置组读写（7 组）');
-    const groups = ['store', 'trade', 'pay', 'storage', 'poster', 'prompt', 'nav'];
+    const groups = ['store', 'trade', 'storage', 'poster', 'prompt', 'nav'];
     for (const g of groups) {
       const r = await api(`/admin/api/setting/${g}`, { token: at });
       ok(r.code === 1 && (r.data?.items || []).length > 0, `设置组可读：${g}`, `${(r.data?.items || []).length} 项`);

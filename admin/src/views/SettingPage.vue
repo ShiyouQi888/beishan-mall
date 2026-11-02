@@ -161,7 +161,7 @@ const META = {
   nav: { t: '导航配置', d: '首页、分类、抢购、邀请和个人中心的底部导航开关' },
   storage: { t: '上传配置', d: '文件存储方式、访问域名与大小限制' },
   poster: { t: '海报配置', d: '邀请海报背景、Logo、二维码位置与文案' },
-  prompt: { t: '须知配置', d: '注册协议、邀请须知、商城协议、交易协议，以及抢购/转拍/提现须知' },
+  prompt: { t: '须知配置', d: '注册协议、邀请须知、商城协议、交易协议，以及抢购/转拍须知' },
 };
 
 const groupTitle = computed(() => META[route.params.group]?.t || '系统设置');
@@ -216,12 +216,6 @@ async function load() {
       };
       const defaultSwitches = {
         nav_invite: 10,
-        require_receiving_account: 20,
-        pay_balance_open: 10,
-        withdraw_wx_open: 10,
-        withdraw_zfb_open: 10,
-        withdraw_bank_open: 10,
-        withdraw_offline_open: 10,
         poster_title_show: 10,
         poster_subtitle_show: 10,
         poster_content_show: 10,

@@ -39,6 +39,23 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
   return res.json();
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await new Promise((resolve, reject) => {
     const p = spawn(process.execPath, ['src/seed.js'], { cwd: SERVER, env, stdio: 'pipe' });
@@ -119,7 +136,7 @@ async function main() {
       db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(goodsId);
       const o = await api('/api/order/toAddOrder', { method: 'POST', token: buyer.token, body: { goods_id: goodsId, num, pay_type: 1 } });
       if (o.code !== 1) return o;
-      const p = await api('/api/order/toPay', { method: 'POST', token: buyer.token, body: { order_id: o.data.order_id, pay_type: 1 } });
+      const p = await __settle(o.data.order_id);
       return { ...p, order_id: o.data.order_id, total: o.data.total_price };
     };
 

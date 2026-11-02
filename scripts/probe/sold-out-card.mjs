@@ -54,6 +54,23 @@ const day = (offset = 0) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await runSeed();
   const { db } = await import('../../server/src/db.js');
@@ -111,7 +128,7 @@ async function main() {
 
     const o1 = await api('/api/order/toAddOrder', { method: 'POST', token: B, body: { goods_id: g1.goods_id, num: 1, pay_type: 1 } });
     ok(o1.code === 1, 'B 下单', o1.msg);
-    const p1 = await api('/api/order/toPay', { method: 'POST', token: B, body: { order_id: o1.data.order_id, pay_type: 1 } });
+    const p1 = await __settle(o1.data.order_id);
     ok(p1.code === 1, 'B 支付成功', p1.msg);
     const g1After = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(g1.goods_id);
     ok(Number(g1After.goods_status) === 20, '商品成交后下架', `status=${g1After.goods_status}`);
@@ -151,7 +168,7 @@ async function main() {
     db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(g2.goods_id);
     const o2 = await api('/api/order/toAddOrder', { method: 'POST', token: B, body: { goods_id: g2.goods_id, num: 1, pay_type: 1 } });
     if (o2.code === 1) {
-      await api('/api/order/toPay', { method: 'POST', token: B, body: { order_id: o2.data.order_id, pay_type: 1 } });
+      await __settle(o2.data.order_id);
       const after2 = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(g2.goods_id);
       ok(Number(after2.goods_status) === 20, '第二件成交下架');
       const l2 = await listIds(B);

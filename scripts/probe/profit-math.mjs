@@ -57,6 +57,23 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
   return res.json();
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await runSeed();
   // 系统默认只开线下转账；本用例要用余额支付走完买入→卖出，测试库显式打开
@@ -134,7 +151,7 @@ async function main() {
     const o1 = await api('/api/order/toAddOrder', { method: 'POST', token: A.token, body: { goods_id: gid, num: 1, pay_type: 1 } });
     eq(o1.data?.total_price, 1000, '订单商品金额 1000');
     eq(o1.data?.service_charge, 20, '服务费 20');
-    const pay1 = await api('/api/order/toPay', { method: 'POST', token: A.token, body: { order_id: o1.data.order_id, pay_type: 1 } });
+    const pay1 = await __settle(o1.data.order_id);
     ok(pay1.code === 1, 'A 支付成功', pay1.msg);
     const aAfterBuy = balOf(A.mid);
     eq(aAfterBuy, 5000 - 1020, 'A 余额少 1020（商品 + 服务费）');
@@ -185,7 +202,7 @@ async function main() {
     const o2 = await api('/api/order/toAddOrder', { method: 'POST', token: B.token, body: { goods_id: gid, num: 1, pay_type: 1 } });
     if (!o2.data?.total_price) console.log('    B 下单原始返回：', JSON.stringify(o2));
     eq(o2.data?.total_price, expectNext, `B 支付商品金额 ${expectNext}`);
-    const pay2 = await api('/api/order/toPay', { method: 'POST', token: B.token, body: { order_id: o2.data.order_id, pay_type: 1 } });
+    const pay2 = await __settle(o2.data.order_id);
     ok(pay2.code === 1, 'B 支付成功', pay2.msg);
 
     const aFinal = balOf(A.mid);

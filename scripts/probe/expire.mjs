@@ -45,6 +45,23 @@ const localToday = () => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await new Promise((resolve, reject) => {
     const p = spawn(process.execPath, ['src/seed.js'], { cwd: SERVER, env, stdio: 'pipe' });
@@ -111,7 +128,7 @@ async function main() {
       const gid = Number(c.data.id);
       db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(gid);
       const o = await api('/api/order/toAddOrder', { method: 'POST', token: bt, body: { goods_id: gid, num: 1, pay_type: 1 } });
-      await api('/api/order/toPay', { method: 'POST', token: bt, body: { order_id: o.data.order_id, pay_type: 1 } });
+      await __settle(o.data.order_id);
       // 模拟「持有人已转拍挂牌」：商品重新上架、挂到指定场次、订单标记已挂牌
       db.prepare('UPDATE goods SET goods_status = 10, is_sell = 10, area_date = ? WHERE goods_id = ?').run(areaDate, gid);
       db.prepare('UPDATE orders SET consignment_status = 10, transposition_time = ? WHERE order_id = ?').run(`${areaDate} 09:00:00`, o.data.order_id);

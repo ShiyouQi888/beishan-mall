@@ -108,7 +108,6 @@ async function main() {
       usedGoods.add(gid);
       const order = await api('/api/order/toAddOrder', { method: 'POST', token: mt, body: { goods_id: gid, num: 1, pay_type: 4 } });
       if (order.code !== 1) return null;
-      await api('/api/order/toPay', { method: 'POST', token: mt, body: { order_id: order.data.order_id, pay_type: 4, voucher: '/uploads/demo-1.svg' } });
       return order.data.order_id;
     }
 
@@ -143,34 +142,7 @@ async function main() {
     eq((mixed.data?.failed || []).length, 1, '跳过 1 笔');
     eq(db.prepare('SELECT pay_status p FROM orders WHERE order_id = ?').get(extra).p, 10, '新单已到账');
 
-    section('[4] 提现：批量驳回并退回余额');
-    const balBefore = db.prepare('SELECT amount a FROM member WHERE member_id = ?').get(buyer.member_id).a;
-    const wid1 = (await api('/api/finance/withdraw/apply', { method: 'POST', token: mt, body: { amount: 100, account_type: 4 } }));
-    const wid2 = (await api('/api/finance/withdraw/apply', { method: 'POST', token: mt, body: { amount: 200, account_type: 4 } }));
-    ok(wid1.code === 1 && wid2.code === 1, '两笔提现申请提交成功', wid1.msg + ' / ' + wid2.msg);
-    const wIds = db.prepare('SELECT withdraw_id FROM finance_withdraw WHERE status = 0 ORDER BY withdraw_id').all().map((x) => x.withdraw_id);
-    eq(wIds.length, 2, '两条待审记录');
-    const balFrozen = db.prepare('SELECT amount a FROM member WHERE member_id = ?').get(buyer.member_id).a;
-    eq(Number((balBefore - balFrozen).toFixed(2)), 300, '申请后余额先被扣掉 300');
-
-    const reject = await api('/admin/api/withdraw/audit-batch', { method: 'POST', token: at, body: { withdraw_ids: wIds, pass: false, remark: '冒烟测试驳回' } });
-    ok(reject.code === 1 && Number(reject.data?.done) === 2, '批量驳回成功', reject.msg);
-    eq(db.prepare('SELECT COUNT(*) c FROM finance_withdraw WHERE withdraw_id IN (' + wIds.join(',') + ') AND status = 20').get().c, 2, '状态变为已驳回');
-    eq(Number(db.prepare('SELECT amount a FROM member WHERE member_id = ?').get(buyer.member_id).a.toFixed(2)), Number(balBefore.toFixed(2)), '金额已退回余额');
-
-    section('[5] 提现：批量通过');
-    await api('/api/finance/withdraw/apply', { method: 'POST', token: mt, body: { amount: 50, account_type: 4 } });
-    const w3 = db.prepare('SELECT withdraw_id FROM finance_withdraw WHERE status = 0').get().withdraw_id;
-    const approve = await api('/admin/api/withdraw/audit-batch', { method: 'POST', token: at, body: { withdraw_ids: [w3], pass: true } });
-    ok(approve.code === 1 && Number(approve.data?.done) === 1, '批量通过成功', approve.msg);
-    eq(db.prepare('SELECT status s FROM finance_withdraw WHERE withdraw_id = ?').get(w3).s, 10, '状态变为已通过');
-    ok(Number(db.prepare('SELECT amount a FROM member WHERE member_id = ?').get(buyer.member_id).a) < Number(balBefore), '通过后不退回（钱已打出）');
-
-    section('[6] 空选择 / 已处理的再提交');
-    const empty = await api('/admin/api/withdraw/audit-batch', { method: 'POST', token: at, body: { withdraw_ids: [], pass: true } });
-    ok(empty.code === 0 && /勾选/.test(empty.msg), '空选择被拒', empty.msg);
-    const dup = await api('/admin/api/withdraw/audit-batch', { method: 'POST', token: at, body: { withdraw_ids: [w3], pass: true } });
-    ok(dup.code === 0 && /已处理/.test(dup.msg), '已处理的再提交被拒', dup.msg);
+    // 提现模块已整体下线，相关批量审核用例随之删除
   } finally {
     srv.kill('SIGTERM');
     await sleep(300);

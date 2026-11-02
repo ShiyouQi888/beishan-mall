@@ -48,7 +48,6 @@ export const api = {
   openNav: () => http.get('/index/getOpenNavigation'),
   notices: () => http.get('/notice/getNotice'),
   tradeConfig: () => http.get('/index/getTradeConfig'),
-  paymentSettings: () => http.get('/index/getPaySeeting'),
 
   // 商品
   categories: (params) => http.get('/goods/getCategory', { params }),
@@ -75,12 +74,12 @@ export const api = {
   eCardList: () => http.get('/member/getECardList'),
   financial: () => http.get('/member/financialData'),
   personProfit: () => http.get('/member/personProfit'),
-  payPwdStatus: () => http.get('/member/getIsPayPassword'),
   setPay: (d) => http.post('/member/setPay', d),
 
   // 订单
   addOrder: (d) => http.post('/order/toAddOrder', d),
-  payOrder: (d) => http.post('/order/toPay', d),
+  // 支付环节已下线：这里只提交「抢单申请」，不再有 pay_type
+  applyOrder: (d) => http.post('/order/apply', d),
   orders: (p) => http.get('/order/getOrder', { params: p }),
   orderDetail: (id) => http.get('/order/detail', { params: { order_id: id } }),
   cancelOrder: (d) => http.post('/order/cancel', d),

@@ -178,10 +178,6 @@ const M = {
       { k: 'cancel_by', t: '取消来源', type: 'select', opts: { 1: '用户取消', 2: '后台取消' }, w: 100, hide: true },
       { k: 'pay_status', t: '付款状态', type: 'select', opts: { 10: '已确认', 0: '未确认' }, w: 96, hide: true },
       { k: 'status', t: '内部状态', type: 'select', opts: ORDER_STATUS, w: 100, hide: true },
-      // 支付方式这一环已下线，字段保留仅为兼容历史数据，前台后台都不再展示
-      // 0 不是「未支付」而是「申请抢单」：这套玩法前台只提交申请，等平台确认
-      { k: 'pay_type', t: '支付方式', type: 'select', opts: { 0: '申请抢单', 1: '余额', 2: '微信', 3: '支付宝', 4: '线下凭证' }, w: 110, hide: true },
-      { k: 'pay_voucher', t: '支付凭证', type: 'image', w: 80, hide: true, readonly: true },
       { k: 'buyer', t: '买家', type: 'member', w: 132 },
       { k: 'seller_id', t: '卖家ID', type: 'text', w: 90, hide: true },
       { k: 'create_time', t: '下单时间', type: 'text', readonly: true, w: 168 },
@@ -273,22 +269,6 @@ const M = {
       { k: 'express_no', t: '快递单号', type: 'text', w: 140, hide: true },
       { k: 'create_time', t: '兑换时间', type: 'text', readonly: true, w: 150 },
     ],
-  },
-  withdraw: {
-    table: 'finance_withdraw', pk: 'withdraw_id', label: '提现审核',
-    search: [], orderBy: 'withdraw_id DESC',
-    fields: [
-      { k: 'withdraw_id', t: 'ID', type: 'text', readonly: true, w: 80 },
-      { k: 'member_id', t: '会员', type: 'member', w: 120 },
-      { k: 'amount', t: '申请金额', type: 'money', w: 110 },
-      { k: 'fee', t: '手续费', type: 'money', w: 90 },
-      { k: 'actual_amount', t: '实际到账', type: 'money', w: 110 },
-      { k: 'account_type', t: '打款方式', type: 'select', opts: { 1: '微信', 2: '支付宝', 3: '银行卡', 4: '线下打款' }, w: 104, readonly: true },
-      { k: 'account_info', t: '收款账户', type: 'text' },
-      { k: 'status', t: '状态', type: 'select', opts: { 0: '待审核', 10: '已通过', 20: '已拒绝' }, w: 100 },
-      { k: 'create_time', t: '申请时间', type: 'text', readonly: true, w: 160 },
-    ],
-    actions: ['audit'],
   },
   settle: {
     table: 'settle_pay', pk: 'id', label: '结算账目',
@@ -542,27 +522,6 @@ r.get('/notifications/orders', authAdmin, (req, res) => {
   res.json(ok({ latest_id: latestId, items }));
 });
 
-// 提现申请通知：按提现记录 ID 增量读取，仅供有提现审核权限的管理员使用。
-r.get('/notifications/withdrawals', authAdmin, (req, res) => {
-  const hasCursor = req.query.after_id !== undefined && req.query.after_id !== '';
-  const afterId = hasCursor ? Number(req.query.after_id) : 0;
-  if (!Number.isSafeInteger(afterId) || afterId < 0) return res.json(fail('提现通知游标无效'));
-
-  if (!hasCursor) {
-    const latestId = Number(get('SELECT IFNULL(MAX(withdraw_id),0) id FROM finance_withdraw')?.id || 0);
-    return res.json(ok({ latest_id: latestId, items: [] }));
-  }
-
-  const items = all(
-    `SELECT w.withdraw_id, w.member_id, m.nick_name, w.amount, w.create_time
-     FROM finance_withdraw w LEFT JOIN member m ON m.member_id = w.member_id
-     WHERE w.withdraw_id > ? ORDER BY w.withdraw_id ASC LIMIT 50`,
-    afterId,
-  );
-  const latestId = items.length ? Number(items[items.length - 1].withdraw_id) : afterId;
-  res.json(ok({ latest_id: latestId, items }));
-});
-
 // 系统回收通知：按回收单 ID 增量读取。到顶回收是系统自动发生的，
 // 运营不在回收页时也要能第一时间收到提醒（后台全局轮询 + 语音播报）。
 r.get('/notifications/recycles', authAdmin, (req, res) => {
@@ -641,34 +600,17 @@ const SETTING_GROUPS = {
   ],
   trade: [
     { k: 'service_charge', t: '抢单服务费(%)', type: 'number', tip: '买家在商品金额之外额外支付；填 0 则不收。下单时与货款、转拍上架费一起算进应付金额，会员在确认订单页就能看到这三笔钱。' },
-    { k: 'require_receiving_account', t: '抢购前必须绑定收款账户', type: 'switch', tip: '关闭时允许未绑定收款账户的会员直接下单；开启后，会员需先设置收款方式。默认关闭。' },
     { k: 'require_invite_code', t: '注册必须填邀请码', type: 'switch', tip: '开启：必须有有效邀请码才能入驻，注册后自动绑定上级。关闭：邀请码可留空直接注册（无上级、不产生直推奖），填了仍会校验有效性。默认开启。' },
     // 提现模块整体下线（菜单、会员端入口都已隐藏），这四项通道开关不再露出，
     // 免得运营以为自己开了个能用的提现通道。字段与库值全部保留，随时可恢复。
-    { k: 'withdraw_wx_open', t: '提现到微信', type: 'switch', hide: true },
-    { k: 'withdraw_zfb_open', t: '提现到支付宝', type: 'switch', hide: true },
-    { k: 'withdraw_bank_open', t: '提现到银行卡', type: 'switch', hide: true },
-    { k: 'withdraw_offline_open', t: '提现线下打款', type: 'switch', hide: true },
     { k: 'order_pay_timeout', t: '确认时限(分钟)', type: 'number', tip: '会员提交抢单申请后，平台多久内没确认就自动关单。抢购是「提交即锁单」，超过这个时间没确认，订单会被系统关闭、商品重新放出。默认 30 分钟。' },
     { k: 'price_increase_rate', t: '转拍涨价率(%)', type: 'number', tip: '每转拍一次，在上一手成交价基础上自动加价该比例，逐轮复利：10000 → 10300 → 10609。下一轮买家付 10300 时，上一手持有人收回 10300 全额（原价 + 涨价），此后与该持有人无关。注意：涨价率要高于「上架费率 + 抢单服务费率」才有净收益，否则每转一手都在亏钱。' },
     { k: 'listing_fee_rate', t: '转拍上架费(%)', type: 'number', tip: '按「本单成交金额 × 该费率」计算，下单时就和货款一起收（会员确认订单页会单独列出这一笔），转拍上架时不再二次扣款，历史订单也不追溯。填 0 则不收。改完费率记得同步改「转拍规则说明」和「转拍须知」里的文案，别让会员看到「免上架费」却被扣了钱。' },
     { k: 'drive_award_rate', t: '直推奖(%)', type: 'number' },
     { k: 'consignment_open', t: '转拍开关', type: 'switch' },
     { k: 'consignment_rule', t: '转拍规则说明', type: 'textarea' },
-    { k: 'withdraw_min', t: '最低提现金额', type: 'number', hide: true },
-    { k: 'withdraw_fee', t: '提现手续费(%)', type: 'number', hide: true },
     { k: 'recycle_open', t: '到顶自动回收', type: 'switch', tip: '开启：商品的下一轮涨价会越过「价格上限」时即判定到顶，持有人无法再转拍，系统按商品「当前实际价格」接盘结算（刚买下的按买入价原价退回），商品转平台持仓。关闭：只记一笔「待处理」，不自动打款。' },
     { k: 'recycle_daily_cap', t: '每日回收上限(元)', type: 'number', tip: '平台每天最多垫付多少回收款；0 = 不限。超出后当天的到顶商品只记「待处理」，可在「订单管理 → 系统回收」里手动结算。' },
-  ],
-  pay: [
-    { k: 'pay_balance_open', t: '余额支付', type: 'switch' },
-    { k: 'pay_wx', t: '微信收款码转账', type: 'switch' },
-    { k: 'pay_zfb', t: '支付宝收款码转账', type: 'switch' },
-    { k: 'pay_bank', t: '线下转账凭证', type: 'switch', tip: '开启后前台可选择线下转账并上传凭证；微信、支付宝扫码方式需先配置对应收款码。' },
-    { k: 'pay_voucher_required', t: '支付凭证必传', type: 'switch', tip: '开启（默认）：线下扫码/转账支付必须上传付款凭证，后台「确认收款」也会校验凭证是否已提交。关闭：会员选线下支付时无需上传凭证，点一下即标记为「已提交」；后台确认收款不再校验凭证，可直接确认。⚠️ 关闭后会员未实际付款也能自行标记已付款，请确保另有核实手段（如收款账户流水）。' },
-    { k: 'pay_gateway_open', t: '在线支付通道', type: 'switch' },
-    { k: 'zfb_qr', t: '支付宝收款码', type: 'image' },
-    { k: 'wx_qr', t: '微信收款码', type: 'image' },
   ],
   storage: [
     { k: 'storage_type', t: '存储方式', type: 'text' },
@@ -727,7 +669,6 @@ const SETTING_GROUPS = {
     { k: 'prompt_trade', t: '交易协议', type: 'richtext' },
     { k: 'prompt_loot', t: '抢购须知', type: 'richtext' },
     { k: 'prompt_consign', t: '转拍须知', type: 'richtext' },
-    { k: 'prompt_withdraw', t: '提现须知', type: 'richtext' },
   ],
   nav: [
     { k: 'nav_index', t: '首页显示', type: 'switch' },
@@ -1257,7 +1198,7 @@ function enrich(mod, row) {
       row.specialarea_id,
     )?.c || 0);
   }
-  if (mod === 'energy' || mod === 'withdraw' || mod === 'settle' || mod === 'scoreExchange') {
+  if (mod === 'energy' || mod === 'settle' || mod === 'scoreExchange') {
     const mm = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', row.member_id);
     out._member = mm?.nick_name || '';
     out._member_mobile = mm?.mobile || '';
@@ -1554,7 +1495,7 @@ r.post('/:module/remove', authAdmin, (req, res) => {
   const ids = (Array.isArray(req.body?.ids) ? req.body.ids : [req.body?.id]).filter(Boolean);
   if (!ids.length) return res.json(fail('请选择要删除的记录'));
   const moduleName = req.params.module;
-  if (['orders', 'member', 'energy', 'withdraw', 'settle', 'certification'].includes(moduleName)) {
+  if (['orders', 'member', 'energy', 'settle', 'certification'].includes(moduleName)) {
     return res.json(fail('业务记录需保留审计，不能通过通用接口删除'));
   }
   for (const id of ids) {
@@ -1704,16 +1645,8 @@ function confirmPayOne(orderId) {
   // 会员取消后 status=40 但 pay_status 还是 0，不拦住的话运营会把一笔已取消的单
   // 「确认收款」，钱进账、货也过户，等于把会员撤回的申请又强行成交了
   if (Number(o.status) === 40) { const e = new Error('订单已被取消，不能确认收款'); e.biz = true; throw e; }
-  // 后台开了「支付凭证必传」才拦；关了就是运营自己承担无凭证确认的风险。
-  // pay_type=0 是「申请抢单」——前台已经整体去掉支付方式与凭证上传，
-  // 这类订单永远不会有凭证，不能拿凭证去卡它，否则新单永远确认不了。
-  const pt = Number(o.pay_type);
-  if (Number(cfg('pay_voucher_required', '10')) === 10
-    && pt !== 0 && pt !== 1 && !o.pay_voucher) {
-    const e = new Error('会员尚未提交支付凭证');
-    e.biz = true;
-    throw e;
-  }
+  // 支付与凭证上传已整体下线：会员只提交「抢单申请」，是否收到钱由运营线下核实，
+  // 这里不再有任何凭证校验（原来那套开关也一并删掉了）。
   tx(() => {
     // 确认收款即成交，先核对这件货是否还在订单上的卖家手里。
     // 线下支付的凭证提交在前、这里确认在后，中间商品可能已经被别人买走了
@@ -1960,61 +1893,6 @@ r.post('/member/adjust', authAdmin, (req, res) => {
       m.member_id, v, typeMap[field], `后台调整${allow[field]}`, remark || '管理员操作', now());
   });
   res.json(ok([], '调整成功'));
-});
-
-// 提现审核（单笔与批量共用）
-function auditWithdrawOne(withdrawId, pass, remark) {
-  const w = get('SELECT * FROM finance_withdraw WHERE withdraw_id = ?', Number(withdrawId));
-  if (!w) { const e = new Error('记录不存在'); e.biz = true; throw e; }
-  if (w.status !== 0) { const e = new Error('该申请已处理'); e.biz = true; throw e; }
-  tx(() => {
-    run('UPDATE finance_withdraw SET status = ?, audit_time = ?, remark = ? WHERE withdraw_id = ?',
-      pass ? 10 : 20, now(), remark || '', w.withdraw_id);
-    if (!pass) {
-      // 驳回退还
-      run('UPDATE member SET amount = amount + ? WHERE member_id = ?', w.amount, w.member_id);
-      run('INSERT INTO finance_energy (member_id, face_value, type, type_name, remarks, create_time) VALUES (?,?,?,?,?,?)',
-        w.member_id, w.amount, 2, '提现驳回退回', remark || '', now());
-    }
-  });
-  return w;
-}
-
-r.post('/withdraw/audit', authAdmin, (req, res) => {
-  const { withdraw_id, pass, remark } = req.body;
-  try {
-    auditWithdrawOne(withdraw_id, pass, remark);
-  } catch (e) {
-    if (e.biz) return res.json(fail(e.message));
-    throw e;
-  }
-  res.json(ok([], pass ? '已通过' : '已驳回'));
-});
-
-// 批量审核提现：逐笔处理，失败如实回报
-r.post('/withdraw/audit-batch', authAdmin, (req, res) => {
-  const ids = Array.isArray(req.body?.withdraw_ids) ? req.body.withdraw_ids.map(Number).filter(Boolean).slice(0, 200) : [];
-  const pass = Boolean(req.body?.pass);
-  const remark = req.body?.remark || '';
-  if (!ids.length) return res.json(fail('请先勾选提现申请'));
-  const done = [];
-  const failed = [];
-  for (const id of ids) {
-    try {
-      auditWithdrawOne(id, pass, remark);
-      done.push(id);
-    } catch (e) {
-      if (!e.biz) throw e;
-      failed.push({ withdraw_id: id, msg: e.message });
-    }
-  }
-  if (!done.length) {
-    const first = failed[0]?.msg || '没有可处理的申请';
-    return res.json(fail(failed.length > 1 ? `${failed.length} 笔都没能处理：${first}` : first));
-  }
-  const verb = pass ? '通过' : '驳回';
-  const msg = failed.length ? `已${verb} ${done.length} 笔，${failed.length} 笔跳过` : `已${verb} ${done.length} 笔`;
-  res.json(ok({ done: done.length, failed }, msg));
 });
 
 // 实名审核

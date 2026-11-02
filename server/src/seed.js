@@ -78,27 +78,12 @@ tx(() => {
     ['drive_award_rate', '0.5', 'trade'],
     ['service_charge', '2', 'trade'],
     ['consignment_open', '10', 'trade'],
-    ['require_receiving_account', '20', 'trade'],
     ['require_invite_code', '10', 'trade'],  // 注册是否强制邀请码：10 必须 / 20 可选
     ['price_increase_rate', '3', 'trade'],
     ['recycle_open', '10', 'trade'],          // 到顶自动回收（平台按买入价+一轮涨幅接盘）
     ['recycle_daily_cap', '0', 'trade'],      // 每日回收总额上限（0 = 不限）
     // 文案别写死「免上架费」——费率是可配的，写死就会和实际扣款对不上。
     ['consignment_rule', '转拍上架费已在下单时随货款一并收取，转拍时不再另收；商品按后台涨价率自动加价进入下一轮，成交后货款全额结算给上一手持有人。', 'trade'],
-    ['withdraw_min', '10', 'trade'],
-    ['withdraw_fee', '0', 'trade'],
-    // 提现模块整体下线，四个通道默认关闭（保留字段与历史流水，随时可恢复）
-    ['withdraw_wx_open', '20', 'trade'],
-    ['withdraw_zfb_open', '20', 'trade'],
-    ['withdraw_bank_open', '20', 'trade'],
-    ['withdraw_offline_open', '20', 'trade'],
-    // 支付方式默认只开线下转账，其余按需在后台打开
-    ['pay_balance_open', '20', 'pay'],
-    ['pay_voucher_required', '10', 'pay'],
-    ['pay_wx', '20', 'pay'],
-    ['pay_zfb', '20', 'pay'],
-    ['pay_bank', '10', 'pay'],
-    ['pay_gateway_open', '10', 'pay'],
     ['nav_index', '10', 'nav'],
     ['nav_category', '10', 'nav'],
     ['nav_cart', '20', 'nav'],
@@ -113,7 +98,6 @@ tx(() => {
     ['prompt_trade', '<p>交易规则：商品一经售出，非质量问题不予退换。</p>', 'prompt'],
     ['prompt_loot', '<p>抢购成功后请在 30 分钟内完成支付，超时订单自动关闭。</p>', 'prompt'],
     ['prompt_consign', '<p>转拍上架费已在下单时随货款一并收取，转拍时不再另收；商品按平台设定的涨价率自动加价后进入下一轮，成交后货款全额结算给上一手持有人。</p>', 'prompt'],
-    ['prompt_withdraw', '<p>提现申请审核通过后 T+1 个工作日到账。</p>', 'prompt'],
     ['customer_type', '1', 'store'],
     ['to_examine', '10', 'store'],
     ['theme_key', 'coral', 'store'],        // 外观主题：coral / green / ocean

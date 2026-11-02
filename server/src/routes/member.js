@@ -156,26 +156,7 @@ r.post('/editPwd', authMember, (req, res) => {
   res.json(ok({ phone: m.mobile, z_phone: m.mobile }, '修改成功'));
 });
 
-// 支付密码
-r.get('/getIsPayPassword', authMember, (req, res) => {
-  res.json(ok(req.member.pay_password ? '1' : '0'));
-});
-
-r.post('/verificationPayPassword', authMember, (req, res) => {
-  const { pwd } = req.body;
-  if (!pwd) return res.json(fail('请先输入支付密码'));
-  const m = req.member;
-  if (!m.pay_password) {
-    run('UPDATE member SET pay_password = ? WHERE member_id = ?', hashPwd(pwd), m.member_id);
-    return res.json(ok([], '支付密码设置成功'));
-  }
-  if (!verifyPwd(pwd, m.pay_password)) return res.json(fail('支付密码错误'));
-  // 同步升级旧哈希；支付密码不常改，逮到一次验证就顺手换掉
-  if (needsRehash(m.pay_password)) {
-    run('UPDATE member SET pay_password = ? WHERE member_id = ?', hashPwd(pwd), m.member_id);
-  }
-  res.json(ok([], '验证成功'));
-});
+// 支付密码已随支付功能一起下线：没有余额支付，这层密码没有校验对象。
 
 r.post('/setPay', authMember, (req, res) => {
   const { type, account, name, bank, image } = req.body;

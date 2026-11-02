@@ -63,6 +63,23 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
   return res.json();
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await runSeed();
   {
@@ -135,7 +152,7 @@ async function main() {
     eq(o1.data?.total_price, 2000, '商品金额 2000');
     eq(o1.data?.service_charge, 0, '服务费 0（截图里的设置）');
     eq(o1.data?.listing_fee, 40, '转拍上架费 40（2000 × 2%）');
-    const pay1 = await api('/api/order/toPay', { method: 'POST', token: A.token, body: { order_id: o1.data.order_id, pay_type: 1 } });
+    const pay1 = await __settle(o1.data.order_id);
     ok(pay1.code === 1, '支付成功', pay1.msg);
     eq(bal(A.mid), 5000 - 2040, '余额扣 2040（2000 + 0 + 40）');
     const flow = all('SELECT * FROM finance_energy WHERE member_id = ? ORDER BY energy_id DESC LIMIT 1', A.mid)[0];
@@ -196,7 +213,7 @@ async function main() {
     if (!o2.data?.total_price) console.log('    第二手下单返回：', JSON.stringify(o2));
     eq(o2.data?.total_price, 2060, '第二手标价 2060');
     eq(o2.data?.listing_fee, 41.2, '第二手自己那笔上架费 41.2');
-    await api('/api/order/toPay', { method: 'POST', token: B.token, body: { order_id: o2.data.order_id, pay_type: 1 } });
+    await __settle(o2.data.order_id);
     eq(bal(A.mid), 5000 - 2040 + 2060, 'A 收回 2060 全额');
     eq(bal(A.mid) - 5000, 20, 'A 净赚 20（2060 − 2040）');
     const ov = await api('/admin/api/finance/overview', { token: at });

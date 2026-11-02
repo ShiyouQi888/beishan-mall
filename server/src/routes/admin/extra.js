@@ -190,8 +190,6 @@ r.post('/member/remove', authAdmin, (req, res) => {
     if (orders) reasons.push(`${orders} 笔订单`);
     const flows = cnt('SELECT COUNT(*) c FROM finance_energy WHERE member_id = ?', id);
     if (flows) reasons.push(`${flows} 条资金流水`);
-    const wd = cnt('SELECT COUNT(*) c FROM finance_withdraw WHERE member_id = ?', id);
-    if (wd) reasons.push(`${wd} 笔提现`);
     const childs = cnt('SELECT COUNT(*) c FROM member WHERE p_id = ?', id);
     if (childs) reasons.push(`${childs} 个下级会员`);
     const addr = cnt('SELECT COUNT(*) c FROM member_address WHERE member_id = ?', id);

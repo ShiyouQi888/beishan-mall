@@ -116,11 +116,11 @@ async function main() {
   orderA = Number(a.data?.order_id) || 0;
   check('订单 A 下单成功', a.code === 1 && orderA > 0, a.msg);
 
-  const apply1 = await post('/api/order/toPay', { order_id: orderA, pay_type: 0 });
+  const apply1 = await post('/api/order/apply', { order_id: orderA });
   check('第一次申请抢单成功', apply1.code === 1 && /等待平台确认/.test(apply1.msg || ''), apply1.msg);
 
-  const apply2 = await post('/api/order/toPay', { order_id: orderA, pay_type: 0 });
-  const apply3 = await post('/api/order/toPay', { order_id: orderA, pay_type: 0 });
+  const apply2 = await post('/api/order/apply', { order_id: orderA });
+  const apply3 = await post('/api/order/apply', { order_id: orderA });
   check('重复申请返回「已经提交过」', /已经提交过/.test(apply2.msg || '') && /已经提交过/.test(apply3.msg || ''),
     `${apply2.msg} / ${apply3.msg}`);
   const logCount = Number(get("SELECT COUNT(*) c FROM order_log WHERE order_id = ? AND action = '申请抢单'", orderA).c);
@@ -138,7 +138,7 @@ async function main() {
   orderB = Number(b.data?.order_id) || 0;
   check('订单 B 下单成功', b.code === 1 && orderB > 0, b.msg);
   run('UPDATE orders SET status = 40 WHERE order_id = ?', orderB);
-  const applyClosed = await post('/api/order/toPay', { order_id: orderB, pay_type: 0 });
+  const applyClosed = await post('/api/order/apply', { order_id: orderB });
   check('已关闭订单申请被拒', applyClosed.code === 0 && /已关闭/.test(applyClosed.msg || ''), applyClosed.msg);
   const closedLog = Number(get("SELECT COUNT(*) c FROM order_log WHERE order_id = ? AND action = '申请抢单'", orderB).c);
   check('被拒的申请没有留下日志', closedLog === 0, String(closedLog));

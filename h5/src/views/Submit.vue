@@ -162,17 +162,16 @@ async function doSubmit() {
   if (!g.value.goods_id) return showToast('商品信息未加载');
   loading.value = true;
   try {
-    // pay_type 固定 0：前台已经没有支付方式这一环，提交即申请抢单
+    // 支付环节已下线：下单后直接提交抢单申请，钱由平台线下核对
     const r = await api.addOrder({
       goods_id: Number(route.params.id),
       num: num.value,
       address_id: addr.value?.address_id || 0,
       remark: remark.value,
-      pay_type: 0,
     });
     const orderId = r.data.order_id;
     // 顺手把「已申请」记进订单日志，后台能看到是谁什么时候申请的
-    try { await api.payOrder({ order_id: orderId, pay_type: 0 }); } catch {}
+    try { await api.applyOrder({ order_id: orderId }); } catch {}
     showToast('已提交抢单申请，等待平台确认');
     setTimeout(() => router.replace(`/order/detail/${orderId}`), 500);
   } catch {

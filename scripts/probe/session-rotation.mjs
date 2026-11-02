@@ -48,6 +48,23 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
   return res.json();
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await runSeed();
   const { db } = await import('../../server/src/db.js');
@@ -120,7 +137,7 @@ async function main() {
 
     const order = await api('/api/order/toAddOrder', { method: 'POST', token: t1, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
     ok(order.code === 1, '下单成功', order.msg);
-    const paid = await api('/api/order/toPay', { method: 'POST', token: t1, body: { order_id: order.data.order_id, pay_type: 1 } });
+    const paid = await __settle(order.data.order_id);
     ok(paid.code === 1, '支付成功', paid.msg);
 
     const gAfterPay = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(target.goods_id);
@@ -160,7 +177,7 @@ async function main() {
     section('[4] 下午场再被买走 → 转拍进晚上场');
     const order2 = await api('/api/order/toAddOrder', { method: 'POST', token: t2, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
     ok(order2.code === 1, '买家2 在下午场抢到它', order2.msg);
-    await api('/api/order/toPay', { method: 'POST', token: t2, body: { order_id: order2.data.order_id, pay_type: 1 } });
+    await __settle(order2.data.order_id);
     const cons2 = await api('/api/order/consignment', { method: 'POST', token: t2, body: { order_id: order2.data.order_id } });
     ok(cons2.code === 1, '买家2 转拍成功', cons2.msg);
     const g3 = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(target.goods_id);
@@ -174,7 +191,7 @@ async function main() {
       await api('/admin/api/member/adjust', { method: 'POST', token: at, body: { member_id: buyer3.member_id, field: 'amount', value: 900000, remark: '冒烟充值' } });
       const order3 = await api('/api/order/toAddOrder', { method: 'POST', token: t3, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
       ok(order3.code === 1, '买家3 在晚上场抢到它', order3.msg);
-      await api('/api/order/toPay', { method: 'POST', token: t3, body: { order_id: order3.data.order_id, pay_type: 1 } });
+      await __settle(order3.data.order_id);
       const cons3 = await api('/api/order/consignment', { method: 'POST', token: t3, body: { order_id: order3.data.order_id } });
       ok(cons3.code === 1, '买家3 转拍成功', cons3.msg);
       const g4 = db.prepare('SELECT specialarea_id, area_date FROM goods WHERE goods_id = ?').get(target.goods_id);
@@ -229,7 +246,7 @@ async function main() {
       const ts = await tokenOf(solo);
       const o6 = await api('/api/order/toAddOrder', { method: 'POST', token: ts, body: { goods_id: target.goods_id, num: 1, pay_type: 1 } });
       ok(o6.code === 1, '唯一场次里抢到它', o6.msg);
-      await api('/api/order/toPay', { method: 'POST', token: ts, body: { order_id: o6.data.order_id, pay_type: 1 } });
+      await __settle(o6.data.order_id);
       const c6 = await api('/api/order/consignment', { method: 'POST', token: ts, body: { order_id: o6.data.order_id } });
       ok(c6.code === 1, '转拍成功', c6.msg);
       const g6 = db.prepare('SELECT specialarea_id, area_date FROM goods WHERE goods_id = ?').get(target.goods_id);

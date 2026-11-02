@@ -50,6 +50,23 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
 const pad = (n) => String(n).padStart(2, '0');
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await runSeed();
   const { db } = await import('../../server/src/db.js');
@@ -114,7 +131,7 @@ async function main() {
     const buy = async (token, num = 1) => {
       const o = await api('/api/order/toAddOrder', { method: 'POST', token, body: { goods_id: src.goods_id, num, pay_type: 1 } });
       if (o.code !== 1) return { ok: false, msg: o.msg };
-      const p = await api('/api/order/toPay', { method: 'POST', token, body: { order_id: o.data.order_id, pay_type: 1 } });
+      const p = await __settle(o.data.order_id);
       return { ok: p.code === 1, msg: p.msg, order_id: o.data.order_id };
     };
 
@@ -190,7 +207,7 @@ async function main() {
       db.prepare("UPDATE goods SET area_date = '' WHERE goods_id = ?").run(single.goods_id);
       const o = await api('/api/order/toAddOrder', { method: 'POST', token: B, body: { goods_id: single.goods_id, num: 1, pay_type: 1 } });
       if (o.code === 1) {
-        await api('/api/order/toPay', { method: 'POST', token: B, body: { order_id: o.data.order_id, pay_type: 1 } });
+        await __settle(o.data.order_id);
         const s = db.prepare('SELECT * FROM goods WHERE goods_id = ?').get(single.goods_id);
         ok(Number(s.goods_status) === 20, '单件商品成交后下架');
         ok(Number(s.member_id) === 4, '单件商品归买家 B', `holder=${s.member_id}`);
@@ -225,7 +242,7 @@ async function main() {
     const buyOne = async (token, gid) => {
       const o = await api('/api/order/toAddOrder', { method: 'POST', token, body: { goods_id: gid, num: 1, pay_type: 1 } });
       if (o.code !== 1) return { ok: false, msg: o.msg };
-      const p = await api('/api/order/toPay', { method: 'POST', token, body: { order_id: o.data.order_id, pay_type: 1 } });
+      const p = await __settle(o.data.order_id);
       return { ok: p.code === 1, msg: p.msg };
     };
 

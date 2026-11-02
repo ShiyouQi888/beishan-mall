@@ -121,11 +121,6 @@
           <el-button size="small" type="success" plain @click="batchConfirmPay">批量确认抢单</el-button>
           <el-button size="small" type="danger" plain @click="batchCancelOrders">批量取消</el-button>
         </template>
-        <template v-if="modKey === 'withdraw' && sel.length">
-          <span class="muted" style="margin-left: 6px">已选 {{ sel.length }} 项</span>
-          <el-button size="small" type="primary" plain @click="batchAuditWithdraw(true)">批量通过</el-button>
-          <el-button size="small" type="danger" plain @click="batchAuditWithdraw(false)">批量驳回</el-button>
-        </template>
         <div class="spacer" />
         <span v-if="AUTO_REFRESH_MODULES.has(modKey)" class="auto-refresh-hint">水位/库存每 20 秒自动刷新</span>
         <span class="total-hint">共 {{ total }} 条</span>
@@ -324,11 +319,6 @@
                 <el-button v-if="row.status === 10" size="small" type="primary" @click="openScoreDeliver(row)">发货</el-button>
                 <el-button v-if="row.status === 10" size="small" type="danger" plain @click="cancelScoreExchange(row)">取消退分</el-button>
                 <el-button size="small" @click="openEdit(row)">详情</el-button>
-              </template>
-              <template v-else-if="modKey === 'withdraw'">
-                <el-button v-if="row.status === 0" size="small" type="primary" @click="auditWithdraw(row, true)">通过</el-button>
-                <el-button v-if="row.status === 0" size="small" type="danger" @click="auditWithdraw(row, false)">驳回</el-button>
-                <el-button size="small" @click="openEdit(row)">查看</el-button>
               </template>
               <template v-else-if="modKey === 'certification'">
                 <el-button v-if="row.status === 0" size="small" type="primary" @click="auditCert(row, true)">通过</el-button>
@@ -1042,7 +1032,6 @@ const desc = computed(() => {
     orders: '全部订单查询、确认抢单与取消',
     settle: '大账结算、中账差额、小账凭证三类账目核对',
     energy: '会员佣金、余额、积分变更流水',
-    withdraw: '会员提现申请审核，驳回自动退回余额',
     member: '会员资料、团队关系与资金账户',
     certification: '会员实名认证资料审核',
     banner: '首页与抢购页轮播广告位',
@@ -1617,42 +1606,6 @@ async function cancelOrder(row) {
   await adminApi.cancelOrder({ order_id: row.order_id });
   ElMessage.success('已取消');
   load();
-}
-
-async function auditWithdraw(row, pass) {
-  try {
-    await ElMessageBox.confirm(pass ? '确认通过该提现申请？' : '确认驳回并退回余额？', '提示', { type: 'warning' });
-  } catch {
-    return;
-  }
-  await adminApi.auditWithdraw({ withdraw_id: row.withdraw_id, pass });
-  ElMessage.success(pass ? '已通过' : '已驳回');
-  load();
-}
-
-// 批量审提现：驳回会把钱退回会员余额，所以确认文案必须写清楚
-async function batchAuditWithdraw(pass) {
-  const ids = (sel.value || []).filter((r) => Number(r.status) === 0).map((r) => r.withdraw_id);
-  if (!ids.length) return ElMessage.warning('勾选的申请都已处理，无需再审');
-  const tip = pass
-    ? `通过这 ${ids.length} 笔提现申请？通过后请按各自收款方式线下打款。`
-    : `驳回这 ${ids.length} 笔提现申请？金额会原路退回会员余额。`;
-  try {
-    await ElMessageBox.confirm(tip, pass ? '批量通过' : '批量驳回', {
-      type: 'warning',
-      confirmButtonText: pass ? '确认通过' : '确认驳回',
-      cancelButtonText: '取消',
-    });
-  } catch {
-    return;
-  }
-  try {
-    const r = await adminApi.auditWithdrawBatch({ withdraw_ids: ids, pass });
-    ElMessage.success(r.msg || (pass ? `已通过 ${ids.length} 笔` : `已驳回 ${ids.length} 笔`));
-    load();
-  } catch {
-    // 错误提示由请求拦截器统一弹出
-  }
 }
 
 async function auditCert(row, pass) {

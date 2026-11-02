@@ -178,7 +178,6 @@ const statCards = computed(() => [
   { k: '回收台账', v: summary.value.recycle ?? 0 },
   { k: '兑换单', v: summary.value.score ?? 0 },
   { k: '资金流水', v: summary.value.energy ?? 0 },
-  { k: '提现申请', v: summary.value.withdraw ?? 0 },
   { k: '商品', v: summary.value.goods ?? 0 },
   { k: '素材文件', v: summary.value.media ?? 0 },
 ]);

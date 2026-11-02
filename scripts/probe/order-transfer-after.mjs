@@ -59,6 +59,23 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
   return res.json();
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await seed();
   {
@@ -124,14 +141,15 @@ async function main() {
     section('[2] 原买家失去这笔单');
     const aCancel = await api('/api/order/cancel', { method: 'POST', token: A.token, body: { order_id: O1 } });
     ok(aCancel.code !== 1, 'A 不能取消已转出的单', aCancel.msg);
-    const aPay = await api('/api/order/toPay', { method: 'POST', token: A.token, body: { order_id: O1, pay_type: 1 } });
+    // 原买家已经失去这笔单：连「申请抢单」都不该成功（支付已下线，用申请接口验证归属）
+    const aPay = await api('/api/order/apply', { method: 'POST', token: A.token, body: { order_id: O1 } });
     ok(aPay.code !== 1, 'A 不能支付已转出的单', aPay.msg);
     const aQuote = await api(`/api/order/getConsignmentQuote?order_id=${O1}`, { token: A.token });
     ok(aQuote.code !== 1, 'A 不能转拍已转出的单', aQuote.msg);
 
     // ---------- 3. 接手人付款并成交 ----------
     section('[3] 接手人付款 → 成交 → 货权到他名下');
-    const bPay = await api('/api/order/toPay', { method: 'POST', token: B.token, body: { order_id: O1, pay_type: 1 } });
+    const bPay = await __settle(O1);
     ok(bPay.code === 1, 'B 用余额付款成功', bPay.msg);
     eq(get('SELECT pay_status FROM orders WHERE order_id = ?', O1).pay_status, 10, '订单已成交');
     eq(get('SELECT member_id FROM goods WHERE goods_id = ?', G1).member_id, B.id, '商品归 B');

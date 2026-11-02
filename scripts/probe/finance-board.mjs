@@ -54,6 +54,23 @@ const INCREASE_RATE = 3;
 const DRIVE_RATE = 0.5;
 const ROUNDS = 3;
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   console.log('[setup] 初始化独立核对库…');
   await run('node', ['src/seed.js']);
@@ -107,7 +124,6 @@ async function main() {
     const s0 = await saveCfg({
       service_charge: String(SERVICE_RATE),
       listing_fee_rate: '0',
-      withdraw_fee: '0',
       price_increase_rate: String(INCREASE_RATE),
       drive_award_rate: String(DRIVE_RATE),
     });
@@ -191,7 +207,7 @@ async function main() {
       eqMoney(od.data.total_price, e.price, `第${r}轮 订单标价`);
       eqMoney(od.data.service_charge, e.fee, `第${r}轮 服务费 ${yuan(e.fee)}`);
 
-      const pay = await api('/api/order/toPay', { method: 'POST', token: b.token, body: { order_id: lastOrderId, pay_type: 1 } });
+      const pay = await __settle(lastOrderId);
       ok(pay.code === 1, `第${r}轮 支付成功`, pay.msg);
 
       if (r < ROUNDS) {
@@ -268,7 +284,7 @@ async function main() {
     eqMoney(od4.data?.total_price, price4, '第 4 手订单标价（复利）');
     eqMoney(od4.data?.service_charge, fee4, `第 4 手服务费 ${yuan(fee4)}`);
     eqMoney(od4.data?.listing_fee, listing4, `第 4 手转拍上架费 ${yuan(listing4)}（下单时就收）`);
-    const pay4 = await api('/api/order/toPay', { method: 'POST', token: reg4.data.token, body: { order_id: od4.data.order_id, pay_type: 1 } });
+    const pay4 = await __settle(od4.data.order_id);
     ok(pay4.code === 1, '第 4 手支付成功（实付含上架费）', pay4.msg);
 
     const ovB = (await adminAt('/admin/api/finance/overview', { token: at })).data;

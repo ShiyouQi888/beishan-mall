@@ -328,19 +328,8 @@ for (const [key, val, group] of [
   ['score_award_parent', '0', 'store'],     // 上级积分返利百分比（成交金额 × 百分比）
   ['theme_key', 'coral', 'store'],          // 外观主题
   ['home_category_show', '10', 'nav'],      // 首页商品分类栏开关
-  // 支付方式默认只开「线下转账」：余额/微信/支付宝默认关闭，需要时在后台逐项打开。
-  // 这是业务口径 —— 平台收款走线下对公，不引导会员在线自助支付。
-  ['pay_balance_open', '20', 'pay'],        // 余额支付开关
-  ['pay_wx', '20', 'pay'],                  // 微信扫码
-  ['pay_zfb', '20', 'pay'],                 // 支付宝扫码
-  ['pay_bank', '10', 'pay'],                // 线下转账（默认唯一开启）
-  ['pay_voucher_required', '10', 'pay'],    // 线下支付是否必须上传凭证
-  // 提现模块整体下线（菜单、H5 路由都已移除）：四个通道默认关闭，
-  // 万一有旧前端直接打 /finance/withdraw/apply，也会被通道校验挡掉
-  ['withdraw_wx_open', '20', 'trade'],      // 提现到微信
-  ['withdraw_zfb_open', '20', 'trade'],     // 提现到支付宝
-  ['withdraw_bank_open', '20', 'trade'],    // 提现到银行卡
-  ['withdraw_offline_open', '20', 'trade'], // 提现线下打款
+  // 支付与提现已整体下线（接口、后台菜单、H5 入口全部删除），
+  // 这里不再播种任何 pay_* / withdraw_* 配置项，老库里残留的键也没人读。
   ['order_pay_timeout', '30', 'trade'],     // 下单后多久没付款就自动关闭（分钟）
   ['recycle_open', '10', 'trade'],          // 到顶自动回收开关
   ['recycle_daily_cap', '0', 'trade'],      // 每日回收总额上限（0 = 不限）
@@ -357,13 +346,15 @@ if (get("SELECT 1 FROM setting_config WHERE `key` = 'same_level_award_rate'")) {
   console.log('[migrate] 删除废弃配置 same_level_award_rate（分销仅一级，无平级奖）');
 }
 
-// 支付开关统一为 10 开 / 20 关（旧数据是 1 / 0，后台开关组件认不出）。
-// 归一化后的默认口径与上面一致：只有线下转账是开的。
-for (const [key, on] of [['pay_wx', false], ['pay_zfb', false], ['pay_bank', true]]) {
-  const cur = get('SELECT `value` v FROM setting_config WHERE `key` = ?', key);
-  if (cur && ['0', '1'].includes(String(cur.v))) {
-    run('UPDATE setting_config SET `value` = ? WHERE `key` = ?', on ? '10' : '20', key);
-    console.log(`[migrate] 支付开关 ${key} 归一化为 ${on ? '10' : '20'}`);
+// 支付/提现配置已废弃：把老库里残留的 key 清掉，避免后台设置页出现读不懂的孤儿项
+for (const deadKey of [
+  'pay_balance_open', 'pay_voucher_required', 'pay_wx', 'pay_zfb', 'pay_bank',
+  'pay_gateway_open', 'zfb_qr', 'wx_qr',
+  'withdraw_min', 'withdraw_fee', 'withdraw_wx_open', 'withdraw_zfb_open',
+  'withdraw_bank_open', 'withdraw_offline_open', 'prompt_withdraw',
+]) {
+  if (get('SELECT 1 FROM setting_config WHERE `key` = ?', deadKey)) {
+    run('DELETE FROM setting_config WHERE `key` = ?', deadKey);
   }
 }
 

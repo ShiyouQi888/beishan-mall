@@ -49,6 +49,23 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
   return res.json();
 };
 
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
+
 async function main() {
   await runSeed();
   const { db } = await import('../../server/src/db.js');
@@ -91,7 +108,7 @@ async function main() {
     const buy = async (token, goodsId) => {
       const r = await api('/api/order/toAddOrder', { method: 'POST', token, body: { goods_id: goodsId, num: 1, pay_type: 1 } });
       if (r.code !== 1) throw new Error('下单失败：' + r.msg);
-      const p = await api('/api/order/toPay', { method: 'POST', token, body: { order_id: r.data.order_id, pay_type: 1 } });
+      const p = await __settle(r.data.order_id);
       if (p.code !== 1) throw new Error('支付失败：' + p.msg);
       return r.data.order_id;
     };
@@ -194,7 +211,7 @@ async function main() {
     ok(!!h5row, '会员能查到自己的这笔单');
     ok(h5row.transferred === 1, '会员端也返回 transferred=1', `transferred=${h5row.transferred}`);
     // 状态只看付没付：转拍是另一个维度（transferred 标记），不混进状态文案
-    ok(h5row.status_text === '已支付', '会员端状态文案是「已支付」', h5row.status_text);
+    ok(h5row.status_text === '已确认', '会员端状态文案是「已支付」', h5row.status_text);
   } catch (e) {
     fails.push('异常：' + e.message);
     console.error('\n异常：', e.message);

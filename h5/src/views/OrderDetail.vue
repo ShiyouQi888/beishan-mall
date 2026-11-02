@@ -56,7 +56,6 @@
         <div class="kv"><span>订单类型</span><span>{{ o.order_type_text }}</span></div>
         <div class="kv"><span>下单时间</span><span>{{ o.create_time }}</span></div>
         <div class="kv" v-if="o.pay_time"><span>支付时间</span><span>{{ o.pay_time }}</span></div>
-        <div class="kv" v-if="o.pay_type_text"><span>支付方式</span><span>{{ o.pay_type_text }}</span></div>
         <div class="kv" v-if="o.seller_name"><span>卖家</span><span>{{ o.seller_name }}</span></div>
       </div>
 
@@ -143,12 +142,12 @@ async function pay() {
   }
   paying.value = true;
   try {
-    // pay_type 固定 0：只是把「已申请抢单」提交给平台，不涉及任何支付通道
-    const r = await api.payOrder({ order_id: o.value.order_id, pay_type: 0 });
+    // 支付环节已下线：只提交抢单申请，钱由平台线下核对
+    const r = await api.applyOrder({ order_id: o.value.order_id });
     showToast((r && r.msg) || '已提交抢单申请，等待平台确认');
     await load();
   } catch (error) {
-    if (String(error?.msg || '').includes('订单已支付')) {
+    if (String(error?.msg || '').includes('已确认')) {
       showToast('这笔订单已经确认过了');
       await load();
     }

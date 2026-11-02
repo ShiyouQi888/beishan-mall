@@ -25,7 +25,6 @@ const CFD = {
   basePrice: 10000,
   serviceRate: 2,      // 抢单服务费 %
   listingRate: 0,      // 上架费 %
-  withdrawFee: 0,      // 提现手续费 %
   increaseRate: 3,     // 转拍涨价 %
   rounds: 5,
 };
@@ -58,6 +57,23 @@ function run(cmd, args) {
     p.on('close', (c) => (c === 0 ? resolve(out) : reject(new Error(out))));
   });
 }
+
+// 支付已下线：成交只能由后台「确认抢单」完成，用它替代原来的余额支付。
+// 直接走 fetch，不依赖各探针自己那份 api() 封装（有的定义在 main 内部，作用域进不来）。
+let __admTk = '';
+const __settle = async (orderId) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!__admTk) {
+    const r = await fetch(`${BASE}/admin/api/login`, {
+      method: 'POST', headers, body: JSON.stringify({ user_name: 'admin1', password: '123456' }),
+    });
+    __admTk = (await r.json()).data.token;
+  }
+  const res = await fetch(`${BASE}/admin/api/orders/confirm-pay`, {
+    method: 'POST', headers: { ...headers, token: __admTk }, body: JSON.stringify({ order_id: orderId }),
+  });
+  return res.json();
+};
 
 async function main() {
   console.log('[setup] 初始化独立联调库…');
@@ -119,9 +135,6 @@ async function main() {
         values: {
           service_charge: String(CFD.serviceRate),
           listing_fee_rate: String(CFD.listingRate),
-          withdraw_fee: String(CFD.withdrawFee),
-          // 提现模块下线后通道默认关闭；本用例要验提现，测试库显式开银行卡通道
-          withdraw_bank_open: '10',
           price_increase_rate: String(CFD.increaseRate),
         },
       },
@@ -130,7 +143,6 @@ async function main() {
     const cfgBack = (await adminAt('/admin/api/setting/trade', { token: at })).data.values;
     ok(Number(cfgBack.service_charge) === CFD.serviceRate, `抢单服务费 ${CFD.serviceRate}%`, `实际 ${cfgBack.service_charge}`);
     ok(Number(cfgBack.listing_fee_rate) === CFD.listingRate, `上架费 ${CFD.listingRate}%`, `实际 ${cfgBack.listing_fee_rate}`);
-    ok(Number(cfgBack.withdraw_fee) === CFD.withdrawFee, `提现手续费 ${CFD.withdrawFee}%`, `实际 ${cfgBack.withdraw_fee}`);
     ok(Number(cfgBack.price_increase_rate) === CFD.increaseRate, `转拍涨价 ${CFD.increaseRate}%`, `实际 ${cfgBack.price_increase_rate}`);
 
     // ================= 2. 建 10000 的商品 =================
@@ -241,11 +253,14 @@ async function main() {
       eqMoney(row.service_charge, e.fee, `第${r}轮 落库服务费`);
 
       // 4.4 支付
-      const pay = await api('/api/order/toPay', { method: 'POST', token: buyer.token, body: { order_id: currentOrderId, pay_type: 1 } });
-      ok(pay.code === 1, `第${r}轮 余额支付成功`, pay.msg);
+      const pay = await __settle(currentOrderId);
+      ok(pay.code === 1, `第${r}轮 后台确认成交`, pay.msg);
 
+      // 支付已下线：钱走线下，余额不动。实付金额只体现在订单记录的「货款 + 服务费」上
       const buyerAfter = await balance(buyer.token);
-      eqMoney(buyerBefore - buyerAfter, e.payTotal, `第${r}轮 买家实付 = 标价 + 服务费`);
+      eqMoney(buyerBefore, buyerAfter, `第${r}轮 买家余额不动（线下收款）`);
+      eqMoney(m2(Number(row.total_price) + Number(row.service_charge)), e.payTotal,
+        `第${r}轮 应付款 = 标价 + 服务费`);
 
       const sellerAfter = sellerToken ? await balance(sellerToken) : Number(db.prepare('SELECT amount FROM member WHERE member_id = ?').get(sellerMid).amount);
       eqMoney(sellerAfter - sellerBefore, e.price, `第${r}轮 卖家到账 = 标价全额（平台不抽货款）`);
@@ -327,21 +342,7 @@ async function main() {
     const holderAward = m2(awardRows.filter((a) => Number(a.member_id) === Number(holder.member_id)).reduce((s, a) => s + Number(a.face_value), 0));
     ok(holderAward > 0, '邀请人（上级）收到了直推奖', yuan(holderAward));
 
-    // ================= 7. 提现无手续费 =================
-    section('[7] 提现（手续费 0%）');
-    const winner = buyers[CFD.rounds - 2]; // 第 4 手已卖出，账上有钱
-    const wdAmount = 1000;
-    const wdBefore = await balance(winner.token);
-    const wd = await api('/api/finance/withdraw/apply', {
-      method: 'POST', token: winner.token,
-      body: { amount: wdAmount, account_type: 3, account_info: '联调银行卡 6222' },
-    });
-    ok(wd.code === 1, '提交提现申请', wd.msg);
-    const wdRow = db.prepare('SELECT amount, fee, actual_amount FROM finance_withdraw WHERE member_id = ? ORDER BY withdraw_id DESC LIMIT 1').get(winner.mid);
-    eqMoney(wdRow.amount, wdAmount, `提现金额 ${yuan(wdAmount)}`);
-    eqMoney(wdRow.fee, 0, '提现手续费为 0');
-    eqMoney(wdRow.actual_amount, wdAmount, '实际到账 = 提现金额');
-    eqMoney(wdBefore - (await balance(winner.token)), wdAmount, '余额冻结扣减 = 提现金额（未多扣手续费）');
+    // ================= 7. （提现模块已下线，用例删除） =================
 
     // ================= 8. 数据一致性 =================
     section('[8] 联调后的数据一致性');
