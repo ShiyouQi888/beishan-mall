@@ -137,9 +137,14 @@ onMounted(async () => {
     const gone = g.value.sold_out !== undefined
       ? Number(g.value.sold_out) === 1
       : Number(g.value.goods_status ?? 10) !== 10;
+    // 提前抢购资格的人此刻也能下单：advance_open=1 表示在他的提前窗口内。
+    // 只认 is_ordinary_order 的话，列表里显示「提前抢购」、点进这一页却被判
+    // 「当前不在该场次抢购时间」弹回去 —— 提前功能等于断在最后一步。
+    const advanceNow = Number(g.value.advance_open) === 1;
     const notOpen = Number(g.value.type) === 1
       && !!g.value.specialarea
-      && Number(g.value.is_ordinary_order) !== 1;
+      && Number(g.value.is_ordinary_order) !== 1
+      && !advanceNow;
     if (gone || notOpen) {
       closedReason.value = gone ? '该商品已抢完' : '当前不在该场次抢购时间';
       showToast(closedReason.value);
