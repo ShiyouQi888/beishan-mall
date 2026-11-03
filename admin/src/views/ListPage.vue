@@ -1875,7 +1875,7 @@ async function toggleAdvance(row) {
     member_id: row.member_id,
     nick_name: row.nick_name || '',
     minutes: Number(row.advance_minutes) > 0 ? Number(row.advance_minutes) : 3,
-    count: Number(row.advance_count) || 0,
+    count: Math.max(0, Number(row.advance_count) || 0),
   });
   advanceDlg.value = true;
 }

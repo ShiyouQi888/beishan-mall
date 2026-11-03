@@ -145,6 +145,8 @@ r.post('/toAddOrder', authMember, (req, res) => {
   // 一件商品都没关联场次时，它属于「随时可买」，不受场次时间约束。
   const areas = areasOfGoods(g.goods_id);
   let orderArea = null;
+  // 这一单是不是靠「提前抢购」资格进来的（决定要不要扣次数）
+  let isAdvanced = false;
   if (areas.length) {
     // 提前抢购：开通了资格的会员（且填了提前分钟数）可以先把场次「往前放」lead 秒。
     // 只提前开始，不推迟结束 —— 12:00 之后照样买不了。
@@ -163,6 +165,7 @@ r.post('/toAddOrder', authMember, (req, res) => {
       return res.json(fail(`该商品所在场次已结束（${w.text}）`));
     }
     orderArea = opened.area;
+    isAdvanced = Boolean(opened.advanced);
     // 限购：**本场次**每人合计多少件（不同商品合并算），不是「每个商品各算各的」。
     // 见 lib/purchaseLimit.js —— 场次每天重复开放，所以还要按日期切分。
     const limit = sessionLimitOf(orderArea);
@@ -221,6 +224,13 @@ r.post('/toAddOrder', authMember, (req, res) => {
         1, price, numInt, total, fee, listingFee, 0, 0, 0, Number(address_id) || 0, remark || '', now(),
       );
       orderId = Number(info.lastInsertRowid);
+
+      // 提前抢购按次计：只有「真的在提前窗口内下单」才扣次数。
+      // 0 表示不限次数（后台默认），扣到 0 时写成 -1，表示额度已用完。
+      if (isAdvanced && Number(m.advance_count) > 0) {
+        const left = Number(m.advance_count) - 1;
+        run('UPDATE member SET advance_count = ? WHERE member_id = ?', left > 0 ? left : -1, m.member_id);
+      }
     });
   } catch (e) {
     if (e.biz) return res.json(fail(e.message));

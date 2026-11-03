@@ -137,13 +137,23 @@ export const fmtList = (rows, states = null, member = null) => {
     return new Map(list.map((r) => [Number(r.specialarea_id), Number(r.n)]));
   })();
 
+  // 提前抢购：资格会员在场次开始前 N 分钟就该能买。
+  // 之前这里只给 session_state，列表一律把「未开始」画成灰卡，
+  // 有资格的人根本看不出自己能提前抢 —— 功能写了但等于没生效。
+  const lead = advanceLeadOf(member);
+  const nowAt = new Date();
+
   return picked.map(({ g, shown }) => {
     const areaId = shown ? Number(shown.a.specialarea_id) : 0;
+    const adv = lead > 0 ? openAreaOf(areaMap.get(Number(g.goods_id)) || [], nowAt, lead) : null;
     const out = {
       ...fmtGoods(g, areaMap.get(Number(g.goods_id)) || []),
       // 代表场次的状态（开放中优先，其次未开始、已结束）
       session_state: shown ? shown.w.state : 'none',
       session_state_area: areaId,
+      // 1 = 此刻处于提前窗口内，可以下单
+      advance_open: adv && adv.advanced ? 1 : 0,
+      advance_seconds: lead,
     };
     if (boughtByArea) {
       out.purchase_limit = Number(shown?.a?.buy_num) || 0;

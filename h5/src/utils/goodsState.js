@@ -24,6 +24,10 @@ export function cardState(g = {}) {
   // 被别人下单锁着：还没付款，但此刻谁也抢不了（抢购是提交即锁单）
   if (Number(g.locked) === 1) return 'locked';
 
+  // 提前抢购：后端确认此刻在他的提前窗口内，就当「可买」处理。
+  // 不认这个字段的话，有资格的人在场次开始前看到的永远是灰卡「未开始」。
+  if (Number(g.advance_open) === 1) return '';
+
   // 场次状态由后端算好（服务端时间才准，客户端时钟可能差几分钟）
   switch (g.session_state) {
     case 'ended':

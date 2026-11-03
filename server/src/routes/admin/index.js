@@ -39,7 +39,9 @@ const M = {
   goods: {
     table: 'goods', pk: 'goods_id', label: '商品',
     search: ['goods_name', 'goods_no'],
-    orderBy: 'goods_id DESC',
+    // 与 H5 同一口径：在售优先 → 排序值小的在前 → 新建的在前。
+    // 原来只按 goods_id DESC，运营改了「排序」在列表里看不出任何变化
+    orderBy: '(goods_status = 10) DESC, goods_sort ASC, goods_id DESC',
     fields: [
       { k: 'goods_id', t: 'ID', type: 'text', readonly: true, w: 64 },
       // 来源只读列：会员持有的 = 转拍货（价格系统锁死），平台自持 = 平台货

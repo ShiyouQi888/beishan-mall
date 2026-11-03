@@ -130,6 +130,7 @@ const stateOf = (g) => {
 const outLabel = (g) => cardLabel(stateOf(g));
 const greyOut = (g) => isGreyState(stateOf(g));
 const btnText = (g) => {
+  if (Number(g.advance_open) === 1) return '提前抢购';
   const st = stateOf(g);
   if (st === 'sold') return '已抢完';
   if (st === 'ended') return '已结束';

@@ -76,6 +76,8 @@ export function openAreaOf(areas, at = new Date(), leadSeconds = 0) {
 /** 这个会员的提前量（秒）：没开通资格一律 0，开了也得填了分钟数才算 */
 export function advanceLeadOf(member) {
   if (!member || Number(member.is_advance) !== 10) return 0;
+  // 次数：0 = 不限；>0 = 还能提前几次；-1 = 已用完（后台设了次数才会走到这一步）
+  if (Number(member.advance_count) < 0) return 0;
   const sec = Number(member.advance_seconds) || 0;
   return sec > 0 ? Math.min(sec, 3600) : 0; // 最多提前 1 小时，防止填错把场次穿透
 }
