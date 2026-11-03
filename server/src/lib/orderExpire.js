@@ -9,6 +9,7 @@
 import { all, get, run, now } from '../db.js';
 import { cfg } from './helper.js';
 import { restoreStock } from './stock.js';
+import { sessionWindow } from './sessionWindow.js';
 
 /** 支付时限（分钟），后台「交易设置」可改；默认 30，夹在 1 分钟到 24 小时之间 */
 const payTimeoutMinutes = () =>
@@ -33,7 +34,7 @@ export function expireUnpaidOrders(minutes = payTimeoutMinutes()) {
   const line = deadlineText(minutesNum);
 
   const rows = all(
-    `SELECT order_id, order_no, goods_id, member_id, num
+    `SELECT order_id, order_no, goods_id, member_id, num, specialarea_id
      FROM orders
      WHERE type IN (1, 3)
        AND IFNULL(status, 0) = 0
@@ -46,7 +47,20 @@ export function expireUnpaidOrders(minutes = payTimeoutMinutes()) {
   const t = now();
   const closed = [];
 
+  const nowEpoch = Math.floor(Date.now() / 1000);
+  /** 这一单所在场次是否还没开场（提前抢购下的单属于这种） */
+  const beforeAreaStart = (areaId) => {
+    if (!areaId) return false;
+    const area = get('SELECT * FROM specialarea WHERE specialarea_id = ?', Number(areaId));
+    if (!area) return false;
+    return sessionWindow(area, new Date()).startsAt > nowEpoch;
+  };
+
   for (const o of rows) {
+    // 提前抢购：会员在开抢前 N 分钟下的单，本来就是「先占住等开场」。
+    // 按 create_time 算超时会在开场前就把它关掉、货重新放出 —— 提前抢等于白抢。
+    // 这类单等场次真正开始后再按同样规则计时。
+    if (beforeAreaStart(o.specialarea_id)) continue;
     // 原子关闭：期间用户刚好付了款就跳过，别把已支付的单关掉
     const r = run(
       'UPDATE orders SET status = 40 WHERE order_id = ? AND IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0',
