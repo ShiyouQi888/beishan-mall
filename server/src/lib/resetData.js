@@ -159,7 +159,8 @@ export function resetData(scopes) {
       } else if (scope === 'transpose') {
         // 只撤挂单、不删订单：订单是持仓与收益的凭证（我的店铺靠它算买入价与服务费），
         // 删掉会让商品「凭空持有」且算不出收益。商品一并下架，回到持有人手里。
-        const pending = all('SELECT order_id, goods_id FROM orders WHERE IFNULL(consignment_status, 0) = 10');
+        const pending = all(`SELECT order_id, COALESCE(NULLIF(asset_goods_id, 0), goods_id) AS goods_id
+                             FROM orders WHERE IFNULL(consignment_status, 0) = 10`);
         for (const o of pending) {
           run('UPDATE orders SET consignment_status = 0 WHERE order_id = ?', o.order_id);
           run('UPDATE goods SET goods_status = 20, is_sell = 0, update_time = ? WHERE goods_id = ?', now(), o.goods_id);

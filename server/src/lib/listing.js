@@ -34,7 +34,8 @@ export function releaseListing(goodsId, reason = '') {
   // 只有「当前持有人的这一手」才是在挂单，历史订单上的标记不算
   const o = get(
     `SELECT order_id FROM orders
-     WHERE goods_id = ? AND member_id = ? AND type = 1 AND IFNULL(consignment_status, 0) = 10
+     WHERE COALESCE(NULLIF(asset_goods_id, 0), goods_id) = ?
+       AND member_id = ? AND type = 1 AND IFNULL(consignment_status, 0) = 10
      ORDER BY order_id DESC LIMIT 1`,
     g.goods_id, g.member_id,
   );
@@ -77,7 +78,8 @@ export function cleanStaleListingFlags() {
      WHERE IFNULL(consignment_status, 0) = 10
        AND EXISTS (
          SELECT 1 FROM goods g
-         WHERE g.goods_id = orders.goods_id AND IFNULL(g.member_id, 0) <> orders.member_id
+         WHERE g.goods_id = COALESCE(NULLIF(orders.asset_goods_id, 0), orders.goods_id)
+           AND IFNULL(g.member_id, 0) <> orders.member_id
        )`,
   );
   return Number(r.changes || 0);

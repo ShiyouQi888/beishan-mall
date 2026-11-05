@@ -12,6 +12,7 @@ import { expireUnsold } from './lib/expire.js';
 import { expireUnpaidOrders } from './lib/orderExpire.js';
 import { cleanStaleListingFlags } from './lib/listing.js';
 import { cleanOrphanLinks } from './lib/areaGoods.js';
+import { backfillPieceOrderAssets } from './lib/orderAssets.js';
 import { fail, cfg } from './lib/helper.js';
 import { themeOf, DEFAULT_THEME } from './lib/themes.js';
 
@@ -48,12 +49,25 @@ if (!db.prepare('PRAGMA table_info(store_role)').all().some((c) => c.name === 'i
 // 商品增加「初始名额」：库存是「还能被抢几个」，名额是「一共几个」。
 // 光看 stock_num 判断不出一件货是「唯一一件」还是「一批货」，因为卖着卖着它也变成 1。
 // 这个字段一旦定下就不再随成交变化，用来区分两种完全不同的商品：
-//   名额 = 1          → 唯一的一件货，成交即整件归买家 + 下架，买家可转拍
-//   名额 > 1          → 一批货，抢一个减一个名额，抢光才下架，整件始终归原持有人
+//   名额 = 1          → 单件货权，成交即归买家并下架，买家可转拍
+//   名额 > 1          → 卖家库存池，抢一个减一个名额，抢光才下架；成交另建买家的单件货权
 if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'stock_total')) {
   db.exec('ALTER TABLE goods ADD COLUMN stock_total INTEGER DEFAULT 0');
   console.log('[migrate] goods.stock_total 已添加');
 }
+
+// 按件订单成交后生成的独立持有商品。schema.sql 对旧库不会重建表，需在运行时补列。
+if (!db.prepare('PRAGMA table_info(goods)').all().some((c) => c.name === 'asset_parent_id')) {
+  db.exec('ALTER TABLE goods ADD COLUMN asset_parent_id INTEGER DEFAULT 0');
+  console.log('[migrate] goods.asset_parent_id 已添加');
+}
+if (!db.prepare('PRAGMA table_info(orders)').all().some((c) => c.name === 'asset_goods_id')) {
+  db.exec('ALTER TABLE orders ADD COLUMN asset_goods_id INTEGER DEFAULT 0');
+  console.log('[migrate] orders.asset_goods_id 已添加');
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_goods_asset_parent ON goods(asset_parent_id)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_orders_asset_goods ON orders(asset_goods_id)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_orders_goods_asset ON orders(goods_id, asset_goods_id)');
 
 // 「按份拆分」功能已整体下线：旧库里的 is_split / split_total 一律清掉并删列。
 // 已拆分的商品保留现有份数与每份价格，当作普通多库存商品继续卖（不再有按份的专属逻辑）。
@@ -177,6 +191,12 @@ if (Number(initStockTotal.changes) > 0) {
       console.log(`[migrate] ${Number(marked.changes)} 件已回收商品补打「封顶」标记`);
     }
   }
+}
+
+// 旧版按件成交单也应有独立货权，避免升级后买家仍无法在店铺转拍或被后台转让。
+{
+  const count = backfillPieceOrderAssets();
+  if (count > 0) console.log(`[migrate] 为 ${count} 笔历史按件成交单补建独立货权`);
 }
 
 // 「流拍」下线：删掉历史流拍台账（orders.type = 5），流拍态商品（goods_status = 30）改回下架。

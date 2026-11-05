@@ -34,7 +34,7 @@
             <div class="item__name ellipsis2">{{ g.goods_name }}</div>
             <div class="item__tags">
               <span class="tag" :class="g.transferable ? (g.listed ? 'tag--on' : 'tag--off') : 'tag--ghost'">
-                {{ g.transferable ? (g.listed ? '已挂牌 · 等下一轮被抢' : '待转拍上架') : (g.cap_reached ? '已达价格上限' : '按件出售') }}
+                {{ g.transferable ? (g.listed ? '已挂牌 · 等下一轮被抢' : '待转拍上架') : (g.cap_reached ? '已达价格上限' : '按件库存池') }}
               </span>
               <span class="tag tag--ghost" v-if="g.transferable && g.turn_beat_num">已流转 {{ g.turn_beat_num }} 次</span>
             </div>
@@ -72,7 +72,7 @@
             <button v-if="!g.listed" class="mini mini--main" @click="goToConsign(g)">去转拍</button>
             <span v-else class="item__wait">等着被抢走即可，无需操作</span>
           </template>
-          <span v-else class="item__wait">{{ g.cap_reached ? '已达价格上限，不能再转拍' : '按件出售，整件不可转拍' }}</span>
+          <span v-else class="item__wait">{{ g.cap_reached ? '已达价格上限，不能再转拍' : '库存池不支持转拍' }}</span>
         </div>
       </div>
 

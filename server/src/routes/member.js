@@ -431,7 +431,8 @@ r.get('/certification/getIsRealName', authMember, (req, res) => {
  *   我的实际成本 = 买入价 + 我当时付的抢单服务费
  *   已挂牌：下一轮标价取商品现标价（已涨过），上架费已实际扣除
  *   未挂牌：下一轮标价按涨价率预估，上架费按预估
- * 商品被下一轮买走后 goods.member_id 变更，自然从列表消失，无需额外处理
+ * 商品被下一轮买走后 goods.member_id 变更，自然从列表消失，无需额外处理。
+ * 按件批次的每笔成交会生成单件商品，买家只持有并转拍自己买到的那一件。
  */
 r.get('/myShop', authMember, (req, res) => {
   const me = req.member.member_id;
@@ -447,11 +448,11 @@ r.get('/myShop', authMember, (req, res) => {
   const list = goodsList.map((g) => {
     const o = get(
       `SELECT order_id, order_no, total_price, service_charge, consignment_status, listing_fee FROM orders
-       WHERE goods_id = ? AND member_id = ? AND type = 1 AND pay_status = 10 AND status <> 40
+       WHERE (goods_id = ? OR asset_goods_id = ?) AND member_id = ? AND type = 1 AND pay_status = 10 AND status <> 40
        ORDER BY order_id DESC LIMIT 1`,
-      g.goods_id, me,
+      g.goods_id, g.goods_id, me,
     );
-    // 按件出售的商品（名额 > 1）持有人拿不到整件处置权；
+    // 库存池仍是按件销售商品；成交生成的独立单件商品可正常转拍；
     // 已达价格上限的商品价格被锁死，后端会拒绝转拍 —— 两种都不给「去转拍」按钮
     const cap = priceCapOf(g);
     const pieceSale = Number(g.stock_total) > 1;

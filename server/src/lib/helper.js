@@ -76,6 +76,7 @@ function adminRequestAllowed(req, allowedPaths) {
   if (path === '/node/tree') return has('/node', '/role');
   if (path.startsWith('/role/')) return has('/role');
   if (path.startsWith('/storeuser/')) return has('/storeuser');
+  if (path.startsWith('/audit/')) return has('/audit');
   if (path.startsWith('/setting/')) {
     const group = path === '/setting/save' ? req.body?.group : path.split('/')[2];
     return has(`/setting/${group}`);

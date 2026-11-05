@@ -41,6 +41,31 @@ CREATE TABLE IF NOT EXISTS store_role_node (
   PRIMARY KEY (role_id, node_id)
 );
 
+-- ---------- 管理员操作审计 ----------
+CREATE TABLE IF NOT EXISTS admin_operation_log (
+  log_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_id       INTEGER NOT NULL DEFAULT 0,
+  admin_name     TEXT NOT NULL DEFAULT '',
+  admin_nick     TEXT DEFAULT '',
+  role_id        INTEGER NOT NULL DEFAULT 0,
+  action         TEXT NOT NULL DEFAULT '',
+  method         TEXT NOT NULL DEFAULT '',
+  path           TEXT NOT NULL DEFAULT '',
+  target_type    TEXT DEFAULT '',
+  target_id      TEXT DEFAULT '',
+  details        TEXT DEFAULT '',
+  result         INTEGER NOT NULL DEFAULT 1,
+  result_message TEXT DEFAULT '',
+  http_status    INTEGER NOT NULL DEFAULT 200,
+  ip             TEXT DEFAULT '',
+  user_agent     TEXT DEFAULT '',
+  create_time    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_admin_operation_log_admin_log
+  ON admin_operation_log (admin_id, log_id DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_operation_log_created
+  ON admin_operation_log (create_time DESC, log_id DESC);
+
 -- ---------- 会员 ----------
 CREATE TABLE IF NOT EXISTS member (
   member_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -169,6 +194,7 @@ CREATE TABLE IF NOT EXISTS goods (
   base_price     REAL DEFAULT 0,          -- 基准价（首次上架价）：色块水位从这里起算，转拍不改
   price_cap      REAL DEFAULT 0,          -- 价格上限（元）：最高能卖多少钱，0 = 不限；到顶后禁止转拍
   recycled       INTEGER DEFAULT 0,       -- 1 = 已被系统回收封顶：前台不再展示，只有后台改回上架才重新流通
+  asset_parent_id INTEGER DEFAULT 0,      -- 按件成交生成的独立货权来源批次；0 = 普通商品
   line_price     REAL DEFAULT 0,          -- 市场价/划线价
   stock_num      INTEGER DEFAULT 0,
   sales_actual   INTEGER DEFAULT 0,
@@ -206,6 +232,7 @@ CREATE TABLE IF NOT EXISTS orders (
   member_id     INTEGER NOT NULL,         -- 买家
   seller_id     INTEGER DEFAULT 0,        -- 卖家（寄卖订单）
   goods_id      INTEGER DEFAULT 0,
+  asset_goods_id INTEGER DEFAULT 0,        -- 按件订单成交后生成的独立持有商品；0 = 直接持有 goods_id
   goods_name    TEXT DEFAULT '',
   goods_thumb   TEXT DEFAULT '',
   specialarea_id INTEGER DEFAULT 0,
@@ -241,7 +268,7 @@ CREATE TABLE IF NOT EXISTS order_transfer (
   order_id       INTEGER NOT NULL,
   from_member_id INTEGER NOT NULL,
   to_member_id   INTEGER NOT NULL,
-  goods_moved    INTEGER DEFAULT 0,       -- 是否同时过户了商品持有人（已付款的整件货才过）
+  goods_moved    INTEGER DEFAULT 0,       -- 是否同时过户了订单对应的独立货权
   paid_before    INTEGER DEFAULT 0,       -- 转让时订单是否已成交（决定线下要不要结款）
   amount         REAL DEFAULT 0,          -- 线下结算参考金额（只记录，系统不动账）
   reason         TEXT DEFAULT '',

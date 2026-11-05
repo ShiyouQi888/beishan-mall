@@ -17,11 +17,33 @@ const ADMIN_RESET = String(process.env.ADMIN_PASSWORD_RESET || '') === '1';
 /** 是否显式配置了环境变量（用于区分「部署方指定」和「用默认值兜底」） */
 const fromEnv = Boolean(process.env.ADMIN_USER || process.env.ADMIN_PASSWORD);
 
+function ensureSuperRole() {
+  const current = get('SELECT role_id FROM store_role WHERE is_super = 1 ORDER BY role_id LIMIT 1');
+  if (current) return Number(current.role_id);
+
+  // 内置管理员固定使用超级管理员角色；新库不能只建账号而漏掉角色记录，
+  // 否则 rolePaths() 会把账号解析成空权限并导致后台页面 403。
+  const legacy = get(
+    "SELECT role_id FROM store_role WHERE role_id = 6 OR role_name = '超级管理员' ORDER BY CASE WHEN role_id = 6 THEN 0 ELSE 1 END LIMIT 1",
+  );
+  if (legacy) {
+    run('UPDATE store_role SET is_super = 1 WHERE role_id = ?', Number(legacy.role_id));
+    return Number(legacy.role_id);
+  }
+
+  run(
+    'INSERT INTO store_role (role_id, role_name, description, is_super, create_time) VALUES (?,?,?,?,?)',
+    6, '超级管理员', '拥有全部权限，不受节点限制', 1, now(),
+  );
+  return 6;
+}
+
 export function ensureBuiltinAdmin() {
   const user = ADMIN_USER;
   const plain = ADMIN_PASSWORD;
   if (!user || !plain) return { action: 'skip' };
 
+  const superRoleId = ensureSuperRole();
   const exists = get('SELECT * FROM store_user WHERE user_name = ?', user);
   const others = all('SELECT user_name FROM store_user WHERE user_name <> ? ORDER BY store_user_id', user).map((x) => x.user_name);
   const weak = plain === '123456';
@@ -34,12 +56,18 @@ export function ensureBuiltinAdmin() {
     }
     run(
       'INSERT INTO store_user (user_name, password, nick_name, role_id, status, create_time) VALUES (?,?,?,?,?,?)',
-      user, hashPwd(plain), '超级管理员', 6, 10, now(),
+      user, hashPwd(plain), '超级管理员', superRoleId, 10, now(),
     );
     const extra = others.length ? `；库里原有管理员：${others.join('、')}（仍然可用）` : '';
     console.log(`[admin] 已创建内置管理员 ${user}，密码取自环境变量 ADMIN_PASSWORD${extra}`);
     if (weak) console.warn('[admin] 警告：ADMIN_PASSWORD 仍是默认值 123456，上线前请换掉');
     return { action: 'created', user };
+  }
+
+  // 兼容早期启动逻辑创建了 role_id=6 账号、却没有创建对应角色的本地库。
+  if (Number(exists.role_id) === 6 && superRoleId !== 6) {
+    run('UPDATE store_user SET role_id = ? WHERE store_user_id = ?', superRoleId, exists.store_user_id);
+    console.log(`[admin] 已将内置账号 ${user} 关联到超级管理员角色 ${superRoleId}`);
   }
 
   if (ADMIN_RESET) {

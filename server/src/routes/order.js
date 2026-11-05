@@ -9,13 +9,14 @@ import { nextSlot } from '../lib/sessions.js';
 import { areasOfGoods, openAreaOf, displayAreaOf, setGoodsAreas, advanceLeadOf } from '../lib/areaGoods.js';
 import { sessionBoughtOf, sessionLimitOf } from '../lib/purchaseLimit.js';
 import { priceCapOf, clampToCap } from '../lib/priceCap.js';
+import { orderGoods, orderGoodsId } from '../lib/orderAssets.js';
 
 const r = Router();
 
 const money2 = (n) => Number(Number(n).toFixed(2));
 
 function fmtOrder(o) {
-  const g = o.goods_id ? get('SELECT good_thumb, images, member_id FROM goods WHERE goods_id = ?', o.goods_id) : null;
+  const g = orderGoods(o);
   const thumb = o.goods_thumb || g?.good_thumb || '';
   // 买家已把这件货转拍给别人（商品现持有人不再是他）→ 不会再有发货/收货环节
   const transferred = Number(o.type) === 1 && Number(o.pay_status) === 10 && !!g
@@ -26,6 +27,7 @@ function fmtOrder(o) {
     order_type: o.type,
     order_type_text: ORDER_TYPE[o.type] || '',
     goods_id: o.goods_id,
+    owned_goods_id: orderGoodsId(o),
     goods_name: o.goods_name,
     goods_thumb: assetUrl(thumb),
     price: Number(o.price).toFixed(2),
@@ -134,8 +136,8 @@ r.post('/toAddOrder', authMember, (req, res) => {
   // 同一个商品，同一个人只能买一次（终身）。已取消的不算，取消后可以重新抢。
   // 「不能购买自己持有的商品」只能挡住当前持有人，挡不住「前几天买过、后来转拍出去了」的情况。
   const everBought = Number(get(
-    'SELECT IFNULL(SUM(num), 0) n FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
-    m.member_id, g.goods_id,
+    'SELECT IFNULL(SUM(num), 0) n FROM orders WHERE member_id = ? AND (goods_id = ? OR asset_goods_id = ?) AND type = 1 AND status <> 40',
+    m.member_id, g.goods_id, g.goods_id,
   )?.n) || 0;
   if (everBought > 0) {
     return res.json(fail('这件商品你已经买过了，同一件货每人只能买一次'));
@@ -473,10 +475,9 @@ r.get('/getConsignmentQuote', authMember, (req, res) => {
   const o = get('SELECT * FROM orders WHERE order_id = ? AND member_id = ?', Number(order_id), req.member.member_id);
   if (!o) return res.json(fail('订单不存在'));
   if (o.consignment_status === 10) return res.json(fail('该订单已转拍上架'));
-  const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
+  const g = orderGoods(o);
   if (!g) return res.json(fail('商品不存在'));
-  // 一批货是「一个名额一个名额卖出去的」，买家只买到其中一份，没有整件的处置权
-  if (isPieceSale(g)) return res.json(fail('按件出售的商品不支持转拍'));
+  if (isPieceSale(g)) return res.json(fail('该订单尚未生成独立货权，请联系平台处理'));
   const cap = priceCapOf(g);
   if (cap.reached) return res.json(fail(capReachedMsg(cap)));
   res.json(ok(quoteConsignment(o, g, req.query.price)));
@@ -491,9 +492,9 @@ r.post('/consignment', authMember, (req, res) => {
   if (o.status !== 10 && o.status !== 30) return res.json(fail('订单未完成，无法转拍'));
   if (o.consignment_status === 10) return res.json(fail('该订单已转拍上架'));
 
-  const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
+  const g = orderGoods(o);
   if (!g) return res.json(fail('商品不存在'));
-  if (isPieceSale(g)) return res.json(fail('按件出售的商品不支持转拍'));
+  if (isPieceSale(g)) return res.json(fail('该订单尚未生成独立货权，请联系平台处理'));
   if (g.member_id !== m.member_id) return res.json(fail('您不是该商品持有人'));
 
   // 价格上限：到顶后不再允许挂出，否则下一轮价格会突破上限，上限就形同虚设

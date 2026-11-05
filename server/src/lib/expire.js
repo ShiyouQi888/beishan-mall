@@ -55,7 +55,8 @@ export function expireUnsold(day = todayStr()) {
     // 把这次挂牌标记归零，否则持有人再点转拍会被「该订单已转拍上架」拦住
     const o = get(
       `SELECT order_id FROM orders
-       WHERE goods_id = ? AND member_id = ? AND type = 1 AND consignment_status = 10
+       WHERE COALESCE(NULLIF(asset_goods_id, 0), goods_id) = ?
+         AND member_id = ? AND type = 1 AND consignment_status = 10
        ORDER BY order_id DESC LIMIT 1`,
       g.goods_id, g.member_id,
     );

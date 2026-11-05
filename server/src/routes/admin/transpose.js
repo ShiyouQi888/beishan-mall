@@ -19,6 +19,7 @@ import { priceCapOf } from '../../lib/priceCap.js';
 import { nextSlot } from '../../lib/sessions.js';
 import { toCsv, sendCsv, csvTime } from '../../lib/csv.js';
 import { todayStr } from '../../lib/sessionWindow.js';
+import { orderGoods, orderGoodsId } from '../../lib/orderAssets.js';
 
 const r = Router();
 
@@ -44,12 +45,14 @@ function buildWhere(range, start, end, keyword) {
 }
 
 const FROM = `FROM orders o
-  JOIN goods g ON g.goods_id = o.goods_id
+  JOIN goods g ON g.goods_id = COALESCE(NULLIF(o.asset_goods_id, 0), o.goods_id)
   LEFT JOIN member m ON m.member_id = o.member_id
   LEFT JOIN member s ON s.member_id = o.seller_id`;
 
 /** 列表与导出共用同一段查询，避免两处字段走偏 */
-const ROW_SELECT = `SELECT o.order_id, o.order_no, o.goods_id, o.member_id, o.total_price, o.listing_fee,
+const ROW_SELECT = `SELECT o.order_id, o.order_no,
+            COALESCE(NULLIF(o.asset_goods_id, 0), o.goods_id) AS goods_id, o.goods_id AS source_goods_id,
+            o.member_id, o.total_price, o.listing_fee,
             o.transposition_time, o.specialarea_id, o.pay_time, o.create_time, o.remark,
             o.service_charge, o.pay_status,
             g.goods_name, g.goods_no, g.good_thumb, g.goods_min_price, g.base_price, g.price_cap,
@@ -172,7 +175,7 @@ r.get('/transpose/list', authAdmin, (req, res) => {
   // 汇总跟筛选走，但不受分页影响
   const sum = get(
     `SELECT COUNT(*) c,
-            COUNT(DISTINCT o.goods_id) goods_count,
+            COUNT(DISTINCT COALESCE(NULLIF(o.asset_goods_id, 0), o.goods_id)) goods_count,
             IFNULL(SUM(o.listing_fee), 0) fee,
             IFNULL(SUM(g.goods_min_price), 0) price,
             IFNULL(SUM(g.goods_min_price - o.total_price), 0) gain
@@ -263,15 +266,16 @@ r.get('/transpose/detail', authAdmin, (req, res) => {
   if (!id) return res.json(fail('缺少订单号'));
   const o = get('SELECT * FROM orders WHERE order_id = ?', id);
   if (!o) return res.json(fail('订单不存在'));
-  const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
+  const g = orderGoods(o);
   const m = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', o.member_id);
   const logs = all('SELECT action, operator, remark, create_time FROM order_log WHERE order_id = ? ORDER BY log_id DESC LIMIT 20', id);
 
   // 商品流转链路：这件货被经手的每一手（卖家 → 买家 → 下一手…），按成交先后排
   const chainRows = all(
     `SELECT order_id, order_no, seller_id, member_id, total_price, pay_time, create_time
-     FROM orders WHERE goods_id = ? AND type = 1 AND pay_status = 10 ORDER BY order_id ASC`,
-    o.goods_id,
+     FROM orders WHERE COALESCE(NULLIF(asset_goods_id, 0), goods_id) = ?
+       AND type = 1 AND pay_status = 10 ORDER BY order_id ASC`,
+    orderGoodsId(o),
   );
   const nameOf = (mid) => (Number(mid) ? get('SELECT nick_name FROM member WHERE member_id = ?', Number(mid))?.nick_name || `会员#${mid}` : '平台');
   const chain = chainRows.map((x, i) => ({
@@ -292,7 +296,7 @@ r.get('/transpose/detail', authAdmin, (req, res) => {
     ? get('SELECT title_main, name FROM specialarea WHERE specialarea_id = ?', g.specialarea_id)
     : null;
   res.json(ok({
-    order: { ...o, _nick: m?.nick_name || '', _mobile: m?.mobile || '', _seller: holder?.nick_name || '', _seller_mobile: holder?.mobile || '' },
+    order: { ...o, owned_goods_id: orderGoodsId(o), _nick: m?.nick_name || '', _mobile: m?.mobile || '', _seller: holder?.nick_name || '', _seller_mobile: holder?.mobile || '' },
     chain,
     goods: g ? {
       goods_id: g.goods_id, goods_name: g.goods_name, good_thumb: g.good_thumb,

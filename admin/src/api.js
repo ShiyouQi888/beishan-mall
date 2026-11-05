@@ -59,6 +59,7 @@ export const adminApi = {
   exportTranspose: (params) => http.get('/transpose/export', { params, responseType: 'blob', timeout: 60000 }),
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
+  auditList: (params) => http.get('/audit/list', { params }),
   orderNotifications: (params) => http.get('/notifications/orders', { params, silent: true }),
   recycleNotifications: (params) => http.get('/notifications/recycles', { params, silent: true }),
   financeOverview: () => http.get('/finance/overview'),

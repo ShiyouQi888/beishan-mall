@@ -37,6 +37,7 @@ export default [
       list('/notice', 'notice', 'notice', '公告管理'),
       list('/storeuser', 'storeuser', 'storeuser', '管理员'),
       list('/role', 'role', 'role', '角色管理'),
+      { path: '/audit', name: 'audit', component: () => import('./views/AuditLog.vue'), meta: { title: '操作审计', permissionPath: '/audit' } },
       { path: '/setting/danger', name: 'dangerZone', component: () => import('./views/DangerZone.vue'), meta: { title: '数据清除', permissionPath: '/setting/danger' } },
       { path: '/setting/:group', name: 'setting', component: () => import('./views/SettingPage.vue'), meta: { title: '系统设置' } },
     ],

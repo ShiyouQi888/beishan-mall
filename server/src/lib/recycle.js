@@ -54,7 +54,8 @@ function findCappedGoods() {
 function holderOrderOf(g) {
   return get(
     `SELECT * FROM orders
-     WHERE goods_id = ? AND member_id = ? AND type = 1 AND pay_status = 10 AND status <> 40
+     WHERE COALESCE(NULLIF(asset_goods_id, 0), goods_id) = ?
+       AND member_id = ? AND type = 1 AND pay_status = 10 AND status <> 40
      ORDER BY order_id DESC LIMIT 1`,
     g.goods_id, g.member_id,
   );

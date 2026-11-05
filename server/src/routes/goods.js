@@ -263,8 +263,9 @@ r.get('/getLootList', maybeMember, (req, res) => {
     return `${String(Math.floor(n / 3600)).padStart(2, '0')}:${String(Math.floor((n % 3600) / 60)).padStart(2, '0')}`;
   };
   const preview = all(
-    `SELECT o.goods_id, o.goods_name, g.good_thumb, g.goods_min_price, g.area_date, g.specialarea_id
-     FROM orders o JOIN goods g ON g.goods_id = o.goods_id
+    `SELECT COALESCE(NULLIF(o.asset_goods_id, 0), o.goods_id) AS goods_id,
+            o.goods_name, g.good_thumb, g.goods_min_price, g.area_date, g.specialarea_id
+     FROM orders o JOIN goods g ON g.goods_id = COALESCE(NULLIF(o.asset_goods_id, 0), o.goods_id)
      WHERE o.type = 1 AND o.pay_status = 10 AND IFNULL(o.consignment_status, 0) = 10
        AND g.member_id = o.member_id AND g.goods_status = 10 AND IFNULL(g.recycled, 0) = 0
        AND IFNULL(g.area_date, '') > ?
@@ -358,8 +359,8 @@ r.get('/getLootDetails', maybeMember, (req, res) => {
       // 这件货本人是否已经买过（同一件货每人只能买一次），前端据此直接禁用按钮
       purchased: req.member
         ? (Number(get(
-          'SELECT COUNT(*) c FROM orders WHERE member_id = ? AND goods_id = ? AND type = 1 AND status <> 40',
-          req.member.member_id, g.goods_id,
+          'SELECT COUNT(*) c FROM orders WHERE member_id = ? AND (goods_id = ? OR asset_goods_id = ?) AND type = 1 AND status <> 40',
+          req.member.member_id, g.goods_id, g.goods_id,
         )?.c || 0) > 0 ? 1 : 0)
         : 0,
       specialarea: area

@@ -9,6 +9,52 @@ import { MENU } from '../../lib/menu.config.js';
 
 const r = Router();
 
+// ---------------- 管理员操作审计 ----------------
+r.get('/audit/list', authAdmin, (req, res) => {
+  const canViewAll = isSuperRole(req.admin.role_id);
+  const currentPage = Math.max(1, Math.floor(Number(req.query.page) || 1));
+  const pageSize = Math.min(100, Math.max(10, Math.floor(Number(req.query.limit) || 20)));
+  const where = [];
+  const args = [];
+
+  // 服务端强制数据范围：非超管无论提交什么 admin_id，都只能查本人。
+  if (canViewAll) {
+    const adminId = Number(req.query.admin_id) || 0;
+    if (adminId > 0) { where.push('admin_id = ?'); args.push(adminId); }
+  } else {
+    where.push('admin_id = ?');
+    args.push(Number(req.admin.store_user_id));
+  }
+
+  const keyword = String(req.query.keyword || '').trim().slice(0, 100);
+  if (keyword) {
+    const like = `%${keyword}%`;
+    where.push('(admin_name LIKE ? OR admin_nick LIKE ? OR action LIKE ? OR path LIKE ? OR target_id LIKE ? OR result_message LIKE ? OR details LIKE ?)');
+    args.push(like, like, like, like, like, like, like);
+  }
+  const result = String(req.query.result ?? '');
+  if (result === '0' || result === '1') { where.push('result = ?'); args.push(Number(result)); }
+  const startDate = String(req.query.start_date || '').slice(0, 10);
+  const endDate = String(req.query.end_date || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startDate)) { where.push('create_time >= ?'); args.push(`${startDate} 00:00:00`); }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(endDate)) { where.push('create_time <= ?'); args.push(`${endDate} 23:59:59`); }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const total = Number(get(`SELECT COUNT(*) c FROM admin_operation_log ${whereSql}`, ...args)?.c || 0);
+  const list = all(
+    `SELECT log_id, admin_id, admin_name, admin_nick, role_id, action, method, path,
+            target_type, target_id, details, result, result_message, http_status, ip, user_agent, create_time
+       FROM admin_operation_log ${whereSql}
+       ORDER BY log_id DESC LIMIT ? OFFSET ?`,
+    ...args, pageSize, (currentPage - 1) * pageSize,
+  );
+  const operators = canViewAll
+    ? all('SELECT store_user_id id, user_name name FROM store_user ORDER BY user_name ASC')
+    : [];
+
+  res.json(ok({ list, total, page: currentPage, page_size: pageSize, can_view_all: canViewAll, operators }));
+});
+
 // ---------------- 统计 ----------------
 /** 商品金额统计（对齐原站 getstatistics 的四个卡片）——商品已统一，按「单价 × 库存」计货值 */
 r.get('/stats/goods', authAdmin, (req, res) => {

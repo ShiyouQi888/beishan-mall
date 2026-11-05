@@ -9,6 +9,7 @@ import { restoreStock, isPieceSale } from '../../lib/stock.js';
 import { sessionBoughtOf, sessionLimitOf } from '../../lib/purchaseLimit.js';
 import { areasOfGoods, areaMapOfGoods, setGoodsAreas, addGoodsToArea, removeGoodsFromArea, clearAreaLinks } from '../../lib/areaGoods.js';
 import { priceCapOf } from '../../lib/priceCap.js';
+import { orderGoods } from '../../lib/orderAssets.js';
 import { todayStr, addDays } from '../../lib/sessionWindow.js';
 import { rangeClause } from '../../lib/dateRange.js';
 import { toCsv, sendCsv, csvTime } from '../../lib/csv.js';
@@ -18,8 +19,11 @@ import mediaRouter from './media.js';
 import systemRouter from './system.js';
 import financeBoardRouter from './finance.js';
 import transposeRouter from './transpose.js';
+import { auditAdminRequest } from '../../lib/adminAudit.js';
 
 const r = Router();
+// 统一记录所有需要身份的后台 API 活动；登录尝试也由此记录，审计查询本身不入日志。
+r.use(auditAdminRequest);
 // 补充业务接口优先匹配，避免被通用 /:module/* 路由拦截
 r.use(extraRouter);
 // 文件管理：/media/* 不能被通用 /:module/* 吞掉
@@ -64,7 +68,7 @@ const M = {
       { k: 'price_warning', t: '价格水位', type: 'capbar', readonly: true, w: 168, tip: '绿 → 黄 → 红表示当前价在「基准价 → 价格上限」这段区间里的位置；红色表示已达上限、不能再转拍。' },
       // 划线价（前台「市场价」）随转拍自动上调，不再手填
       { k: 'line_price', t: '划线价', type: 'money', w: 100, hide: true, readonly: true, tip: '前台展示的「市场价」，转拍时会自动跟涨；不用手填。' },
-      { k: 'stock_num', t: '库存', type: 'number', w: 72, tip: '还能被抢几个名额。填 1 = 唯一的一件货，成交后整件归买家并下架，等买家转拍；填 >1 = 一批货，抢一个减一个名额，抢光才下架，整件始终归原持有人。' },
+      { k: 'stock_num', t: '库存', type: 'number', w: 72, tip: '还能被抢几个名额。填 1 = 单件货权，成交后归买家并下架；填 >1 = 卖家库存池，抢一个减一个名额，抢光才下架。按件成交后，系统会给买家生成独立单件货权。' },
       { k: 'turn_beat_num', t: '转拍次数', type: 'number', w: 88, hide: true },
       { k: 'sales_actual', t: '销量', type: 'number', w: 72, hide: true },
       { k: 'goods_sort', t: '排序', type: 'number', w: 72, hide: true },
@@ -403,7 +407,7 @@ r.get('/dashboard', authAdmin, (req, res) => {
 
   // 在挂转拍：与「转拍订单」页同一套判定（挂了牌 + 货还在他手上 + 还在架 + 没被回收）
   const transposing = num(
-    `SELECT COUNT(*) c FROM orders o JOIN goods g ON g.goods_id = o.goods_id
+    `SELECT COUNT(*) c FROM orders o JOIN goods g ON g.goods_id = COALESCE(NULLIF(o.asset_goods_id, 0), o.goods_id)
      WHERE o.type = 1 AND IFNULL(o.consignment_status, 0) = 10
        AND g.member_id = o.member_id AND g.goods_status = 10 AND IFNULL(g.recycled, 0) = 0`,
   );
@@ -917,9 +921,9 @@ r.post('/specialarea/goods/remove', authAdmin, (req, res) => {
     // 还挂在别的场次 → 移出本场不影响它继续卖
     if (get('SELECT 1 FROM specialarea_goods WHERE goods_id = ? AND specialarea_id <> ? LIMIT 1', gid, areaId)) continue;
     const listed = get(
-      `SELECT 1 FROM orders WHERE goods_id = ? AND member_id = ? AND type = 1
+      `SELECT 1 FROM orders WHERE (goods_id = ? OR asset_goods_id = ?) AND member_id = ? AND type = 1
          AND IFNULL(consignment_status, 0) = 10 LIMIT 1`,
-      gid, g.member_id,
+      gid, gid, g.member_id,
     );
     if (listed) blocking.push(g.goods_name);
   }
@@ -1130,7 +1134,7 @@ function safeAdminRow(module, row) {
 function isTransferredOut(o) {
   if (!o || Number(o.type) !== 1 || !o.goods_id) return false;
   if (Number(o.pay_status) !== 10) return false;
-  const g = get('SELECT member_id FROM goods WHERE goods_id = ?', o.goods_id);
+  const g = orderGoods(o);
   if (!g) return false;
   return Number(g.member_id) !== Number(o.member_id);
 }
@@ -1143,10 +1147,18 @@ function isTransferredOut(o) {
  * 「卖过一次」才是价格被系统接管的分界线：一旦有了买入价，后面每一手都要按涨幅累加。
  */
 const isTransposedGoods = (goodsId) => !!get(
-  'SELECT 1 FROM orders WHERE goods_id = ? AND type = 1 AND pay_status = 10 LIMIT 1',
+  `SELECT 1 FROM orders o JOIN goods g ON g.goods_id = ?
+   WHERE o.type = 1 AND o.pay_status = 10
+     AND (o.asset_goods_id = g.goods_id
+       OR (IFNULL(o.asset_goods_id, 0) = 0 AND o.goods_id = g.goods_id AND IFNULL(g.stock_total, 1) = 1))
+   LIMIT 1`,
   Number(goodsId) || 0,
 );
-const TRANSPOSED_SQL = 'EXISTS (SELECT 1 FROM orders o WHERE o.goods_id = goods.goods_id AND o.type = 1 AND o.pay_status = 10)';
+const TRANSPOSED_SQL = `EXISTS (
+  SELECT 1 FROM orders o WHERE o.type = 1 AND o.pay_status = 10
+    AND (o.asset_goods_id = goods.goods_id
+      OR (IFNULL(o.asset_goods_id, 0) = 0 AND o.goods_id = goods.goods_id AND IFNULL(goods.stock_total, 1) = 1))
+)`;
 
 function enrich(mod, row) {
   const out = { ...row };
@@ -1268,9 +1280,14 @@ r.post('/:module/save', authAdmin, (req, res) => {
   // 运营把库存调大时名额跟着涨；调小时名额不动 —— 已经卖出去的名额不能凭空消失，
   // 否则剩余名额会被算错，取消订单归还时还会被错误地截断。
   if (mod.table === 'goods') {
-    const cur = id ? get('SELECT stock_total, stock_num FROM goods WHERE goods_id = ?', Number(id)) : null;
+    const cur = id ? get('SELECT stock_total, stock_num, asset_parent_id FROM goods WHERE goods_id = ?', Number(id)) : null;
     const nextStock = 'stock_num' in body ? Number(body.stock_num) || 0 : Number(cur?.stock_num) || 0;
-    body.stock_total = Math.max(Number(cur?.stock_total) || 0, nextStock, 1);
+    if (Number(cur?.asset_parent_id) > 0 && 'stock_num' in body && nextStock !== 1) {
+      return res.json(fail('独立货权商品库存固定为 1，不能改成批量库存'));
+    }
+    body.stock_total = Number(cur?.asset_parent_id) > 0
+      ? 1
+      : Math.max(Number(cur?.stock_total) || 0, nextStock, 1);
     keys.push('stock_total');
 
     // 价格上限：金额（元），0 = 不限；负数/非法一律归 0
@@ -1304,8 +1321,9 @@ r.post('/:module/save', authAdmin, (req, res) => {
       const holder = get('SELECT member_id FROM goods WHERE goods_id = ?', Number(id));
       if (Number(holder?.member_id) > 0) {
         run(
-          'UPDATE orders SET consignment_status = 0 WHERE goods_id = ? AND member_id = ? AND IFNULL(consignment_status, 0) = 10',
-          Number(id), Number(holder.member_id),
+          `UPDATE orders SET consignment_status = 0
+           WHERE (goods_id = ? OR asset_goods_id = ?) AND member_id = ? AND IFNULL(consignment_status, 0) = 10`,
+          Number(id), Number(id), Number(holder.member_id),
         );
       }
     }
@@ -1511,7 +1529,7 @@ r.post('/:module/remove', authAdmin, (req, res) => {
       if (isSuperRole(id)) return res.json(fail('不能删除超级管理员角色'));
       if (get('SELECT 1 FROM store_user WHERE role_id = ?', Number(id))) return res.json(fail('该角色仍被管理员使用，不能删除'));
     }
-    if (moduleName === 'goods' && get('SELECT 1 FROM orders WHERE goods_id = ?', Number(id))) {
+    if (moduleName === 'goods' && get('SELECT 1 FROM orders WHERE goods_id = ? OR asset_goods_id = ?', Number(id), Number(id))) {
       return res.json(fail('商品已有关联订单，不能删除'));
     }
     if (moduleName === 'category' && get('SELECT 1 FROM goods WHERE category_id = ?', Number(id))) {
@@ -1526,7 +1544,7 @@ r.post('/:module/remove', authAdmin, (req, res) => {
          WHERE sg.specialarea_id = ? AND IFNULL(g.member_id, 0) > 0
            AND EXISTS (
              SELECT 1 FROM orders o
-             WHERE o.goods_id = g.goods_id AND o.member_id = g.member_id
+             WHERE COALESCE(NULLIF(o.asset_goods_id, 0), o.goods_id) = g.goods_id AND o.member_id = g.member_id
                AND o.type = 1 AND IFNULL(o.consignment_status, 0) = 10
            )`,
         Number(id),
@@ -1729,13 +1747,16 @@ const bizErr = (msg) => { const e = new Error(msg); e.biz = true; return e; };
 function transferCheck(o) {
   if (!o) throw bizErr('订单不存在');
   if (Number(o.status) === 40) throw bizErr('订单已取消，不能转让');
-  const g = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
-  if (!g) throw bizErr('商品不存在，无法转让');
+  const source = get('SELECT * FROM goods WHERE goods_id = ?', o.goods_id);
+  if (!source) throw bizErr('商品不存在，无法转让');
   const paid = Number(o.pay_status) === 10;
+  if (paid && isPieceSale(source) && !Number(o.asset_goods_id)) {
+    throw bizErr('该按件订单尚未生成独立货权，请重启服务完成数据迁移后重试');
+  }
+  const g = orderGoods(o);
+  if (!g) throw bizErr('商品不存在，无法转让');
   if (paid) {
-    // 按件出售的一批货：名额成交即消耗，货权始终留在原持有人手里，
-    // 买家手上只有一份「已成交份额」，没有可转的东西
-    if (isPieceSale(g)) throw bizErr('按件出售的订单成交后没有货权，不能转让');
+    if (isPieceSale(g)) throw bizErr('该订单对应的商品不是独立单件货权，不能转让');
     // 挂牌中的货随时可能被别人买走，此时改归属会和成交并发打架，要求先下架
     if (Number(o.consignment_status) === 10) {
       throw bizErr('该商品正在挂牌转拍，请先在商品管理里下架后再转让');

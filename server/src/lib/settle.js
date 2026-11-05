@@ -10,6 +10,7 @@
 // 平台每轮净收入 = 上架费 − 直推奖 − 团队奖（2.8% − 0.5% = 2.3%）
 import { get, run, now } from '../db.js';
 import { isPieceSale } from './stock.js';
+import { ensureOrderAsset, orderGoodsId } from './orderAssets.js';
 
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;
 export const money2 = (n) => Number(Number(n).toFixed(2));
@@ -33,7 +34,7 @@ export const biz = (msg) => {
 
 /**
  * 抢购成交结算（买家付款成功后调用）
- * - 商品持有人转移给买家，转拍次数 +1
+ * - 单件商品归买家；按件销售则从卖家库存池扣一个名额并生成买家的单件货权
  * - 卖家收到货款全额（平台不从货款里抽成）
  * - 给买家的直接上级发直推奖
  * - 累加团队流水并检查等级升级
@@ -43,9 +44,9 @@ export function settleOrder(o) {
   if (!g) return { ok: false, reason: '商品不存在' };
 
   if (isPieceSale(g)) {
-    // 一批货：名额抢一个减一个，整件始终归原持有人。
-    // 所以成交时只能累加销量，绝不能像唯一一件货那样「下架 + 转移持有人」——
-    // 否则卖掉 1 个就把剩下的名额一起锁死，谁也别想抢。
+    // 一批货仍由卖家持有，剩余名额继续出售；本单买家另得一条独立的单件货权。
+    // 不能把库存池整条记录改成买家，否则其他未售名额会一起转走。
+    ensureOrderAsset(o, g);
     // 名额已经在「下单」时扣过（deductStock），这里读到的是扣完之后的余量，<=0 表示抢光。
     run(
       'UPDATE goods SET sales_actual = sales_actual + ?, update_time = ? WHERE goods_id = ?',
@@ -69,8 +70,10 @@ export function settleOrder(o) {
   // 包括上一手持有人挂出去、刚刚被这笔订单买走的那一笔（它的 consignment_status 还停在 10）。
   // 不清的话，同一件货会累积多条「在挂」记录，任何按 consignment_status 统计的地方都会多算。
   run(
-    'UPDATE orders SET consignment_status = 0 WHERE goods_id = ? AND IFNULL(consignment_status, 0) = 10',
-    g.goods_id,
+    `UPDATE orders SET consignment_status = 0
+     WHERE IFNULL(consignment_status, 0) = 10
+       AND COALESCE(NULLIF(asset_goods_id, 0), goods_id) = ?`,
+    orderGoodsId(o),
   );
 
   // 卖家收货款全额

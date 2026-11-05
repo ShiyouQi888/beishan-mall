@@ -230,14 +230,14 @@ async function main() {
     const cancelled = await api('/admin/api/orders/transfer', { method: 'POST', token: at, body: { order_id: O2, to_member_id: A.id, reason: '客服调整' } });
     ok(cancelled.code !== 1 && /取消/.test(String(cancelled.msg)), '已取消订单不能转让', cancelled.msg);
 
-    // 按件出售：成交后买家没有货权，转不了
+    // 按件出售成交后生成独立单件货权，可以由后台单独转让
     const od3 = await api('/api/order/toAddOrder', { method: 'POST', token: A.token, body: { goods_id: G2, num: 1, pay_type: 0 } });
     ok(od3.code === 1, 'A 下单按件商品', od3.msg);
     const O3 = od3.data.order_id;
     const cp3 = await api('/admin/api/orders/confirm-pay', { method: 'POST', token: at, body: { order_id: O3 } });
     ok(cp3.code === 1, '按件订单确认成交', cp3.msg);
     const piece = await api('/admin/api/orders/transfer', { method: 'POST', token: at, body: { order_id: O3, to_member_id: B.id, reason: '客服调整' } });
-    ok(piece.code !== 1 && /按件/.test(String(piece.msg)), '按件订单成交后不能转让', piece.msg);
+    ok(piece.code === 1, '按件成交的独立货权可以转让', piece.msg);
 
     // ---------- 5. 限购口径 ----------
     section('[5] 接手人本场已抢数会随转让增加（限购提示口径）');
@@ -275,7 +275,7 @@ async function main() {
     const rowsT = onlyT.data?.data || [];
     ok(rowsT.length > 0 && rowsT.every((x) => Number(x.transfer_count) > 0), '已转让：只返回转过手的订单');
     ok(rowsT.some((x) => Number(x.order_id) === Number(O1)), '已转让里能看到转过两次的那一单');
-    ok(!rowsT.some((x) => Number(x.order_id) === Number(O3)), '没转过手的订单不在结果里');
+    ok(rowsT.some((x) => Number(x.order_id) === Number(O3)), '按件成交后转让的订单出现在结果里');
 
     // 导出必须跟筛选一致，且带出「原持有人」
     const csv = async (qs) => {
@@ -303,7 +303,7 @@ async function main() {
     const rowsC = onlyC.data?.data || [];
     ok(rowsC.length > 0 && rowsC.every((x) => Number(x.member_id) === C.id), '按持有人：只返回该会员的订单');
     ok(rowsC.some((x) => Number(x.order_id) === Number(O1)), 'C 名下能看到转让过来的那一单');
-    ok(!rowsC.some((x) => Number(x.order_id) === Number(O3)), 'A 名下的订单不在 C 的结果里');
+    ok(!rowsC.some((x) => Number(x.order_id) === Number(O3)), '不属于 C 的订单不在 C 的结果里');
 
     const linesC = await csv(`?member_id=${C.id}`);
     const headC = linesC[0].split(',');

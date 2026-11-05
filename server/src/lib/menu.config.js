@@ -170,6 +170,11 @@ export const MENU = [
         title: '角色管理',
         icon: `<path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" stroke-width="1.7"/><path d="M4 21v-2a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
       },
+      {
+        path: '/audit',
+        title: '操作审计',
+        icon: `<path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V6A1.5 1.5 0 0 1 5 4.5Z" stroke="currentColor" stroke-width="1.7"/><path d="M7.5 9h9M7.5 12.5h9M7.5 16h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
+      },
     ],
   },
 ];
