@@ -122,6 +122,53 @@ npm start
 
 也可以只启动 API；如果 `public/admin` 和 `public/h5` 尚未构建，服务端仍可提供 API。
 
+## 多站点部署模型
+
+生产环境可以构建并维护**一份应用镜像**，再用同一镜像启动多个独立容器，每个容器运行一个站点实例：
+
+    同一镜像
+    ├── 容器 A：站点 A 配置 + /srv/beishan/site-a/data
+    ├── 容器 B：站点 B 配置 + /srv/beishan/site-b/data
+    └── 容器 N：站点 N 配置 + /srv/beishan/site-n/data
+
+镜像中的代码和前端资源相同；每个容器应有自己的数据目录，目录中保存该站点的 SQLite 数据库和上传文件。各站点的会员、商品、订单、管理员、JWT 密钥和上传内容因此彼此隔离。域名由反向代理分别转发到各容器的宿主机端口。
+
+先构建一次带固定标签的镜像：
+
+    docker build -t beishan-mall:release-2026-11-05 .
+
+每个站点准备一份独立环境文件。例如 /srv/beishan/site-a.env：
+
+    NODE_ENV=production
+    HOST=0.0.0.0
+    PORT=3300
+    MALL_DB=/app/data/mall.db
+    UPLOAD_DIR=/app/data/uploads
+    PUBLIC_DIR=/app/public
+    PUBLIC_BASE_URL=https://site-a.example.com
+    JWT_SECRET=CHANGE_ME_TO_A_UNIQUE_RANDOM_SECRET
+    ADMIN_USER=site_a_admin
+    ADMIN_PASSWORD=CHANGE_ME_TO_A_STRONG_PASSWORD
+    TZ=Asia/Shanghai
+
+启动两个站点时，使用**同一个镜像标签**，但分别指定容器名、宿主机端口、环境文件和宿主机数据目录：
+
+    docker run -d --name beishan-site-a --restart unless-stopped \
+      -p 3301:3300 --env-file /srv/beishan/site-a.env \
+      -v /srv/beishan/site-a/data:/app/data \
+      beishan-mall:release-2026-11-05
+
+    docker run -d --name beishan-site-b --restart unless-stopped \
+      -p 3302:3300 --env-file /srv/beishan/site-b.env \
+      -v /srv/beishan/site-b/data:/app/data \
+      beishan-mall:release-2026-11-05
+
+站点 B 应使用自己的环境文件、域名、密钥、管理员密码和数据目录。反向代理可将 site-a.example.com 指向宿主机 3301，将 site-b.example.com 指向 3302。第一次启动时，每个空数据目录会分别初始化自己的数据库和演示数据。
+
+**不要把多个生产站点挂载到同一个数据目录。** 那会让不同站点共用 SQLite 数据库和上传文件，破坏数据隔离。更新版本时构建一个新的镜像标签，再逐个重建容器并保留各自原有的数据目录。
+
+仓库中的 docker-compose.yml 是单站点示例：固定了容器名，并把当前项目目录的 ./data 挂载给该实例，因此不能直接用 docker compose --scale mall=N 来部署相互隔离的多个站点。多站点可按上面的 docker run 方式启动，或为每个站点维护独立 Compose 服务配置和独立数据挂载。
+
 ## Docker 部署
 
 ### 首次部署
