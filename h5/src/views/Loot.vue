@@ -5,7 +5,7 @@
     </div>
 
     <!-- 场次切换 -->
-    <div class="loot__tabs">
+    <div class="loot__tabs" :class="{ 'loot__tabs--single': areas.length === 1 }">
       <div
         v-for="(a, i) in areas"
         :key="a.specialarea_id"
@@ -268,6 +268,29 @@ onUnmounted(() => {
   background: #f6f7f9;
   border: 1px solid transparent;
   transition: all 0.18s;
+}
+.loot__tabs--single .loot__tab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+  padding: 11px 14px;
+}
+.loot__tabs--single .loot__tab .t { grid-column: 1; grid-row: 1; }
+.loot__tabs--single .loot__tab .time {
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: 3px;
+}
+.loot__tabs--single .loot__tab .badge {
+  position: static;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  justify-self: end;
+  white-space: nowrap;
 }
 .loot__tab.on {
   background: var(--brand-soft);
