@@ -410,11 +410,12 @@ onUnmounted(() => {
 
 /* ---- 已转拍预告：不是本场能买的东西，视觉上要更淡，别和商品卡抢注意力 ---- */
 .loot__preview { margin-top: 20px; }
-.preview-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.preview-head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 3px; margin-bottom: 10px; }
 .preview-head > span:first-child { font-size: 14px; font-weight: 650; color: #22252b; }
-.preview-head .sub { font-size: 11.5px; color: #a8adb7; }
+.preview-head .sub { min-width: 0; font-size: 11.5px; line-height: 1.35; color: #a8adb7; }
 .preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .pv-card {
+  min-width: 0;
   background: #fff;
   border-radius: 12px;
   padding: 8px;
@@ -430,7 +431,14 @@ onUnmounted(() => {
   color: #fff; font-size: 10px; font-weight: 500;
 }
 .pv-name { font-size: 12.5px; margin: 8px 2px 0; color: #6b7280; }
-.pv-row { display: flex; align-items: center; justify-content: space-between; margin: 6px 2px 2px; }
-.pv-row .price { font-size: 15px; color: #8c93a0; }
-.pv-when { font-size: 10.5px; color: var(--brand); white-space: nowrap; }
+.pv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  min-width: 0;
+  margin: 6px 2px 2px;
+}
+.pv-row .price { font-size: 15px; line-height: 1.2; color: #8c93a0; white-space: nowrap; }
+.pv-when { display: block; min-width: 0; max-width: 100%; font-size: 10.5px; line-height: 1.35; color: var(--brand); white-space: normal; overflow-wrap: anywhere; }
+
 </style>
