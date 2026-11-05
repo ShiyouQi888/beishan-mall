@@ -108,9 +108,12 @@ const loading = ref(true);
 // 用它算一个偏移，之后本地时钟继续走秒。这样倒计时和「此刻是否开放」都不受本机时间影响。
 const clockSkew = ref(0);
 const nowSec = ref(Math.floor(Date.now() / 1000));
+const LOCK_REFRESH_MS = 15000;
 let timer;
 let lastSig = '';
 let lastPoll = 0;
+let lastLockPoll = 0;
+let refreshing = false;
 
 const current = computed(() => areas.value[activeIdx.value]);
 const started = computed(() => current.value && nowSec.value > current.value.time.end_time);
@@ -158,6 +161,7 @@ const openSig = computed(() =>
 
 /** 拉场次+商品。keepId 为要保留选中的场次（切场时才换到新的进行中场次） */
 const previewList = ref([]);
+const hasLockedGoods = computed(() => areas.value.some((a) => (a.goods_list || []).some((g) => Number(g.locked) === 1)));
 
 async function load(keepId) {
   const r = await api.lootList();
@@ -177,11 +181,21 @@ async function load(keepId) {
 
 /** 场次切换时静默换数据：不置 loading、不闪骨架屏 */
 async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
   try {
     await load(current.value?.specialarea_id);
   } catch {
     /* 网络抖动就等下一次 tick，不打断页面 */
+  } finally {
+    refreshing = false;
+    lastPoll = Date.now();
+    lastLockPoll = Date.now();
   }
+}
+
+function refreshWhenVisible() {
+  if (document.visibilityState === 'visible') refresh();
 }
 
 onMounted(async () => {
@@ -192,11 +206,21 @@ onMounted(async () => {
   }
   lastSig = openSig.value;
   lastPoll = Date.now();
+  lastLockPoll = Date.now();
+  window.addEventListener('focus', refreshWhenVisible);
+  window.addEventListener('pageshow', refreshWhenVisible);
+  document.addEventListener('visibilitychange', refreshWhenVisible);
   timer = setInterval(() => {
     nowSec.value = Math.floor(Date.now() / 1000) + clockSkew.value;
     const sig = openSig.value;
     if (lastSig && sig !== lastSig) {
       lastSig = sig;
+      refresh();
+      return;
+    }
+    // 有待付款锁单时每 15 秒同步一次，后台确认后及时把「抢购中」更新为真实状态。
+    if (hasLockedGoods.value && Date.now() - lastLockPoll >= LOCK_REFRESH_MS) {
+      lastLockPoll = Date.now();
       refresh();
       return;
     }
@@ -209,7 +233,12 @@ onMounted(async () => {
   }, 1000);
 });
 
-onUnmounted(() => clearInterval(timer));
+onUnmounted(() => {
+  clearInterval(timer);
+  window.removeEventListener('focus', refreshWhenVisible);
+  window.removeEventListener('pageshow', refreshWhenVisible);
+  document.removeEventListener('visibilitychange', refreshWhenVisible);
+});
 </script>
 
 <style scoped>

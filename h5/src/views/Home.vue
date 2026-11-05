@@ -106,12 +106,17 @@ const categoryOpen = computed(() => String(openNav.value?.home_category_open ?? 
 // 用服务端时间 new_time 校准客户端时钟：本机慢几分钟就让「现在」也跟着慢，倒计时才准
 const clockSkew = ref(0);
 const nowSec = ref(Math.floor(Date.now() / 1000));
+const LOCK_REFRESH_MS = 15000;
 let timer;
 let lastSig = '';
 let lastPoll = 0;
+let lastLockPoll = 0;
+let refreshing = false;
 const openSig = computed(() =>
   areas.value.map((a) => (nowSec.value >= a.time.start_time && nowSec.value <= a.time.end_time ? 1 : 0)).join(''),
 );
+const hasLockedGoods = computed(() => goods.value.some((g) => Number(g.locked) === 1)
+  || areas.value.some((a) => (a.goods_list || []).some((g) => Number(g.locked) === 1)));
 
 const promiseText = computed(() => {
   const t = areas.value?.[0]?.title?.ordinary_title || '';
@@ -143,8 +148,8 @@ function switchCat(id) {
   activeCat.value = activeCat.value === id ? 0 : id;
 }
 
-async function loadGoods() {
-  loading.value = true;
+async function loadGoods(silent = false) {
+  if (!silent) loading.value = true;
   try {
     // 0 = 全部：不按分类过滤，展示所有在售抢购商品
     if (!activeCat.value) {
@@ -155,9 +160,9 @@ async function loadGoods() {
       goods.value = r.data.data || [];
     }
   } catch {
-    goods.value = [];
+    if (!silent) goods.value = [];
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -177,12 +182,22 @@ onMounted(async () => {
   await loadGoods();
   lastSig = openSig.value;
   lastPoll = Date.now();
+  lastLockPoll = Date.now();
+  window.addEventListener('focus', refreshWhenVisible);
+  window.addEventListener('pageshow', refreshWhenVisible);
+  document.addEventListener('visibilitychange', refreshWhenVisible);
   timer = setInterval(() => {
     nowSec.value = Math.floor(Date.now() / 1000) + clockSkew.value;
     const sig = openSig.value;
     // 某一场开始或结束时指纹会变：这时候后台换了一批货，首页要跟着换，不能停在上场的灰卡片上
     if (lastSig && sig !== lastSig) {
       lastSig = sig;
+      refreshBySession();
+      return;
+    }
+    // 只有页面上存在待付款锁单时才加密刷新；后台确认后及时清除「抢购中」旧状态。
+    if (hasLockedGoods.value && Date.now() - lastLockPoll >= LOCK_REFRESH_MS) {
+      lastLockPoll = Date.now();
       refreshBySession();
       return;
     }
@@ -195,15 +210,30 @@ onMounted(async () => {
 });
 
 onUnmounted(() => clearInterval(timer));
+onUnmounted(() => {
+  window.removeEventListener('focus', refreshWhenVisible);
+  window.removeEventListener('pageshow', refreshWhenVisible);
+  document.removeEventListener('visibilitychange', refreshWhenVisible);
+});
+
+function refreshWhenVisible() {
+  if (document.visibilityState === 'visible') refreshBySession();
+}
 
 // 场次切换时静默换货（不置 loading，避免整页闪骨架屏）
 async function refreshBySession() {
+  if (refreshing) return;
+  refreshing = true;
   try {
     const r = await api.lootList();
     areas.value = r.data.list || [];
-    await loadGoods();
+    await loadGoods(true);
   } catch {
     /* 网络抖动就等下一次场次边界，不打断浏览 */
+  } finally {
+    refreshing = false;
+    lastPoll = Date.now();
+    lastLockPoll = Date.now();
   }
 }
 

@@ -89,7 +89,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
@@ -97,8 +97,11 @@ import { sanitizeHtml } from '../../../shared/sanitize.js';
 
 const route = useRoute();
 const router = useRouter();
+const LOCK_REFRESH_MS = 15000;
 const g = ref({});
 const idx = ref(0);
+let lockPollTimer;
+let refreshing = false;
 
 // 商品详情是后台可编辑的富文本，渲染前必须净化
 const hasDetailText = computed(() => !!String(g.value.detail || '').trim());
@@ -199,8 +202,40 @@ async function load(id) {
 
 // 组件会被复用（在详情页之间跳转时不会重新挂载），只写在 onMounted 里会导致
 // 「看一眼新商品，页面还是上一件」——点抢购买的可能仍是上一件
-onMounted(() => load(route.params.id));
+onMounted(() => {
+  load(route.params.id);
+  lockPollTimer = setInterval(() => {
+    if (lockedByOther.value && document.visibilityState === 'visible') refreshCurrent();
+  }, LOCK_REFRESH_MS);
+  window.addEventListener('focus', refreshWhenVisible);
+  window.addEventListener('pageshow', refreshWhenVisible);
+  document.addEventListener('visibilitychange', refreshWhenVisible);
+});
+onUnmounted(() => {
+  clearInterval(lockPollTimer);
+  window.removeEventListener('focus', refreshWhenVisible);
+  window.removeEventListener('pageshow', refreshWhenVisible);
+  document.removeEventListener('visibilitychange', refreshWhenVisible);
+});
 watch(() => route.params.id, (id) => load(id));
+
+function refreshWhenVisible() {
+  if (document.visibilityState === 'visible') refreshCurrent();
+}
+
+async function refreshCurrent() {
+  if (refreshing || !route.params.id) return;
+  refreshing = true;
+  const id = String(route.params.id);
+  try {
+    const r = await api.lootDetail(id);
+    if (r?.code === 1 && r.data?.goods_id && String(route.params.id) === id) g.value = r.data;
+  } catch {
+    // 静默刷新失败时保留当前商品信息，下一次聚焦或轮询再试。
+  } finally {
+    refreshing = false;
+  }
+}
 </script>
 
 <style scoped>

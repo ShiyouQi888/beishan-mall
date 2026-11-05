@@ -72,7 +72,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { api } from '../api.js';
 import { cardState, cardLabel, isGreyState } from '../utils/goodsState.js';
 import CategoryIconDisplay from '../../../shared/CategoryIconDisplay.vue';
@@ -81,6 +81,11 @@ const categories = ref([]);
 const active = ref(0);
 const goods = ref([]);
 const loading = ref(true);
+const LOCK_REFRESH_MS = 15000;
+let lockPollTimer;
+let lastLockPoll = 0;
+let refreshing = false;
+const hasLockedGoods = computed(() => goods.value.some((g) => Number(g.locked) === 1));
 
 const iconFor = (name = '') => {
   const n = String(name);
@@ -97,16 +102,16 @@ const activeName = computed(() => categories.value.find(c => c.category_id === a
 const activeCategory = computed(() => categories.value.find(c => c.category_id === active.value));
 const activeIcon = computed(() => iconFor(activeName.value));
 
-async function pick(id) {
+async function pick(id, silent = false) {
   active.value = id;
-  loading.value = true;
+  if (!silent) loading.value = true;
   try {
     const r = await api.categoryGoods({ category_id: id, page: 1, limit: 30 });
     goods.value = r.data.data || [];
   } catch {
-    goods.value = [];
+    if (!silent) goods.value = [];
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -119,7 +124,36 @@ onMounted(async () => {
   } catch {
     loading.value = false;
   }
+  lastLockPoll = Date.now();
+  window.addEventListener('focus', refreshWhenVisible);
+  window.addEventListener('pageshow', refreshWhenVisible);
+  document.addEventListener('visibilitychange', refreshWhenVisible);
+  lockPollTimer = setInterval(() => {
+    if (hasLockedGoods.value && Date.now() - lastLockPoll >= LOCK_REFRESH_MS) refreshCurrent();
+  }, LOCK_REFRESH_MS);
 });
+
+onUnmounted(() => {
+  clearInterval(lockPollTimer);
+  window.removeEventListener('focus', refreshWhenVisible);
+  window.removeEventListener('pageshow', refreshWhenVisible);
+  document.removeEventListener('visibilitychange', refreshWhenVisible);
+});
+
+function refreshWhenVisible() {
+  if (document.visibilityState === 'visible') refreshCurrent();
+}
+
+async function refreshCurrent() {
+  if (!active.value || refreshing) return;
+  refreshing = true;
+  try {
+    await pick(active.value, true);
+  } finally {
+    refreshing = false;
+    lastLockPoll = Date.now();
+  }
+}
 </script>
 
 <style scoped>

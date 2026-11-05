@@ -54,7 +54,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 import { cardState, cardLabel, isGreyState } from '../utils/goodsState.js';
@@ -65,24 +65,38 @@ const total = ref(0);
 const loading = ref(false);
 const searched = ref(false);
 const history = ref(JSON.parse(localStorage.getItem('SEARCH_HISTORY') || '[]'));
+const LOCK_REFRESH_MS = 15000;
+let lockPollTimer;
+let lastLockPoll = 0;
+let refreshing = false;
+const hasLockedGoods = computed(() => list.value.some((g) => Number(g.locked) === 1));
 
-async function doSearch() {
+async function querySearch(silent = false) {
   const k = kw.value.trim();
-  if (!k) return showToast('请输入搜索内容');
-  loading.value = true;
+  if (!k) {
+    if (!silent) showToast('请输入搜索内容');
+    return;
+  }
+  if (!silent) loading.value = true;
   searched.value = true;
   try {
     const r = await api.searchShop({ keywords: k, page: 1, limit: 30 });
     list.value = r.data.data || [];
     total.value = r.data.total || 0;
-    const h = [k, ...history.value.filter((x) => x !== k)].slice(0, 10);
-    history.value = h;
-    localStorage.setItem('SEARCH_HISTORY', JSON.stringify(h));
+    if (!silent) {
+      const h = [k, ...history.value.filter((x) => x !== k)].slice(0, 10);
+      history.value = h;
+      localStorage.setItem('SEARCH_HISTORY', JSON.stringify(h));
+    }
   } catch {
-    list.value = [];
+    if (!silent) list.value = [];
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
+}
+
+function doSearch() {
+  return querySearch();
 }
 
 function quick(v) {
@@ -95,7 +109,37 @@ function clearHistory() {
   localStorage.removeItem('SEARCH_HISTORY');
 }
 
-onMounted(() => {});
+onMounted(() => {
+  lastLockPoll = Date.now();
+  window.addEventListener('focus', refreshWhenVisible);
+  window.addEventListener('pageshow', refreshWhenVisible);
+  document.addEventListener('visibilitychange', refreshWhenVisible);
+  lockPollTimer = setInterval(() => {
+    if (searched.value && hasLockedGoods.value && Date.now() - lastLockPoll >= LOCK_REFRESH_MS) refreshCurrent();
+  }, LOCK_REFRESH_MS);
+});
+
+onUnmounted(() => {
+  clearInterval(lockPollTimer);
+  window.removeEventListener('focus', refreshWhenVisible);
+  window.removeEventListener('pageshow', refreshWhenVisible);
+  document.removeEventListener('visibilitychange', refreshWhenVisible);
+});
+
+function refreshWhenVisible() {
+  if (document.visibilityState === 'visible' && searched.value) refreshCurrent();
+}
+
+async function refreshCurrent() {
+  if (refreshing || !searched.value) return;
+  refreshing = true;
+  try {
+    await querySearch(true);
+  } finally {
+    refreshing = false;
+    lastLockPoll = Date.now();
+  }
+}
 </script>
 
 <style scoped>
