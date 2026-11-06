@@ -335,7 +335,7 @@ r.get('/orders/create-options', authAdmin, (req, res) => {
     ];
     const args = [];
     if (buyerId > 0) {
-      conditions.push('IFNULL(member_id, 0) <> ?'); args.push(buyerId);
+      conditions.push('IFNULL(goods.member_id, 0) <> ?'); args.push(buyerId);
       conditions.push(`NOT EXISTS (
         SELECT 1 FROM orders prior WHERE prior.member_id = ?
           AND (prior.goods_id = goods.goods_id OR prior.asset_goods_id = goods.goods_id)
