@@ -6,6 +6,7 @@
         <div class="desc">{{ desc }}</div>
       </div>
       <div class="page-actions">
+        <el-button v-if="modKey === 'orders'" type="primary" @click="openManualOrder">+ 新增订单</el-button>
         <el-button v-if="modKey === 'orders'" :loading="EXPORTING" @click="exportOrders">导出表格</el-button>
         <el-button v-if="modKey === 'orders'" @click="importOrders">批量导入</el-button>
         <span v-if="modKey === 'recycle'" class="auto-scan-hint">
@@ -388,6 +389,108 @@
         />
       </div>
     </div>
+
+    <!-- 后台手动新增订单 -->
+    <el-dialog v-model="manualOrderDlg" title="新增订单" width="660px" destroy-on-close :close-on-click-modal="false">
+      <el-alert
+        title="每笔订单对应一件独立货权。待确认订单会锁定唯一件商品或占用一个库存名额；确认成交后自动完成货权过户。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="manual-order-alert"
+      />
+      <el-form label-width="100px" class="manual-order-form">
+        <el-form-item label="会员" required>
+          <el-select
+            v-model="manualOrderForm.member_id"
+            filterable
+            remote
+            clearable
+            reserve-keyword
+            :remote-method="searchManualMembers"
+            :loading="manualMemberLoading"
+            placeholder="输入昵称、手机号或会员 ID 搜索"
+            style="width: 100%"
+            @change="onManualBuyerChange"
+            @visible-change="(v) => v && !manualMemberOptions.length && searchManualMembers('')"
+          >
+            <el-option
+              v-for="m in manualMemberOptions"
+              :key="m.member_id"
+              :value="m.member_id"
+              :label="`${m.nick_name || '未设置昵称'} · ${m.mobile || `会员#${m.member_id}`}`"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="商品" required>
+          <el-select
+            v-model="manualOrderForm.goods_id"
+            filterable
+            remote
+            clearable
+            reserve-keyword
+            :remote-method="searchManualGoods"
+            :loading="manualGoodsLoading"
+            :disabled="!manualOrderForm.member_id"
+            placeholder="先选择会员，再搜索可售商品"
+            style="width: 100%"
+            @change="onManualGoodsChange"
+            @visible-change="(v) => v && !manualGoodsOptions.length && searchManualGoods('')"
+          >
+            <el-option
+              v-for="g in manualGoodsOptions"
+              :key="g.goods_id"
+              :value="g.goods_id"
+              :label="`${g.goods_name} · ¥${Number(g.goods_min_price).toFixed(2)} · ${g.piece_sale ? `库存 ${g.stock_num}` : '唯一件'}`"
+            />
+          </el-select>
+          <div v-if="manualSelectedGoods" class="manual-order-goods-meta">
+            当前持有人：{{ manualSelectedGoods.holder_name || '平台' }}
+            <span v-if="manualSelectedGoods.holder_mobile" class="muted">{{ manualSelectedGoods.holder_mobile }}</span>
+            <span class="manual-order-meta-sep">·</span>
+            {{ manualSelectedGoods.piece_sale ? `库存池，剩余 ${manualSelectedGoods.stock_num} 件` : '唯一件商品' }}
+          </div>
+        </el-form-item>
+        <el-form-item label="订单类型">
+          <el-tag type="danger" effect="light">抢购订单</el-tag>
+          <span class="manual-order-hint">按商品成交与货权流转规则创建</span>
+        </el-form-item>
+        <el-form-item label="单价" required>
+          <el-input-number v-model="manualOrderForm.price" :min="0.01" :precision="2" :step="10" controls-position="right" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="数量">
+          <span>1 件</span>
+          <span class="manual-order-hint">多件商品请分别新增，确保每件都有独立订单和货权记录</span>
+        </el-form-item>
+        <el-form-item label="商品金额">
+          <span class="manual-order-money">¥{{ manualOrderTotal.toFixed(2) }}</span>
+        </el-form-item>
+        <el-form-item label="抢单服务费">
+          <span>¥{{ manualOrderServiceFee.toFixed(2) }}</span>
+          <span class="manual-order-hint">按后台费率 {{ manualOrderRates.service_charge_rate }}% 自动计算</span>
+        </el-form-item>
+        <el-form-item label="转拍上架费">
+          <span>¥{{ manualOrderListingFee.toFixed(2) }}</span>
+          <span class="manual-order-hint">按后台费率 {{ manualOrderRates.listing_fee_rate }}% 预收</span>
+        </el-form-item>
+        <el-form-item label="实付金额">
+          <span class="manual-order-pay-total">¥{{ manualOrderPayTotal.toFixed(2) }}</span>
+          <span class="manual-order-hint">商品金额 + 服务费 + 上架费</span>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="manualOrderForm.remark" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="选填，记录本次手动录入原因" />
+        </el-form-item>
+        <el-form-item label="成交处理">
+          <el-checkbox v-model="manualOrderForm.confirm_paid">新增后立即确认收款并完成货权过户</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="manualOrderDlg = false">取消</el-button>
+        <el-button type="primary" :loading="manualOrderSaving" :disabled="!manualOrderForm.member_id || !manualOrderForm.goods_id" @click="submitManualOrder">
+          {{ manualOrderForm.confirm_paid ? '新增并确认成交' : '新增待确认订单' }}
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 编辑 / 新增 弹窗 -->
     <el-dialog v-model="dialog" :title="modKey === 'orders' ? '订单详情' : modKey === 'recycle' ? '回收详情' : formTitle" :width="modKey === 'goods' ? '880px' : '620px'" destroy-on-close>
@@ -945,6 +1048,23 @@ function orderStateClass(text) {
 // 自定义日期区间（el-date-picker 用数组，提交时拆成 date_start / date_end）
 const customRange = ref([]);
 const EXPORTING = ref(false);
+const manualOrderDlg = ref(false);
+const manualOrderSaving = ref(false);
+const manualMemberLoading = ref(false);
+const manualGoodsLoading = ref(false);
+const manualMemberOptions = ref([]);
+const manualGoodsOptions = ref([]);
+const manualOrderRates = reactive({ service_charge_rate: 0, listing_fee_rate: 0 });
+const manualOrderForm = reactive({ member_id: null, goods_id: null, price: 0, num: 1, remark: '', confirm_paid: false });
+let manualMemberTimer = null;
+let manualGoodsTimer = null;
+
+const manualSelectedGoods = computed(() => manualGoodsOptions.value.find((g) => Number(g.goods_id) === Number(manualOrderForm.goods_id)) || null);
+const roundMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+const manualOrderTotal = computed(() => roundMoney(Number(manualOrderForm.price) || 0));
+const manualOrderServiceFee = computed(() => roundMoney(manualOrderTotal.value * (Number(manualOrderRates.service_charge_rate) || 0) / 100));
+const manualOrderListingFee = computed(() => roundMoney(manualOrderTotal.value * (Number(manualOrderRates.listing_fee_rate) || 0) / 100));
+const manualOrderPayTotal = computed(() => roundMoney(manualOrderTotal.value + manualOrderServiceFee.value + manualOrderListingFee.value));
 
 const dialog = ref(false);
 const saving = ref(false);
@@ -1756,6 +1876,99 @@ async function exportOrders() {
   }
 }
 
+function openManualOrder() {
+  Object.assign(manualOrderForm, { member_id: null, goods_id: null, price: 0, num: 1, remark: '', confirm_paid: false });
+  manualMemberOptions.value = [];
+  manualGoodsOptions.value = [];
+  manualOrderRates.service_charge_rate = 0;
+  manualOrderRates.listing_fee_rate = 0;
+  manualOrderDlg.value = true;
+  searchManualMembers('');
+}
+
+async function fetchManualOrderOptions(kind, keyword) {
+  if (kind === 'member') manualMemberLoading.value = true;
+  else {
+    if (!manualOrderForm.member_id) { manualGoodsOptions.value = []; return; }
+    manualGoodsLoading.value = true;
+  }
+  try {
+    const r = await adminApi.orderCreateOptions({
+      kind,
+      keyword: String(keyword || '').trim(),
+      ...(kind === 'goods' ? { member_id: manualOrderForm.member_id } : {}),
+    });
+    const data = r.data || {};
+    if (kind === 'member') manualMemberOptions.value = data.rows || [];
+    else manualGoodsOptions.value = data.rows || [];
+    manualOrderRates.service_charge_rate = Number(data.service_charge_rate) || 0;
+    manualOrderRates.listing_fee_rate = Number(data.listing_fee_rate) || 0;
+  } catch {
+    if (kind === 'member') manualMemberOptions.value = [];
+    else manualGoodsOptions.value = [];
+  } finally {
+    if (kind === 'member') manualMemberLoading.value = false;
+    else manualGoodsLoading.value = false;
+  }
+}
+
+function searchManualMembers(keyword) {
+  clearTimeout(manualMemberTimer);
+  manualMemberTimer = setTimeout(() => fetchManualOrderOptions('member', keyword), 220);
+}
+
+function searchManualGoods(keyword) {
+  clearTimeout(manualGoodsTimer);
+  manualGoodsTimer = setTimeout(() => fetchManualOrderOptions('goods', keyword), 220);
+}
+
+function onManualBuyerChange() {
+  manualOrderForm.goods_id = null;
+  manualOrderForm.price = 0;
+  manualGoodsOptions.value = [];
+  if (manualOrderForm.member_id) searchManualGoods('');
+}
+
+function onManualGoodsChange(goodsId) {
+  const goods = manualGoodsOptions.value.find((g) => Number(g.goods_id) === Number(goodsId));
+  manualOrderForm.price = goods ? Number(goods.goods_min_price) || 0 : 0;
+  manualOrderForm.num = 1;
+}
+
+async function submitManualOrder() {
+  if (!manualOrderForm.member_id) return ElMessage.warning('请选择会员');
+  if (!manualOrderForm.goods_id) return ElMessage.warning('请选择商品');
+  if (!(Number(manualOrderForm.price) > 0)) return ElMessage.warning('请输入有效单价');
+
+  manualOrderSaving.value = true;
+  try {
+    const result = await adminApi.createOrder({
+      member_id: manualOrderForm.member_id,
+      goods_id: manualOrderForm.goods_id,
+      price: manualOrderForm.price,
+      num: 1,
+      remark: manualOrderForm.remark,
+    });
+    const order = result.data || {};
+    if (manualOrderForm.confirm_paid) {
+      try {
+        await adminApi.confirmPay({ order_id: order.order_id });
+        ElMessage.success('订单已新增并确认，货权已过户给买家');
+      } catch {
+        ElMessage.warning(`订单 ${order.order_no || ''} 已创建，但确认失败；请在订单列表中核对并重新确认`);
+      }
+    } else {
+      ElMessage.success('订单已新增，等待确认收款');
+    }
+    manualOrderDlg.value = false;
+    load();
+  } catch {
+    // API 拦截器已显示后端校验原因
+  } finally {
+    manualOrderSaving.value = false;
+  }
+}
+
 async function importOrders() {
   const example = JSON.stringify([{ goods_id: 1, member_id: 1, price: 100, num: 1, type: Number(fixed.value.type) || 1, remark: '后台导入' }], null, 2);
   let value;
@@ -2111,6 +2324,19 @@ onUnmounted(() => {
 
 .mono { font-variant-numeric: tabular-nums; }
 .muted { color: #a8adb7; }
+
+.manual-order-alert { margin-bottom: 18px; }
+.manual-order-form :deep(.el-form-item) { margin-bottom: 16px; }
+.manual-order-form :deep(.el-form-item__content) { min-width: 0; flex-wrap: wrap; }
+.manual-order-goods-meta { width: 100%; margin-top: 5px; color: #606a78; font-size: 12px; line-height: 1.6; }
+.manual-order-meta-sep { margin: 0 7px; color: #c0c4cc; }
+.manual-order-hint { margin-left: 10px; color: #9098a3; font-size: 12px; line-height: 1.5; }
+.manual-order-money { color: #303643; font-variant-numeric: tabular-nums; }
+.manual-order-pay-total { color: #d4380d; font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .manual-order-form :deep(.el-form-item__label) { text-align: left; }
+  .manual-order-hint { width: 100%; margin: 5px 0 0; }
+}
 
 /* 回收页：自动扫描状态提示 */
 .auto-refresh-hint {

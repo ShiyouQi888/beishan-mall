@@ -1,11 +1,13 @@
 // 后台补充接口：统计、会员操作、直推奖补发、指派订单、缓存清理
 import { Router } from 'express';
 import { all, get, run, tx, now, today, db } from '../../db.js';
-import { ok, fail, authAdmin, money, ORDER_STATUS } from '../../lib/helper.js';
-import { distributeAward, driveAwardRate } from '../../lib/settle.js';
+import { ok, fail, authAdmin, money, ORDER_STATUS, calcServiceCharge, serviceChargeRate } from '../../lib/helper.js';
+import { distributeAward, driveAwardRate, calcListingFee, listingFeeRate, biz } from '../../lib/settle.js';
 import { orderNo } from '../../lib/auth.js';
 import { nodeTree, roleNodeIds, saveRoleNodes, rolePaths, isSuperRole, superRoleIds } from '../../lib/nodes.js';
 import { MENU } from '../../lib/menu.config.js';
+import { isPieceSale, deductStock } from '../../lib/stock.js';
+import { areasOfGoods } from '../../lib/areaGoods.js';
 
 const r = Router();
 
@@ -286,6 +288,169 @@ r.get('/member/options', authAdmin, (req, res) => {
 });
 
 // ---------------- 订单管理增强 ----------------
+/** 新增订单的会员、商品远程搜索。只提供正常会员和当前可售商品。 */
+r.get('/orders/create-options', authAdmin, (req, res) => {
+  const kind = String(req.query.kind || '');
+  const keyword = String(req.query.keyword || '').trim().slice(0, 80);
+  const like = `%${keyword}%`;
+
+  if (kind === 'member') {
+    const rows = keyword
+      ? all(
+        `SELECT member_id, nick_name, mobile FROM member
+          WHERE IFNULL(disabled, 10) <> 20
+            AND (nick_name LIKE ? OR mobile LIKE ? OR CAST(member_id AS TEXT) = ?)
+          ORDER BY member_id DESC LIMIT 50`,
+        like, like, keyword,
+      )
+      : all(
+        `SELECT member_id, nick_name, mobile FROM member
+          WHERE IFNULL(disabled, 10) <> 20 ORDER BY member_id DESC LIMIT 50`,
+      );
+    return res.json(ok({ rows, service_charge_rate: serviceChargeRate(), listing_fee_rate: listingFeeRate() }));
+  }
+
+  if (kind === 'goods') {
+    const buyerId = Number(req.query.member_id) || 0;
+    const conditions = [
+      'goods_status = 10',
+      'IFNULL(recycled, 0) = 0',
+      '(MAX(IFNULL(stock_total, 0), IFNULL(stock_num, 0), 1) <= 1 OR IFNULL(stock_num, 0) > 0)',
+    ];
+    const args = [];
+    if (buyerId > 0) {
+      conditions.push('IFNULL(member_id, 0) <> ?'); args.push(buyerId);
+      conditions.push(`NOT EXISTS (
+        SELECT 1 FROM orders prior WHERE prior.member_id = ?
+          AND (prior.goods_id = goods.goods_id OR prior.asset_goods_id = goods.goods_id)
+          AND prior.type = 1 AND IFNULL(prior.status, 0) <> 40
+      )`);
+      args.push(buyerId);
+    }
+    if (keyword) {
+      conditions.push('(goods_name LIKE ? OR goods_no LIKE ? OR CAST(goods_id AS TEXT) = ?)');
+      args.push(like, like, keyword);
+    }
+    // 唯一件商品有待确认订单时已被锁定；按件库存池仍可继续创建订单，按名额扣减。
+    conditions.push(`(
+      MAX(IFNULL(stock_total, 0), IFNULL(stock_num, 0), 1) > 1
+      OR NOT EXISTS (
+        SELECT 1 FROM orders o WHERE o.goods_id = goods.goods_id AND o.type = 1
+          AND IFNULL(o.status, 0) = 0 AND IFNULL(o.pay_status, 0) = 0
+      )
+    )`);
+    const rows = all(
+      `SELECT goods.*,
+         MAX(IFNULL(goods.stock_total, 0), IFNULL(goods.stock_num, 0), 1) AS order_stock_total,
+         m.nick_name AS holder_name, m.mobile AS holder_mobile
+       FROM goods LEFT JOIN member m ON m.member_id = goods.member_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY (goods.goods_status = 10) DESC, goods.goods_sort ASC, goods.goods_id DESC LIMIT 100`,
+      ...args,
+    ).map((g) => ({
+      goods_id: Number(g.goods_id),
+      goods_name: g.goods_name || '',
+      goods_no: g.goods_no || '',
+      good_thumb: g.good_thumb || '',
+      goods_min_price: Number(g.goods_min_price) || 0,
+      stock_num: Number(g.stock_num) || 0,
+      stock_total: Number(g.order_stock_total) || 1,
+      member_id: Number(g.member_id) || 0,
+      holder_name: g.holder_name || '',
+      holder_mobile: g.holder_mobile || '',
+      piece_sale: Number(g.order_stock_total) > 1 ? 1 : 0,
+    }));
+    return res.json(ok({ rows, service_charge_rate: serviceChargeRate(), listing_fee_rate: listingFeeRate() }));
+  }
+
+  return res.json(fail('请选择要搜索的选项类型'));
+});
+
+/** 后台手动新增一笔抢购单。每单一件，成交时复用现有确认收款结算流程。 */
+r.post('/orders/create', authAdmin, (req, res) => {
+  const memberId = Number(req.body?.member_id) || 0;
+  const goodsId = Number(req.body?.goods_id) || 0;
+  const priceInput = Number(req.body?.price);
+  const remark = String(req.body?.remark || '').trim().slice(0, 500);
+  if (!memberId) return res.json(fail('请选择会员'));
+  if (!goodsId) return res.json(fail('请选择商品'));
+  if (!Number.isFinite(priceInput) || priceInput <= 0) return res.json(fail('单价必须大于 0'));
+  if (req.body?.num !== undefined && Number(req.body.num) !== 1) {
+    return res.json(fail('每笔订单对应一件独立货权，请按件分别新增'));
+  }
+
+  let created;
+  try {
+    tx(() => {
+      const member = get('SELECT member_id, nick_name, disabled FROM member WHERE member_id = ?', memberId);
+      if (!member) throw biz('会员不存在');
+      if (Number(member.disabled) === 20) throw biz('该会员已被禁用，不能新增订单');
+
+      let goods = get('SELECT * FROM goods WHERE goods_id = ?', goodsId);
+      if (!goods) throw biz('商品不存在');
+      if (Number(goods.goods_status) !== 10 || Number(goods.recycled) === 1) throw biz('商品已下架，不能新增订单');
+      if (Number(goods.member_id) === memberId) throw biz('不能为商品当前持有人新增购买订单');
+
+      // 旧数据可能没有 stock_total；按现有库存补齐后再判断它是否属于库存池。
+      const stockTotal = Math.max(Number(goods.stock_total) || 0, Number(goods.stock_num) || 0, 1);
+      if (stockTotal !== Number(goods.stock_total || 0)) {
+        run('UPDATE goods SET stock_total = ?, update_time = ? WHERE goods_id = ?', stockTotal, now(), goodsId);
+        goods = get('SELECT * FROM goods WHERE goods_id = ?', goodsId);
+      }
+
+      const pieceSale = isPieceSale(goods);
+      if (pieceSale) {
+        if (Number(goods.stock_num) < 1) throw biz('商品库存不足');
+      } else {
+        const locked = get(
+          `SELECT order_id FROM orders WHERE goods_id = ? AND type = 1
+            AND IFNULL(status, 0) = 0 AND IFNULL(pay_status, 0) = 0 LIMIT 1`,
+          goodsId,
+        );
+        if (locked) throw biz('该商品已有待确认订单，暂不能重复锁单');
+      }
+
+      const everBought = get(
+        `SELECT 1 AS found FROM orders
+          WHERE member_id = ? AND (goods_id = ? OR asset_goods_id = ?)
+            AND type = 1 AND IFNULL(status, 0) <> 40 LIMIT 1`,
+        memberId, goodsId, goodsId,
+      );
+      if (everBought) throw biz('该会员已有这件商品的有效订单，不能重复购买');
+
+      const price = money(priceInput);
+      if (price <= 0) throw biz('单价不能低于 0.01 元');
+      const totalPrice = price;
+      const serviceCharge = calcServiceCharge(totalPrice);
+      const listingFee = calcListingFee(totalPrice);
+      const no = orderNo('M');
+      const area = areasOfGoods(goodsId)[0];
+
+      if (pieceSale && !deductStock(goodsId, 1)) throw biz('商品库存不足，请刷新后重试');
+
+      const info = run(
+        `INSERT INTO orders (order_no, member_id, seller_id, goods_id, goods_name, goods_thumb, specialarea_id,
+          type, price, num, total_price, service_charge, listing_fee, status, pay_status, pay_type, address_id, remark, create_time)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0,?,?)`,
+        no, memberId, Number(goods.member_id) || 0, goodsId, goods.goods_name || '', goods.good_thumb || '',
+        Number(area?.specialarea_id || goods.specialarea_id) || 0,
+        1, price, 1, totalPrice, serviceCharge, listingFee,
+        remark || '后台手动新增', now(),
+      );
+      const orderId = Number(info.lastInsertRowid);
+      const operator = req.admin.user_name || req.admin.nick_name || 'admin';
+      run('INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
+        orderId, '后台新增订单', operator, `${member.nick_name || `会员#${memberId}`} · ${goods.goods_name} · ¥${price.toFixed(2)}`, now());
+      created = { order_id: orderId, order_no: no, total_price: totalPrice, service_charge: serviceCharge, listing_fee: listingFee };
+    });
+  } catch (e) {
+    if (e.biz) return res.json(fail(e.message));
+    throw e;
+  }
+
+  res.json(ok(created, '订单已新增，当前待确认'));
+});
+
 /** 批量导入订单（后台录入，跳过前台风控） */
 r.post('/orders/import', authAdmin, (req, res) => {
   const { rows } = req.body || {};
