@@ -310,8 +310,24 @@ r.get('/orders/create-options', authAdmin, (req, res) => {
     return res.json(ok({ rows, service_charge_rate: serviceChargeRate(), listing_fee_rate: listingFeeRate() }));
   }
 
+  if (kind === 'area') {
+    const rows = all(
+      `SELECT s.specialarea_id AS id, s.title_main, s.name AS slot_name, s.is_open,
+         COUNT(DISTINCT g.goods_id) AS goods_count
+       FROM specialarea s
+       JOIN specialarea_goods sg ON sg.specialarea_id = s.specialarea_id
+       JOIN goods g ON g.goods_id = sg.goods_id
+       WHERE g.goods_status = 10 AND IFNULL(g.recycled, 0) = 0
+         AND (MAX(IFNULL(g.stock_total, 0), IFNULL(g.stock_num, 0), 1) <= 1 OR IFNULL(g.stock_num, 0) > 0)
+       GROUP BY s.specialarea_id
+       ORDER BY s.start_time ASC, s.specialarea_id ASC`,
+    );
+    return res.json(ok({ rows, service_charge_rate: serviceChargeRate(), listing_fee_rate: listingFeeRate() }));
+  }
+
   if (kind === 'goods') {
     const buyerId = Number(req.query.member_id) || 0;
+    const areaId = Number(req.query.area_id) || 0;
     const conditions = [
       'goods_status = 10',
       'IFNULL(recycled, 0) = 0',
@@ -326,6 +342,10 @@ r.get('/orders/create-options', authAdmin, (req, res) => {
           AND prior.type = 1 AND IFNULL(prior.status, 0) <> 40
       )`);
       args.push(buyerId);
+    }
+    if (areaId > 0) {
+      conditions.push('goods_id IN (SELECT goods_id FROM specialarea_goods WHERE specialarea_id = ?)');
+      args.push(areaId);
     }
     if (keyword) {
       conditions.push('(goods_name LIKE ? OR goods_no LIKE ? OR CAST(goods_id AS TEXT) = ?)');
@@ -370,6 +390,7 @@ r.get('/orders/create-options', authAdmin, (req, res) => {
 r.post('/orders/create', authAdmin, (req, res) => {
   const memberId = Number(req.body?.member_id) || 0;
   const goodsId = Number(req.body?.goods_id) || 0;
+  const requestedAreaId = Number(req.body?.specialarea_id) || 0;
   const priceInput = Number(req.body?.price);
   const remark = String(req.body?.remark || '').trim().slice(0, 500);
   if (!memberId) return res.json(fail('请选择会员'));
@@ -390,6 +411,15 @@ r.post('/orders/create', authAdmin, (req, res) => {
       if (!goods) throw biz('商品不存在');
       if (Number(goods.goods_status) !== 10 || Number(goods.recycled) === 1) throw biz('商品已下架，不能新增订单');
       if (Number(goods.member_id) === memberId) throw biz('不能为商品当前持有人新增购买订单');
+      if (requestedAreaId) {
+        if (!get('SELECT 1 FROM specialarea WHERE specialarea_id = ?', requestedAreaId)) throw biz('所选场次不存在');
+        if (!get(
+          'SELECT 1 FROM specialarea_goods WHERE specialarea_id = ? AND goods_id = ?',
+          requestedAreaId, goodsId,
+        )) {
+          throw biz('该商品未关联所选场次，请刷新商品列表后重试');
+        }
+      }
 
       // 旧数据可能没有 stock_total；按现有库存补齐后再判断它是否属于库存池。
       const stockTotal = Math.max(Number(goods.stock_total) || 0, Number(goods.stock_num) || 0, 1);
@@ -424,7 +454,9 @@ r.post('/orders/create', authAdmin, (req, res) => {
       const serviceCharge = calcServiceCharge(totalPrice);
       const listingFee = calcListingFee(totalPrice);
       const no = orderNo('M');
-      const area = areasOfGoods(goodsId)[0];
+      const area = requestedAreaId
+        ? get('SELECT specialarea_id FROM specialarea WHERE specialarea_id = ?', requestedAreaId)
+        : areasOfGoods(goodsId)[0];
 
       if (pieceSale && !deductStock(goodsId, 1)) throw biz('商品库存不足，请刷新后重试');
 

@@ -422,6 +422,26 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="关联场次">
+          <el-select
+            v-model="manualOrderForm.specialarea_id"
+            filterable
+            clearable
+            :loading="manualAreaLoading"
+            placeholder="可选；选择后只显示该场次关联商品"
+            style="width: 100%"
+            @change="onManualAreaChange"
+            @visible-change="(v) => v && !manualAreaOptions.length && searchManualAreas()"
+          >
+            <el-option
+              v-for="area in manualAreaOptions"
+              :key="area.id"
+              :value="area.id"
+              :label="`${area.title_main || area.slot_name || `场次#${area.id}`} · ${area.goods_count} 件商品${Number(area.is_open) === 10 ? '' : ' · 已停用'}`"
+            />
+          </el-select>
+          <div class="manual-order-goods-meta">选择后，商品下拉只列出已关联该场次且当前可售的商品；留空则搜索全部可售商品。</div>
+        </el-form-item>
         <el-form-item label="商品" required>
           <el-select
             v-model="manualOrderForm.goods_id"
@@ -432,7 +452,7 @@
             :remote-method="searchManualGoods"
             :loading="manualGoodsLoading"
             :disabled="!manualOrderForm.member_id"
-            placeholder="先选择会员，再搜索可售商品"
+            :placeholder="manualOrderForm.specialarea_id ? '搜索该场次关联的可售商品' : '先选择会员，再搜索可售商品'"
             style="width: 100%"
             @change="onManualGoodsChange"
             @visible-change="(v) => v && !manualGoodsOptions.length && searchManualGoods('')"
@@ -1051,12 +1071,15 @@ const EXPORTING = ref(false);
 const manualOrderDlg = ref(false);
 const manualOrderSaving = ref(false);
 const manualMemberLoading = ref(false);
+const manualAreaLoading = ref(false);
 const manualGoodsLoading = ref(false);
 const manualMemberOptions = ref([]);
+const manualAreaOptions = ref([]);
 const manualGoodsOptions = ref([]);
 const manualOrderRates = reactive({ service_charge_rate: 0, listing_fee_rate: 0 });
-const manualOrderForm = reactive({ member_id: null, goods_id: null, price: 0, num: 1, remark: '', confirm_paid: false });
+const manualOrderForm = reactive({ member_id: null, specialarea_id: null, goods_id: null, price: 0, num: 1, remark: '', confirm_paid: false });
 let manualMemberTimer = null;
+let manualAreaTimer = null;
 let manualGoodsTimer = null;
 
 const manualSelectedGoods = computed(() => manualGoodsOptions.value.find((g) => Number(g.goods_id) === Number(manualOrderForm.goods_id)) || null);
@@ -1877,17 +1900,20 @@ async function exportOrders() {
 }
 
 function openManualOrder() {
-  Object.assign(manualOrderForm, { member_id: null, goods_id: null, price: 0, num: 1, remark: '', confirm_paid: false });
+  Object.assign(manualOrderForm, { member_id: null, specialarea_id: null, goods_id: null, price: 0, num: 1, remark: '', confirm_paid: false });
   manualMemberOptions.value = [];
+  manualAreaOptions.value = [];
   manualGoodsOptions.value = [];
   manualOrderRates.service_charge_rate = 0;
   manualOrderRates.listing_fee_rate = 0;
   manualOrderDlg.value = true;
   searchManualMembers('');
+  searchManualAreas();
 }
 
 async function fetchManualOrderOptions(kind, keyword) {
   if (kind === 'member') manualMemberLoading.value = true;
+  else if (kind === 'area') manualAreaLoading.value = true;
   else {
     if (!manualOrderForm.member_id) { manualGoodsOptions.value = []; return; }
     manualGoodsLoading.value = true;
@@ -1896,18 +1922,24 @@ async function fetchManualOrderOptions(kind, keyword) {
     const r = await adminApi.orderCreateOptions({
       kind,
       keyword: String(keyword || '').trim(),
-      ...(kind === 'goods' ? { member_id: manualOrderForm.member_id } : {}),
+      ...(kind === 'goods' ? {
+        member_id: manualOrderForm.member_id,
+        ...(manualOrderForm.specialarea_id ? { area_id: manualOrderForm.specialarea_id } : {}),
+      } : {}),
     });
     const data = r.data || {};
     if (kind === 'member') manualMemberOptions.value = data.rows || [];
+    else if (kind === 'area') manualAreaOptions.value = data.rows || [];
     else manualGoodsOptions.value = data.rows || [];
     manualOrderRates.service_charge_rate = Number(data.service_charge_rate) || 0;
     manualOrderRates.listing_fee_rate = Number(data.listing_fee_rate) || 0;
   } catch {
     if (kind === 'member') manualMemberOptions.value = [];
+    else if (kind === 'area') manualAreaOptions.value = [];
     else manualGoodsOptions.value = [];
   } finally {
     if (kind === 'member') manualMemberLoading.value = false;
+    else if (kind === 'area') manualAreaLoading.value = false;
     else manualGoodsLoading.value = false;
   }
 }
@@ -1917,12 +1949,24 @@ function searchManualMembers(keyword) {
   manualMemberTimer = setTimeout(() => fetchManualOrderOptions('member', keyword), 220);
 }
 
+function searchManualAreas() {
+  clearTimeout(manualAreaTimer);
+  manualAreaTimer = setTimeout(() => fetchManualOrderOptions('area', ''), 100);
+}
+
 function searchManualGoods(keyword) {
   clearTimeout(manualGoodsTimer);
   manualGoodsTimer = setTimeout(() => fetchManualOrderOptions('goods', keyword), 220);
 }
 
 function onManualBuyerChange() {
+  manualOrderForm.goods_id = null;
+  manualOrderForm.price = 0;
+  manualGoodsOptions.value = [];
+  if (manualOrderForm.member_id) searchManualGoods('');
+}
+
+function onManualAreaChange() {
   manualOrderForm.goods_id = null;
   manualOrderForm.price = 0;
   manualGoodsOptions.value = [];
@@ -1944,6 +1988,7 @@ async function submitManualOrder() {
   try {
     const result = await adminApi.createOrder({
       member_id: manualOrderForm.member_id,
+      specialarea_id: manualOrderForm.specialarea_id,
       goods_id: manualOrderForm.goods_id,
       price: manualOrderForm.price,
       num: 1,
