@@ -17,10 +17,11 @@ import { ok, fail, authAdmin, money } from '../../lib/helper.js';
 import { reverseOrderEnergy, negativeMembersOf } from '../../lib/energyReversal.js';
 import { resolveRange } from '../../lib/dateRange.js';
 import { priceCapOf } from '../../lib/priceCap.js';
-import { nextSlot } from '../../lib/sessions.js';
+import { nextSlot, todaySlot, activeSessions } from '../../lib/sessions.js';
 import { toCsv, sendCsv, csvTime } from '../../lib/csv.js';
 import { todayStr } from '../../lib/sessionWindow.js';
 import { orderGoods, orderGoodsId } from '../../lib/orderAssets.js';
+import { setGoodsAreas } from '../../lib/areaGoods.js';
 
 const r = Router();
 
@@ -432,6 +433,80 @@ r.post('/transpose/rollback', authAdmin, (req, res) => {
     reversal: reversal.map((r) => ({ order_no: r.order_no, rows: r.rows, commission: r.commission, balance: r.balance, score: r.score })),
     negative_members: negativeMembers,
   }, `已回撤到第 ${targetStep} 手，撤销 ${removing.length} 笔成交；商品已下架并退回 ${targetBuyer?.nick_name || `会员#${target.member_id}`}`));
+});
+
+/**
+ * 把正在转拍的商品改排到今天的场次（仅管理员）。
+ *
+ * goods.area_date 决定商品在哪天露出（列表只放行空值或等于今天），
+ * 之前转拍以「上一手挂的日期」为基准往后推，会出现凌晨挂牌却排到大后天。
+ * 这里给运营一个救急入口：直接把 area_date 改成今天、商品上架、只关联今天选定的场次。
+ * 不动价格、不动货权、不动订单，也不改资金流水。
+ */
+r.post('/transpose/set-slot', authAdmin, (req, res) => {
+  const orderId = Number(req.body?.order_id);
+  const areaInput = Number(req.body?.area_id) || 0;
+  if (!Number.isInteger(orderId) || orderId <= 0) return res.json(fail('订单编号无效'));
+  if (String(req.body?.confirm || '') !== 'SET_SLOT') return res.json(fail('缺少改排确认'));
+  const o = get('SELECT * FROM orders WHERE order_id = ?', orderId);
+  if (!o) return res.json(fail('订单不存在'));
+  const goodsId = orderGoodsId(o);
+  const g = get('SELECT * FROM goods WHERE goods_id = ?', goodsId);
+  if (!g) return res.json(fail('商品不存在'));
+  if (Number(g.recycled) === 1) return res.json(fail('商品已被回收，不能改排场次'));
+  if (Number(g.member_id) <= 0) return res.json(fail('该商品没有持有人，不能改排场次'));
+
+  const today = todayStr();
+  const list = activeSessions();
+  if (!list.length) return res.json(fail('当前没有启用的场次'));
+  const areaId = Number(areaInput || todaySlot(g.specialarea_id)?.area_id || list[0].specialarea_id);
+  const area = list.find((s) => Number(s.specialarea_id) === areaId);
+  if (!area) return res.json(fail('场次不存在或已停用'));
+  const areaName = area.title_main || area.name || `场次#${areaId}`;
+  const oldDate = g.area_date || '';
+
+  tx(() => {
+    run(
+      "UPDATE goods SET area_date = ?, goods_status = 10, is_sell = 10, update_time = ? WHERE goods_id = ?",
+      today, now(), goodsId,
+    );
+    // 覆盖式关联：只挂今天这一场，旧的场次关联会清掉，避免同一件货在多个场次重复露出
+    setGoodsAreas(goodsId, [areaId]);
+    const listed = get(
+      `SELECT order_id FROM orders
+        WHERE COALESCE(NULLIF(asset_goods_id, 0), goods_id) = ?
+          AND member_id = ? AND type = 1 AND IFNULL(consignment_status, 0) = 10
+        ORDER BY order_id DESC LIMIT 1`,
+      goodsId, Number(g.member_id),
+    );
+    if (listed) {
+      run(
+        'INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
+        listed.order_id, '调整场次', 'admin',
+        `由 ${oldDate || '不限日期'} 改排到 ${today} 的「${areaName}」，商品已上架`, now(),
+      );
+    }
+    run(
+      `INSERT INTO admin_operation_log
+        (admin_id, admin_name, admin_nick, role_id, action, method, path, target_type, target_id,
+         details, result, http_status, create_time)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      Number(req.admin?.store_user_id) || 0,
+      String(req.admin?.user_name || ''), String(req.admin?.nick_name || ''), Number(req.admin?.role_id) || 0,
+      '调整转拍场次', 'POST', '/transpose/set-slot', '商品', String(goodsId),
+      JSON.stringify({ order_id: orderId, goods_id: goodsId, previous_date: oldDate, date: today, area_id: areaId, area_name: areaName }),
+      1, 200, now(),
+    );
+  });
+
+  res.json(ok({
+    goods_id: goodsId,
+    date: today,
+    area_id: areaId,
+    area_name: areaName,
+    previous_date: oldDate,
+    goods_status: 10,
+  }, `已改排到今天（${today}）的「${areaName}」，商品已上架`));
 });
 
 export default r;

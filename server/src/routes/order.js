@@ -5,7 +5,7 @@ import { orderNo } from '../lib/auth.js';
 import { settleOrder, biz, calcListingFee, listingFeeRate, goodsStillOwnedBySeller } from '../lib/settle.js';
 import { deductStock, restoreStock, isPieceSale } from '../lib/stock.js';
 import { todayStr } from '../lib/sessionWindow.js';
-import { nextSlot } from '../lib/sessions.js';
+import { nextSlot, todaySlot } from '../lib/sessions.js';
 import { areasOfGoods, openAreaOf, displayAreaOf, setGoodsAreas, advanceLeadOf } from '../lib/areaGoods.js';
 import { sessionBoughtOf, sessionLimitOf } from '../lib/purchaseLimit.js';
 import { priceCapOf, clampToCap } from '../lib/priceCap.js';
@@ -537,9 +537,13 @@ r.post('/consignment', authMember, (req, res) => {
       // 转拍上架要落到「下一场」：以本单成交的场次为起点往后走，当天最后一场之后顺延到第二天第一场。
       // 商品可能同时挂在多个场次，转拍是一次全新的挂牌 —— 只保留下一场这一条关联，
       // 新的挂牌因此有唯一确定的场次（否则同一件货会在旧场次里被按旧价再抢一次）。
-      const slot = nextSlot(o.specialarea_id || g.specialarea_id, g.area_date);
+      // 转拍是一次全新挂牌：不能沿用 goods.area_date（上一手可能已排到很多天后，
+      // 拿它当基准只会一路往后推，出现「今天挂牌却排到大后天」）。
+      // 优先落在今天还能抢的场次，今天实在没有可开的再按原规则顺延到次日。
+      const currentAreaId = o.specialarea_id || g.specialarea_id;
+      const slot = todaySlot(currentAreaId) || nextSlot(currentAreaId, '');
       const nextArea = slot ? slot.area_id : 0;
-      const nextDate = slot ? slot.date : g.area_date || '';
+      const nextDate = slot ? slot.date : '';
       run(
         `UPDATE goods SET goods_min_price = ?, line_price = ?, goods_status = 10, is_sell = 10,
            area_date = ?, update_time = ?

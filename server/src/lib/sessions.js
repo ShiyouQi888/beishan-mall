@@ -59,6 +59,28 @@ export function activeSessions(stateOf) {
  * @param {Date}   at        以什么时刻来算「今天还剩哪些场」（默认现在）
  * @returns {{area_id:number, date:string}|null}
  */
+/**
+ * 今天还能抢的下一个场次（「转拍尽量落在今天」用）。
+ * 按规范顺序往后找；后面没有可开的，绕回今天更早但还没结束的场次，
+ * 跳过当前场次本身，避免同一场当天被重复挂。今天确实没有可开场次时返回 null，
+ * 由调用方退回 nextSlot 排到次日。
+ */
+export function todaySlot(currentId, at = new Date()) {
+  const list = activeSessions();
+  if (!list.length) return null;
+  const idx = list.findIndex((s) => Number(s.specialarea_id) === Number(currentId));
+  const ordered = idx >= 0
+    ? [...list.slice(idx + 1), ...list.slice(0, idx)]
+    : [...list];
+  for (const s of ordered) {
+    const w = sessionWindow(s, at);
+    if (w.state === 'open' || w.state === 'upcoming') {
+      return { area_id: Number(s.specialarea_id), date: todayStr(at) };
+    }
+  }
+  return null;
+}
+
 export function nextSlot(currentId, baseDate = '', at = new Date()) {
   const list = activeSessions();
   if (!list.length) return null;

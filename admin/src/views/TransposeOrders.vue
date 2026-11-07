@@ -186,6 +186,18 @@
           </el-descriptions-item>
         </el-descriptions>
 
+        <!-- 排期：转拍上架时可能落在未来某天，这里给运营一个改回今天的入口 -->
+        <div class="slotbar">
+          <span>当前排期：<b>{{ detail.goods?.area_date || '不限日期' }}</b></span>
+          <el-button
+            size="small"
+            type="primary"
+            plain
+            :loading="slotSaving"
+            @click="setTodaySlot"
+          >改排到今天场次</el-button>
+        </div>
+
         <!-- 流转链路：这件货被经过的每一手 -->
         <div class="chainbox" v-if="detail.chain?.length">
           <div class="logs__t">流转链路（共 {{ detail.chain.length }} 手）</div>
@@ -254,6 +266,7 @@ const rangeInfo = ref({ start: '', end: '' });
 const detailVisible = ref(false);
 const detail = ref(null);
 const rollbacking = ref(false);
+const slotSaving = ref(false);
 
 const money = (v) => Number(v || 0).toFixed(2);
 // 会员昵称、商品名是人工填的，塞进 dangerouslyUseHTMLString 前必须转义
@@ -394,6 +407,35 @@ async function openDetail(row) {
   }
 }
 
+// ---------- 改排到今天的场次 ----------
+async function setTodaySlot() {
+  if (!detail.value?.order || slotSaving.value) return;
+  const name = detail.value.goods?.goods_name || '该商品';
+  const old = detail.value.goods?.area_date || '不限日期';
+  try {
+    await ElMessageBox.confirm(
+      `将把「${name}」从 ${old} 改排到今天的场次，并重新上架（只关联今天选定的场次）。\n价格、货权与订单均不变。确定继续？`,
+      '改排到今天场次',
+      { type: 'warning', confirmButtonText: '确认改排', cancelButtonText: '取消' },
+    );
+  } catch { return; }
+  slotSaving.value = true;
+  try {
+    const r = await adminApi.setTransposeSlot({
+      order_id: detail.value.order.order_id,
+      confirm: 'SET_SLOT',
+    });
+    ElMessage.success(r?.msg || '已改排到今天');
+    detailVisible.value = false;
+    detail.value = null;
+    load();
+  } catch {
+    // 失败提示由 http 拦截器统一给出
+  } finally {
+    slotSaving.value = false;
+  }
+}
+
 // ---------- 回撤转拍成交到指定手 ----------
 // 撤销的是「这一手之后的整笔成交」，不是订单转让；货款/佣金/积分一并冲正
 async function rollbackTo(c) {
@@ -518,6 +560,12 @@ onMounted(load);
 .chain__arrow { color: #b9bfc9; font-size: 11px; }
 .chain__buyer { color: #22252b; font-weight: 550; max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.slotbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 14px; padding: 10px 12px; border-radius: 9px;
+  background: #f6f8fb; font-size: 12.5px; color: #5a6270;
+}
+.slotbar b { color: #2f3540; }
 .chainbox { margin-top: 14px; }
 .chainline {
   display: flex;

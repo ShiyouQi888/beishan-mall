@@ -58,6 +58,8 @@ export const adminApi = {
   transposeDetail: (id) => http.get('/transpose/detail', { params: { id } }),
   // 回撤转拍成交到指定手：撤销该手之后的成交单，货权与资金一并回退
   rollbackTranspose: (d) => http.post('/transpose/rollback', d),
+  // 把正在转拍的商品改排到今天的场次
+  setTransposeSlot: (d) => http.post('/transpose/set-slot', d),
   exportTranspose: (params) => http.get('/transpose/export', { params, responseType: 'blob', timeout: 60000 }),
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
