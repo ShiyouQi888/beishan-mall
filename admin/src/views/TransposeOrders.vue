@@ -199,6 +199,15 @@
             <span class="chainline__who">{{ c.seller_name }}<i>→</i>{{ c.buyer_name }}</span>
             <span class="chainline__price">¥{{ money(c.price) }}</span>
             <span class="chainline__time">{{ c.pay_time }}</span>
+            <!-- 最后一手是当前状态，没有「之后」可撤；更早的每一手都能作为回撤目标 -->
+            <el-button
+              v-if="c.step < detail.chain.length"
+              size="small"
+              type="danger"
+              plain
+              :loading="rollbacking"
+              @click="rollbackTo(c)"
+            >回撤到这一手</el-button>
           </div>
         </div>
 
@@ -218,7 +227,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { adminApi } from '../api.js';
 
 const RANGES = [
@@ -244,8 +253,13 @@ const rangeInfo = ref({ start: '', end: '' });
 
 const detailVisible = ref(false);
 const detail = ref(null);
+const rollbacking = ref(false);
 
 const money = (v) => Number(v || 0).toFixed(2);
+// 会员昵称、商品名是人工填的，塞进 dangerouslyUseHTMLString 前必须转义
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
 const capColor = (row) => (row.cap_reached ? '#e24b4a' : row.cap_ratio >= 70 ? '#f0a020' : '#2eb872');
 
 /** 分钟 → 人话，最长显示到天 */
@@ -377,6 +391,60 @@ async function openDetail(row) {
     detail.value = r.data || null;
   } catch {
     ElMessage.error('读取订单详情失败');
+  }
+}
+
+// ---------- 回撤转拍成交到指定手 ----------
+// 撤销的是「这一手之后的整笔成交」，不是订单转让；货款/佣金/积分一并冲正
+async function rollbackTo(c) {
+  if (!detail.value?.chain?.length || rollbacking.value) return;
+  const removed = detail.value.chain.filter((x) => x.step > c.step);
+  const names = removed.map((x) => esc(x.order_no)).join('、');
+  try {
+    await ElMessageBox.confirm(
+      `<div style="text-align:left">
+         <div style="color:#d03050;font-weight:700;font-size:14px;margin-bottom:10px">危险操作 · 回撤到第 ${c.step} 手，撤销后续 ${removed.length} 笔成交</div>
+         <div style="line-height:1.9;font-size:13px">
+           商品：${esc(detail.value.goods?.goods_name || '—')}<br/>
+           保留到第 ${c.step} 手：${esc(c.seller_name)} → ${esc(c.buyer_name)} ¥${money(c.price)}<br/>
+           将撤销：${names || '—'}
+         </div>
+         <div style="border-top:1px solid #e6e8ec;margin:12px 0 10px"></div>
+         <div style="line-height:1.8;font-size:12.5px;color:#606266">
+           这些成交单及对应资金流水会被删除，货款 / 佣金 / 积分按流水反向冲正（已消费可能被冲成负数，需人工核账）。<br/>
+           货权退回 <b>${esc(c.buyer_name)}</b>，标价回到该手成交价；商品下架并退出场次关联，持有人可重新点「转拍上架」。<br/>
+           <b>目标手及之前的成交不动</b>；结算 / 回收台账按审计要求保留。该货若有未确认订单，系统会拒绝回撤。
+         </div>
+       </div>`,
+      '回撤转拍成交',
+      {
+        type: 'error',
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: `确认回撤到第 ${c.step} 手`,
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+        customClass: 'revoke-confirm-box',
+      },
+    );
+  } catch { return; }
+  rollbacking.value = true;
+  try {
+    const r = await adminApi.rollbackTranspose({
+      order_id: detail.value.order.order_id,
+      target_step: c.step,
+      confirm: 'ROLLBACK_CHAIN',
+    });
+    ElMessage.success(r?.msg || `已回撤到第 ${c.step} 手`);
+    if (r.data?.negative_members?.length) {
+      ElMessage.warning(`有 ${r.data.negative_members.length} 个账户冲正后为负数，请人工核账`);
+    }
+    detailVisible.value = false;
+    detail.value = null;
+    load();
+  } catch {
+    // 失败提示由 http 拦截器统一给出，详情保持打开方便核对
+  } finally {
+    rollbacking.value = false;
   }
 }
 

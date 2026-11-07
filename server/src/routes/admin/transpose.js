@@ -12,8 +12,9 @@
 // 为什么不改写历史单的 consignment_status：那份记录是「这一手曾经挂牌过」的事实，
 // 用 goods.member_id 判断「此刻还在不在售」更准确，也不会动到既有数据。
 import { Router } from 'express';
-import { all, get } from '../../db.js';
-import { ok, fail, authAdmin } from '../../lib/helper.js';
+import { all, get, run, tx, now } from '../../db.js';
+import { ok, fail, authAdmin, money } from '../../lib/helper.js';
+import { reverseOrderEnergy, negativeMembersOf } from '../../lib/energyReversal.js';
 import { resolveRange } from '../../lib/dateRange.js';
 import { priceCapOf } from '../../lib/priceCap.js';
 import { nextSlot } from '../../lib/sessions.js';
@@ -308,6 +309,129 @@ r.get('/transpose/detail', authAdmin, (req, res) => {
     } : null,
     logs,
   }));
+});
+
+/**
+ * 回撤转拍成交到指定手（仅管理员）。
+ *
+ * 流转链路的每一手是「同一件货的一笔独立成交订单」，不是 order_transfer 流水，
+ * 所以撤销转让那套在这里用不上。回撤到第 N 手 = 撤销第 N+1 手及之后的全部成交单，
+ * 把状态恢复到第 N 手刚成交完：
+ *   - 逐单冲正积分/佣金/货款（与强制删除共用 lib/energyReversal.js），删对应流水
+ *   - 删这些订单的 order_log / order_transfer / orders 行
+ *   - 货权归第 N 手买家；turn_beat_num / sales_actual 按撤销手数回退
+ *   - 标价回到第 N 手成交价，商品下架、退出场次关联
+ *   - 第 N 手订单清挂牌标记，持有人可重新点「转拍上架」
+ * 目标手及之前的成交不动；结算/回收台账按审计要求保留。
+ */
+r.post('/transpose/rollback', authAdmin, (req, res) => {
+  const orderId = Number(req.body?.order_id);
+  const targetStep = Number(req.body?.target_step);
+  const reason = String(req.body?.reason || '').trim().slice(0, 100);
+  if (!Number.isInteger(orderId) || orderId <= 0) return res.json(fail('订单编号无效'));
+  if (!Number.isInteger(targetStep) || targetStep < 1) return res.json(fail('请选择要回撤到的手数'));
+  if (String(req.body?.confirm || '') !== 'ROLLBACK_CHAIN') return res.json(fail('缺少回撤确认'));
+
+  const cur = get('SELECT * FROM orders WHERE order_id = ?', orderId);
+  if (!cur) return res.json(fail('订单不存在'));
+  const goodsId = orderGoodsId(cur);
+  const g = get('SELECT * FROM goods WHERE goods_id = ?', goodsId);
+  if (!g) return res.json(fail('商品不存在'));
+
+  // 与 /transpose/detail 完全同一套链路口径：同一件货的已成交抢购单，按成交先后排
+  const rows = all(
+    `SELECT * FROM orders
+      WHERE COALESCE(NULLIF(asset_goods_id, 0), goods_id) = ?
+        AND type = 1 AND pay_status = 10
+      ORDER BY order_id ASC`,
+    goodsId,
+  );
+  if (rows.length < 2) return res.json(fail('该货只有一手成交，没有可回撤的后续交易'));
+  if (targetStep >= rows.length) return res.json(fail('只能回撤到更早的一手'));
+  const target = rows[targetStep - 1];
+  const removing = rows.slice(targetStep);
+  const last = rows[rows.length - 1];
+
+  // 链路外还有变更就不动：否则会把别人已经拿走的货硬改回去
+  if (Number(g.member_id) !== Number(last.member_id)) {
+    return res.json(fail('商品当前持有人已不是最后一手买家，不能回撤'));
+  }
+  const ph = rows.map(() => '?').join(',');
+  const pending = get(
+    `SELECT COUNT(*) c FROM orders
+      WHERE COALESCE(NULLIF(asset_goods_id, 0), goods_id) = ?
+        AND order_id NOT IN (${ph}) AND IFNULL(status, 0) = 0`,
+    goodsId, ...rows.map((x) => x.order_id),
+  ).c;
+  if (Number(pending) > 0) return res.json(fail('该货还有未确认的待处理订单，请先取消或确认后再回撤'));
+
+  const targetBuyer = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', target.member_id);
+  const reversal = [];
+  let negativeMembers = [];
+  tx(() => {
+    // 倒序撤：先撤最后一手，避免中间状态被误判
+    for (const o of [...removing].reverse()) {
+      const rev = reverseOrderEnergy(o.order_no);
+      reversal.push({ order_id: o.order_id, order_no: o.order_no, ...rev });
+      run('DELETE FROM order_log WHERE order_id = ?', o.order_id);
+      run('DELETE FROM order_transfer WHERE order_id = ?', o.order_id);
+      run('DELETE FROM orders WHERE order_id = ?', o.order_id);
+    }
+    const n = removing.length;
+    const targetPrice = Number(target.total_price || 0);
+    run(
+      `UPDATE goods SET member_id = ?, goods_status = 20, is_sell = 0, area_date = '',
+         goods_min_price = ?, line_price = ?,
+         turn_beat_num = MAX(0, IFNULL(turn_beat_num, 0) - ?),
+         sales_actual = MAX(0, IFNULL(sales_actual, 0) - ?),
+         update_time = ?
+       WHERE goods_id = ?`,
+      target.member_id, targetPrice, money(targetPrice * 1.1), n, n, now(), goodsId,
+    );
+    // 转拍上架时把场次关联覆盖成「下一场」，回撤后必须清掉
+    run('DELETE FROM specialarea_goods WHERE goods_id = ?', goodsId);
+    // 目标手回到「未挂牌」，持有人可以重新点转拍上架
+    run("UPDATE orders SET consignment_status = 0, transposition_time = '' WHERE order_id = ?", target.order_id);
+    run(
+      'INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
+      target.order_id, '回撤流转', 'admin',
+      `回撤到第 ${targetStep} 手，撤销 ${removing.map((x) => x.order_no).join('、')}${reason ? `；原因：${reason}` : ''}`,
+      now(),
+    );
+    negativeMembers = [...new Set(reversal.flatMap((r) => negativeMembersOf(r)))];
+    run(
+      `INSERT INTO admin_operation_log
+        (admin_id, admin_name, admin_nick, role_id, action, method, path, target_type, target_id,
+         details, result, http_status, create_time)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      Number(req.admin?.store_user_id) || 0,
+      String(req.admin?.user_name || ''), String(req.admin?.nick_name || ''), Number(req.admin?.role_id) || 0,
+      '回撤转拍流转', 'POST', '/transpose/rollback', '商品', String(goodsId),
+      JSON.stringify({
+        goods_id: goodsId,
+        target_step: targetStep,
+        target_order_no: target.order_no,
+        holder_id: target.member_id,
+        removed_orders: removing.map((x) => ({ order_id: x.order_id, order_no: x.order_no, total_price: Number(x.total_price) })),
+        reversal: reversal.map((r) => ({ order_no: r.order_no, rows: r.rows, commission: r.commission, balance: r.balance, score: r.score })),
+        negative_members: negativeMembers,
+        reason,
+      }),
+      1, 200, now(),
+    );
+  });
+
+  res.json(ok({
+    goods_id: goodsId,
+    target_step: targetStep,
+    target_order_no: target.order_no,
+    holder_id: target.member_id,
+    holder_name: targetBuyer?.nick_name || '',
+    removed_count: removing.length,
+    removed_orders: removing.map((x) => x.order_no),
+    reversal: reversal.map((r) => ({ order_no: r.order_no, rows: r.rows, commission: r.commission, balance: r.balance, score: r.score })),
+    negative_members: negativeMembers,
+  }, `已回撤到第 ${targetStep} 手，撤销 ${removing.length} 笔成交；商品已下架并退回 ${targetBuyer?.nick_name || `会员#${target.member_id}`}`));
 });
 
 export default r;

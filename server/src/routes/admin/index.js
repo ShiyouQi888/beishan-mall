@@ -10,6 +10,7 @@ import { sessionBoughtOf, sessionLimitOf } from '../../lib/purchaseLimit.js';
 import { areasOfGoods, areaMapOfGoods, setGoodsAreas, addGoodsToArea, removeGoodsFromArea, clearAreaLinks } from '../../lib/areaGoods.js';
 import { priceCapOf } from '../../lib/priceCap.js';
 import { orderGoods } from '../../lib/orderAssets.js';
+import { reverseOrderEnergy, negativeMembersOf } from '../../lib/energyReversal.js';
 import { todayStr, addDays } from '../../lib/sessionWindow.js';
 import { rangeClause } from '../../lib/dateRange.js';
 import { toCsv, sendCsv, csvTime } from '../../lib/csv.js';
@@ -1571,6 +1572,99 @@ r.post('/:module/remove', authAdmin, (req, res) => {
 });
 
 // ---------------- 订单操作 ----------------
+
+/**
+ * 强制删除订单（仅管理员）。
+ *
+ * 通用 /:module/remove 对 orders 一律拒绝（业务记录要留审计），运营确实需要抹掉误录单时走这里。
+ * 物理删除必须连带清掉会让它「复活」到会员端的关联数据：
+ *   - order_transfer：H5 订单列表会用它补「已转出」只读记录，留着就是一笔幽灵订单
+ *   - order_log：订单动态
+ *   - 本单生成、仍归该会员且没有下一手引用的独立货权商品：否则「我的店铺」里还挂着一件没有订单的货
+ *   - 本单产生的积分 / 佣金 / 卖家货款流水：不冲正就会出现「订单没了，积分佣金还在」
+ * 只保留与会员账户无关的结算台账（settle_pay、goods_recycle），返回保留条数。
+ * 请求由 auditAdminRequest 记入审计，另补一条带冲正快照的明细日志。
+ */
+r.post('/orders/force-delete', authAdmin, (req, res) => {
+  const id = Number(req.body?.order_id);
+  const no = String(req.body?.order_no || '').trim();
+  if (!Number.isInteger(id) || id <= 0) return res.json(fail('订单编号无效'));
+  if (String(req.body?.confirm || '') !== 'FORCE_DELETE') return res.json(fail('缺少强制删除确认'));
+  const o = get('SELECT * FROM orders WHERE order_id = ?', id);
+  if (!o) return res.json(fail('订单不存在'));
+  // 服务端再核一次单号：弹窗点错行、脚本误调都不会删到别的单
+  if (!no || no !== o.order_no) return res.json(fail('确认订单号不匹配，请重新核对'));
+
+  const logCount = get('SELECT COUNT(*) c FROM order_log WHERE order_id = ?', id).c;
+  const transferCount = get('SELECT COUNT(*) c FROM order_transfer WHERE order_id = ?', id).c;
+  const kept = {
+    settle_pay: get('SELECT COUNT(*) c FROM settle_pay WHERE order_id = ?', id).c,
+    goods_recycle: get('SELECT COUNT(*) c FROM goods_recycle WHERE order_id = ?', id).c,
+  };
+
+  // finance_energy 没有 order_id 列，成交时写的备注统一以「订单 <单号>」开头：
+  //   type=2 商品售出 / type=1 大账买单直推奖 / type=3 消费奖励、推广奖励
+  // 用「精确相等」或「前缀 + 空格」匹配，既避开 LIKE 通配符，也不会误伤单号相近的其它订单。
+  const assetId = Number(o.asset_goods_id) || 0;
+  let removedAsset = 0;
+  let restoredStock = 0;
+  let negativeMembers = [];
+  let reversed = { rows: 0, commission: 0, balance: 0, score: 0, by_member: [] };
+
+  tx(() => {
+    // 资金冲正与「回撤转拍成交」共用 lib/energyReversal.js，保证两处口径一致。
+    // 已被花掉的账户照实扣成负数，返回里点名让运营核账。
+    reversed = reverseOrderEnergy(o.order_no);
+
+    // 还没成交的单占着按件名额，删掉要把名额还回去（与 /api/order/cancel 同口径）。
+    // 已成交的单名额是真卖掉了，再还就是凭空多出一件货，不能还。
+    if (Number(o.status) === 0 && Number(o.pay_status) !== 10) {
+      restoredStock = restoreStock(o.goods_id, o.num) ? 1 : 0;
+    }
+    // 只删「仍归本单买家、且没有别的订单引用」的独立货权。
+    // 已经转拍给下一手的货不能删，否则会把在流转的商品凭空抹掉。
+    if (assetId > 0) {
+      const g = get('SELECT * FROM goods WHERE goods_id = ?', assetId);
+      const referenced = get(
+        'SELECT COUNT(*) c FROM orders WHERE order_id <> ? AND (goods_id = ? OR asset_goods_id = ?)',
+        id, assetId, assetId,
+      ).c;
+      if (g && Number(g.asset_parent_id) > 0 && Number(g.member_id) === Number(o.member_id) && !referenced) {
+        run('DELETE FROM specialarea_goods WHERE goods_id = ?', assetId);
+        run('DELETE FROM goods WHERE goods_id = ?', assetId);
+        removedAsset = 1;
+      }
+    }
+    run('DELETE FROM order_log WHERE order_id = ?', id);
+    run('DELETE FROM order_transfer WHERE order_id = ?', id);
+    run('DELETE FROM orders WHERE order_id = ?', id);
+
+    negativeMembers = negativeMembersOf(reversed);
+    // 中间件只记请求体，补一条带冲正快照的审计明细，事后能查清扣了谁多少
+    run(
+      `INSERT INTO admin_operation_log
+        (admin_id, admin_name, admin_nick, role_id, action, method, path, target_type, target_id,
+         details, result, http_status, create_time)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      Number(req.admin?.store_user_id) || 0,
+      String(req.admin?.user_name || ''), String(req.admin?.nick_name || ''), Number(req.admin?.role_id) || 0,
+      '强制删除订单·积分佣金冲正', 'POST', '/orders/force-delete', '订单', String(id),
+      JSON.stringify({ order_no: o.order_no, reversed, negative_members: negativeMembers }),
+      1, 200, now(),
+    );
+  });
+
+  res.json(ok({
+    order_id: id,
+    order_no: o.order_no,
+    removed: { order: 1, logs: logCount, transfers: transferCount, asset_goods: removedAsset, energy: reversed.rows },
+    reversed,
+    negative_members: negativeMembers,
+    restored_stock: restoredStock,
+    kept,
+  }, '订单已强制删除，积分/佣金已冲正，会员端订单同步移除'));
+});
+
 // ---------------- 积分兑换：发货 / 取消退分 ----------------
 r.post('/score-exchange/deliver', authAdmin, (req, res) => {
   const { exchange_id, express_no, express_company } = req.body;
@@ -1895,6 +1989,156 @@ r.get('/orders/transfer-history', authAdmin, (req, res) => {
     from_mobile: maskMobile(r.from_mobile),
     to_mobile: maskMobile(r.to_mobile),
   }))));
+});
+
+/**
+ * 撤销最近一次订单转让（仅管理员）。
+ *
+ * 只撤最后一次：A→B→C 想回到 A，就撤两次。中间那笔不能单独撤，
+ * 否则流水链和当前归属会对不上。事务内反向回滚转让写过的每一项：
+ *   orders.member_id / transfer_count / last_transfer_time
+ *   goods.member_id（仅当时 goods_moved=1 的已成交单）
+ *   order_transfer 流水
+ * 原「订单转让」日志保留（确实发生过），另记一条「撤销转让」，审计可追溯。
+ * 转让本身不动积分/佣金/余额 —— 那些是成交时按原买家发的，撤销后归属回到原买家，账务无需改。
+ *
+ * force（confirm=FORCE_REVOKE_TRANSFER）：货正在转拍挂牌也要撤到上一手时用。
+ * 先自动下架（清在挂标记、商品下架、退出场次关联），再回滚归属与货权，
+ * 否则会出现「订单归上一手、货还挂在下一场被别人抢」的错位。
+ * 但「货已被下一手买走」仍然拒绝：那件货已经属于第三方，强制也不能抢回来。
+ */
+r.post('/orders/transfer-revoke', authAdmin, (req, res) => {
+  const orderId = Number(req.body?.order_id);
+  const transferId = Number(req.body?.transfer_id) || 0;
+  const reason = String(req.body?.reason || '').trim().slice(0, 100);
+  const confirm = String(req.body?.confirm || '');
+  const force = confirm === 'FORCE_REVOKE_TRANSFER';
+  if (!Number.isInteger(orderId) || orderId <= 0) return res.json(fail('订单编号无效'));
+  if (confirm !== 'REVOKE_TRANSFER' && !force) return res.json(fail('缺少撤销确认'));
+
+  const o = get('SELECT * FROM orders WHERE order_id = ?', orderId);
+  if (!o) return res.json(fail('订单不存在'));
+  const last = get(
+    'SELECT * FROM order_transfer WHERE order_id = ? ORDER BY transfer_id DESC LIMIT 1', orderId,
+  );
+  if (!last) return res.json(fail('该订单没有可撤销的转让记录'));
+  // 前端把看到的最后一条流水一起带来，防止弹窗没刷新就撤到了另一笔上
+  if (transferId && Number(transferId) !== Number(last.transfer_id)) {
+    return res.json(fail('只能撤销最近一次转让，请刷新后重试'));
+  }
+  if (Number(o.member_id) !== Number(last.to_member_id)) {
+    return res.json(fail('订单归属已变化，不能撤销该次转让'));
+  }
+  const listed = Number(o.consignment_status) === 10;
+  if (listed && !force) {
+    return res.json(fail('该商品正在挂牌转拍，请先下架，或改用「强制回撤到上一手」自动下架'));
+  }
+
+  // 当时货权跟着订单走过，撤销前必须确认货还在接手人手里；
+  // 货已被转拍卖出的话再改回去，等于把别人的货抢回来
+  const g = Number(last.goods_moved) === 1 ? orderGoods(o) : null;
+  if (Number(last.goods_moved) === 1) {
+    if (!g) return res.json(fail('订单对应的商品不存在，不能撤销转让'));
+    if (Number(g.member_id) !== Number(last.to_member_id)) {
+      return res.json(fail('商品已不在接手人名下（可能已被转拍卖出），不能撤销转让'));
+    }
+  }
+  // force 且正在挂牌：撤销前先把货从场次里撤下来（下架 + 退出场次关联），
+  // 再改归属。顺序反了会留下「货在挂、人已换」的窗口。
+  const listedGoods = listed ? orderGoods(o) : null;
+  if (listed && !listedGoods) return res.json(fail('挂牌商品不存在，不能强制回撤'));
+  const prev = get(
+    'SELECT create_time FROM order_transfer WHERE order_id = ? AND transfer_id < ? ORDER BY transfer_id DESC LIMIT 1',
+    orderId, last.transfer_id,
+  );
+  const fromMember = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', last.from_member_id);
+  const toMember = get('SELECT nick_name, mobile FROM member WHERE member_id = ?', last.to_member_id);
+
+  let goodsReverted = 0;
+  let delisted = 0;
+  try {
+    tx(() => {
+      if (listedGoods) {
+        run('UPDATE orders SET consignment_status = 0 WHERE order_id = ?', orderId);
+        run(
+          "UPDATE goods SET goods_status = 20, is_sell = 0, area_date = '', update_time = ? WHERE goods_id = ?",
+          now(), listedGoods.goods_id,
+        );
+        // 转拍上架时把场次关联覆盖成「下一场」，撤销后必须清掉，
+        // 否则这件货还留在场次里，随时会被别人按旧标价买走
+        run('DELETE FROM specialarea_goods WHERE goods_id = ?', listedGoods.goods_id);
+        delisted = 1;
+      }
+      // 与转让同样的乐观锁：并发下只有一个人能撤成功
+      const r1 = run(
+        `UPDATE orders SET member_id = ?,
+           transfer_count = CASE WHEN IFNULL(transfer_count, 0) > 0 THEN IFNULL(transfer_count, 0) - 1 ELSE 0 END,
+           last_transfer_time = ?
+         WHERE order_id = ? AND member_id = ?`,
+        last.from_member_id, prev?.create_time || '', orderId, last.to_member_id,
+      );
+      if (Number(r1.changes) !== 1) throw bizErr('订单归属已变化，请刷新后重试');
+
+      if (g) {
+        const r2 = run(
+          'UPDATE goods SET member_id = ?, update_time = ? WHERE goods_id = ? AND member_id = ?',
+          last.from_member_id, now(), g.goods_id, last.to_member_id,
+        );
+        if (Number(r2.changes) !== 1) throw bizErr('商品持有人已变化，请刷新后重试');
+        goodsReverted = 1;
+      }
+
+      run('DELETE FROM order_transfer WHERE transfer_id = ?', last.transfer_id);
+      run(
+        'INSERT INTO order_log (order_id, action, operator, remark, create_time) VALUES (?,?,?,?,?)',
+        orderId, force ? '强制回撤转让' : '撤销转让', 'admin',
+        `会员 ${last.to_member_id} → ${last.from_member_id}（撤销 ${last.create_time} 的转让：${last.reason || '未填原因'}）${reason ? `；撤销原因：${reason}` : ''}${goodsReverted ? '；货权同步退回' : ''}${delisted ? '；转拍中的商品已自动下架并退出场次' : ''}`,
+        now(),
+      );
+      // 审计明细：中间件只记请求体，这里把被撤销的流水快照留下
+      run(
+        `INSERT INTO admin_operation_log
+          (admin_id, admin_name, admin_nick, role_id, action, method, path, target_type, target_id,
+           details, result, http_status, create_time)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        Number(req.admin?.store_user_id) || 0,
+        String(req.admin?.user_name || ''), String(req.admin?.nick_name || ''), Number(req.admin?.role_id) || 0,
+        force ? '强制回撤订单转让' : '撤销订单转让', 'POST', '/orders/transfer-revoke', '订单', String(orderId),
+        JSON.stringify({
+          order_no: o.order_no,
+          transfer_id: last.transfer_id,
+          from_member_id: last.from_member_id,
+          to_member_id: last.to_member_id,
+          force: force ? 1 : 0,
+          delisted,
+          goods_moved: Number(last.goods_moved) || 0,
+          goods_reverted: goodsReverted,
+          amount: money(last.amount),
+          original_reason: last.reason || '',
+          revoke_reason: reason,
+        }),
+        1, 200, now(),
+      );
+    });
+  } catch (e) {
+    if (e.biz) return res.json(fail(e.message));
+    throw e;
+  }
+
+  res.json(ok({
+    order_id: orderId,
+    transfer_id: last.transfer_id,
+    from_member_id: last.from_member_id,
+    to_member_id: last.to_member_id,
+    from_name: fromMember?.nick_name || '',
+    to_name: toMember?.nick_name || '',
+    goods_reverted: goodsReverted,
+    force: force ? 1 : 0,
+    delisted,
+    remaining_transfers: Math.max(0, Number(o.transfer_count || 0) - 1),
+  }, delisted
+    ? '已强制回撤到上一手；转拍中的商品已自动下架并退出场次，需要继续出售请重新转拍'
+    : '已撤销最近一次转让，订单与货权已退回原持有人'));
 });
 
 // 转让原因字典（前端下拉）

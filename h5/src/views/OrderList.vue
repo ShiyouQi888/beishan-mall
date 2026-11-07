@@ -339,8 +339,12 @@ function startPoll() {
   if (hasPending()) pollTimer = setInterval(pollOnce, POLL_MS);
 }
 
-function onVisible() {
-  if (!document.hidden) pollOnce();
+// 后台强制删除等变更不会触发轮询（只有未完成订单才轮询），
+// 切回前台时静默重拉一次，保证会员端列表与后台数据一致
+async function onVisible() {
+  if (document.hidden) return;
+  await load(true);
+  startPoll();
 }
 
 onMounted(async () => {

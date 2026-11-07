@@ -206,8 +206,21 @@ function startPoll() {
 }
 
 // 从后台切回前台时立刻补一次，别让用户盯着旧数据等 4 秒
-function onVisible() {
-  if (!document.hidden) pollOnce();
+// 订单可能已被后台强制删除：切回前台强制重拉一次，不存在就提示并返回列表
+async function onVisible() {
+  if (document.hidden) return;
+  try {
+    const r = await api.orderDetail(route.params.id);
+    if (!r || r.code !== 1 || !r.data?.order_id) {
+      showToast('该订单已不存在');
+      router.back();
+      return;
+    }
+    o.value = { ...r.data };
+  } catch {
+    // 网络抖动保留当前内容，别把页面闪成「订单不存在」
+  }
+  startPoll();
 }
 
 onMounted(async () => {

@@ -56,6 +56,8 @@ export const adminApi = {
   // 转拍订单：正在挂牌等下一手买走的单子，支持今日/昨日/周/月/自定义
   transposeList: (params) => http.get('/transpose/list', { params }),
   transposeDetail: (id) => http.get('/transpose/detail', { params: { id } }),
+  // 回撤转拍成交到指定手：撤销该手之后的成交单，货权与资金一并回退
+  rollbackTranspose: (d) => http.post('/transpose/rollback', d),
   exportTranspose: (params) => http.get('/transpose/export', { params, responseType: 'blob', timeout: 60000 }),
   myPaths: () => http.get('/my-paths'),
   dashboard: () => http.get('/dashboard'),
@@ -79,14 +81,20 @@ export const adminApi = {
   exportOrders: (params) => http.get('/orders/export', { params, responseType: 'blob', timeout: 60000 }),
   duplicateGoods: (goods_id) => http.post('/goods/duplicate', { goods_id }),
   teamOrders: (memberId) => http.get('/member/team-orders', { params: { member_id: memberId } }),
+  // 会员订单档案：管理员在会员详情里查看该会员关联的全部订单（买家/卖家/已转出）
+  memberOrders: (params) => http.get('/member/orders', { params }),
   advanceMember: (d) => http.post('/member/advance', d),
   cancelOrder: (d) => http.post('/orders/cancel', d),
+  // 强制删除订单：物理删除 + 级联清关联，前端必须走危险二次确认弹窗
+  forceDeleteOrder: (d) => http.post('/orders/force-delete', d),
   cancelOrderBatch: (d) => http.post('/orders/cancel-batch', d),
   confirmPay: (d) => http.post('/orders/confirm-pay', d),
   confirmPayBatch: (d) => http.post('/orders/confirm-pay-batch', d),
   transferCandidates: (params) => http.get('/orders/transfer-candidates', { params }),
   transferOrder: (d) => http.post('/orders/transfer', d),
   transferHistory: (order_id) => http.get('/orders/transfer-history', { params: { order_id } }),
+  // 撤销最近一次转让：事务内回滚归属、货权与转让流水
+  revokeTransfer: (d) => http.post('/orders/transfer-revoke', d),
   adjustMember: (d) => http.post('/member/adjust', d),
   auditCert: (d) => http.post('/certification/audit', d),
   confirmSettle: (d) => http.post('/settle/confirm', d),

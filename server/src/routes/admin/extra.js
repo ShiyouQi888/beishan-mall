@@ -1,7 +1,7 @@
 // 后台补充接口：统计、会员操作、直推奖补发、指派订单、缓存清理
 import { Router } from 'express';
 import { all, get, run, tx, now, today, db } from '../../db.js';
-import { ok, fail, authAdmin, money, ORDER_STATUS, calcServiceCharge, serviceChargeRate } from '../../lib/helper.js';
+import { ok, fail, authAdmin, money, page, assetUrl, ORDER_STATUS, ORDER_TYPE, orderStateText, calcServiceCharge, serviceChargeRate } from '../../lib/helper.js';
 import { distributeAward, driveAwardRate, calcListingFee, listingFeeRate, biz } from '../../lib/settle.js';
 import { orderNo } from '../../lib/auth.js';
 import { nodeTree, roleNodeIds, saveRoleNodes, rolePaths, isSuperRole, superRoleIds } from '../../lib/nodes.js';
@@ -583,6 +583,209 @@ r.get('/member/team-orders', authAdmin, (req, res) => {
       })),
     }),
   );
+});
+
+// ---------------- 会员订单档案（挂 authAdmin，只有管理员能看） ----------------
+/**
+ * 管理员在会员详情里查看该会员关联的全部订单。
+ * 三类范围都用真实表关系判定，不靠昵称/手机号模糊匹配：
+ *   1) 当前归属他（orders.member_id）  2) 他是卖家（orders.seller_id）
+ *   3) 曾经属于他、后来被后台转出（order_transfer.from_member_id）
+ */
+// 单号前缀就是各下单入口自己写死的：Q=会员前台，M=后台手工，I=后台导入，J=后台寄买。
+// 手工新增还会额外写一条 order_log，两条证据都认，历史单少一条也能判出来。
+const ORDER_SOURCE_BY_PREFIX = {
+  M: { code: 'admin_manual', text: '后台手工录入' },
+  I: { code: 'admin_import', text: '后台批量导入' },
+  J: { code: 'admin_consign', text: '后台寄买录入' },
+  Q: { code: 'member_self', text: '会员自助下单' },
+};
+
+function orderSourceOf(o, logs) {
+  if (logs.some((l) => l.action === '后台新增订单')) return ORDER_SOURCE_BY_PREFIX.M;
+  const prefix = String(o.order_no || '').charAt(0).toUpperCase();
+  if (ORDER_SOURCE_BY_PREFIX[prefix]) return ORDER_SOURCE_BY_PREFIX[prefix];
+  if (String(o.remark || '') === '后台导入') return ORDER_SOURCE_BY_PREFIX.I;
+  return { code: 'legacy', text: '历史/其它渠道' };
+}
+
+r.get('/member/orders', authAdmin, (req, res) => {
+  const mid = Number(req.query.member_id);
+  if (!Number.isInteger(mid) || mid <= 0) return res.json(fail('会员编号无效'));
+  const member = get('SELECT member_id, nick_name, mobile FROM member WHERE member_id = ?', mid);
+  if (!member) return res.json(fail('会员不存在'));
+
+  const cur = Math.max(1, Math.floor(Number(req.query.page) || 1));
+  const pp = Math.min(100, Math.max(1, Math.floor(Number(req.query.limit) || 20)));
+  const role = String(req.query.role || 'all');
+  const kw = String(req.query.keyword || '').trim();
+
+  const where = [`(o.member_id = ? OR o.seller_id = ? OR EXISTS (
+      SELECT 1 FROM order_transfer t WHERE t.order_id = o.order_id AND t.from_member_id = ?
+    ))`];
+  const args = [mid, mid, mid];
+  if (role === 'buyer') {
+    where.push('o.member_id = ?'); args.push(mid);
+  } else if (role === 'seller') {
+    where.push('o.seller_id = ? AND o.member_id <> ?'); args.push(mid, mid);
+  } else if (role === 'transferred') {
+    where.push(`o.member_id <> ? AND o.seller_id <> ? AND EXISTS (
+      SELECT 1 FROM order_transfer t WHERE t.order_id = o.order_id AND t.from_member_id = ?)`);
+    args.push(mid, mid, mid);
+  }
+  if (kw) {
+    where.push('(o.order_no LIKE ? OR o.goods_name LIKE ?)');
+    args.push(`%${kw}%`, `%${kw}%`);
+  }
+  const w = 'WHERE ' + where.join(' AND ');
+
+  const total = get(`SELECT COUNT(*) c FROM orders o ${w}`, ...args).c;
+  const stats = get(
+    `SELECT COUNT(*) c,
+       IFNULL(SUM(o.total_price), 0) amount,
+       IFNULL(SUM(o.service_charge), 0) service,
+       IFNULL(SUM(o.listing_fee), 0) listing,
+       IFNULL(SUM(CASE WHEN o.pay_status = 10 THEN 1 ELSE 0 END), 0) confirmed
+     FROM orders o ${w}`, ...args,
+  );
+  const rows = all(
+    `SELECT o.* FROM orders o ${w} ORDER BY o.order_id DESC LIMIT ? OFFSET ?`,
+    ...args, pp, (cur - 1) * pp,
+  );
+
+  // 一次把本页要用到的会员、场次、日志、转让流水全查回来，避免每行再查一次
+  const ids = rows.map((x) => Number(x.order_id));
+  const ph = ids.map(() => '?').join(',');
+  const memberIds = new Set([mid]);
+  const areaIds = new Set();
+  for (const o of rows) {
+    for (const id of [o.member_id, o.seller_id]) if (Number(id) > 0) memberIds.add(Number(id));
+    if (Number(o.specialarea_id) > 0) areaIds.add(Number(o.specialarea_id));
+  }
+  const members = new Map();
+  const mIds = [...memberIds];
+  if (mIds.length) {
+    const mph = mIds.map(() => '?').join(',');
+    for (const m of all(`SELECT member_id, nick_name, mobile FROM member WHERE member_id IN (${mph})`, ...mIds)) {
+      members.set(Number(m.member_id), m);
+    }
+  }
+  const areas = new Map();
+  const aIds = [...areaIds];
+  if (aIds.length) {
+    const aph = aIds.map(() => '?').join(',');
+    for (const a of all(`SELECT specialarea_id, name, title_main FROM specialarea WHERE specialarea_id IN (${aph})`, ...aIds)) {
+      areas.set(Number(a.specialarea_id), a);
+    }
+  }
+  const logsMap = new Map();
+  const transfersMap = new Map();
+  if (ids.length) {
+    for (const l of all(
+      `SELECT order_id, action, operator, remark, create_time FROM order_log WHERE order_id IN (${ph}) ORDER BY log_id`, ...ids,
+    )) {
+      const k = Number(l.order_id);
+      if (!logsMap.has(k)) logsMap.set(k, []);
+      logsMap.get(k).push(l);
+    }
+    for (const t of all(
+      `SELECT t.*, fm.nick_name AS from_name, tm.nick_name AS to_name
+         FROM order_transfer t
+         LEFT JOIN member fm ON fm.member_id = t.from_member_id
+         LEFT JOIN member tm ON tm.member_id = t.to_member_id
+        WHERE t.order_id IN (${ph}) ORDER BY t.transfer_id`, ...ids,
+    )) {
+      const k = Number(t.order_id);
+      if (!transfersMap.has(k)) transfersMap.set(k, []);
+      transfersMap.get(k).push(t);
+    }
+  }
+
+  const labelOfMember = (id) => {
+    if (Number(id) <= 0) return '平台';
+    const m = members.get(Number(id));
+    return m ? (m.nick_name || m.mobile || `会员#${id}`) : `会员#${id}`;
+  };
+
+  const list = rows.map((o) => {
+    const oid = Number(o.order_id);
+    const logs = logsMap.get(oid) || [];
+    const transfers = transfersMap.get(oid) || [];
+    const source = orderSourceOf(o, logs);
+    const isBuyer = Number(o.member_id) === mid;
+    const isSeller = !isBuyer && Number(o.seller_id) === mid;
+    // 最后一次「转到这个会员名下」的流水，就是他取得这笔订单的方式
+    const received = [...transfers].reverse().find((t) => Number(t.to_member_id) === mid);
+    const area = areas.get(Number(o.specialarea_id));
+    const goodsAmount = Number(o.total_price || 0);
+    const service = Number(o.service_charge || 0);
+    const listing = Number(o.listing_fee || 0);
+    return {
+      order_id: oid,
+      order_no: o.order_no,
+      goods_id: o.goods_id,
+      goods_name: o.goods_name,
+      goods_thumb: assetUrl(o.goods_thumb || ''),
+      num: o.num,
+      price: Number(o.price || 0).toFixed(2),
+      total_price: goodsAmount.toFixed(2),
+      service_charge: service.toFixed(2),
+      listing_fee: listing.toFixed(2),
+      pay_total: money(goodsAmount + service + listing).toFixed(2),
+      order_type: o.type,
+      order_type_text: ORDER_TYPE[o.type] || '其它',
+      status: o.status,
+      status_text: orderStateText(o),
+      pay_status: o.pay_status,
+      create_time: o.create_time || '',
+      pay_time: o.pay_time || '',
+      finish_time: o.finish_time || '',
+      transposition_time: o.transposition_time || '',
+      cancel_by: o.cancel_by,
+      remark: o.remark || '',
+
+      // ---- 相对该会员的角色与订单来源（四项口径） ----
+      role: isBuyer ? 'buyer' : isSeller ? 'seller' : 'transferred',
+      role_text: isBuyer ? '买家（当前归属）' : isSeller ? '卖家' : '历史持有人（已转出）',
+      source_code: source.code,
+      source_text: source.text,
+      area_id: Number(o.specialarea_id) || 0,
+      area_name: area ? (area.title_main || area.name || `场次#${area.specialarea_id}`) : '未关联场次',
+      seller_id: Number(o.seller_id) || 0,
+      seller_name: o.seller_id ? labelOfMember(o.seller_id) : '平台',
+      seller_mobile: o.seller_id ? (members.get(Number(o.seller_id))?.mobile || '') : '',
+      buyer_name: labelOfMember(o.member_id),
+      acquired_from: received ? {
+        from_name: received.from_name || labelOfMember(received.from_member_id),
+        time: received.create_time || '',
+        reason: received.reason || '',
+        paid_before: Number(received.paid_before) || 0,
+      } : null,
+      transfers: transfers.map((t) => ({
+        from_name: t.from_name || labelOfMember(t.from_member_id),
+        to_name: t.to_name || labelOfMember(t.to_member_id),
+        amount: Number(t.amount || 0).toFixed(2),
+        reason: t.reason || '',
+        create_time: t.create_time || '',
+      })),
+      logs: logs.map((l) => ({
+        action: l.action, operator: l.operator, remark: l.remark, create_time: l.create_time,
+      })),
+    };
+  });
+
+  res.json(ok({
+    ...page(list, total, cur, pp),
+    member: { member_id: mid, nick_name: member.nick_name || '', mobile: member.mobile || '' },
+    stats: {
+      orders: Number(stats.c || 0),
+      amount: money(Number(stats.amount || 0)).toFixed(2),
+      service_charge: money(Number(stats.service || 0)).toFixed(2),
+      listing_fee: money(Number(stats.listing || 0)).toFixed(2),
+      pay_total: money(Number(stats.amount || 0) + Number(stats.service || 0) + Number(stats.listing || 0)).toFixed(2),
+      confirmed: Number(stats.confirmed || 0),
+    },
+  }));
 });
 
 /** 后台创建寄买订单 */

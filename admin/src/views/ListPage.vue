@@ -304,7 +304,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="modKey === 'member' ? 560 : modKey === 'orders' ? 292 : modKey === 'scoreExchange' ? 260 : modKey === 'goods' ? 220 : modKey === 'recycle' ? 176 : 210" fixed="right">
+        <el-table-column label="操作" :width="modKey === 'member' ? 660 : modKey === 'orders' ? 370 : modKey === 'scoreExchange' ? 260 : modKey === 'goods' ? 220 : modKey === 'recycle' ? 176 : 210" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <template v-if="modKey === 'orders'">
@@ -315,6 +315,7 @@
                      已取消的单没有可转的东西，直接不显示 -->
                 <el-button v-if="row.status !== 40" size="small" type="primary" plain @click="openTransfer(row)">转让</el-button>
                 <el-button v-if="row.status === 0" size="small" type="danger" @click="cancelOrder(row)">取消</el-button>
+                <el-button size="small" type="danger" plain @click="forceDeleteOrder(row)">强制删除</el-button>
               </template>
               <template v-else-if="modKey === 'scoreExchange'">
                 <el-button v-if="row.status === 10" size="small" type="primary" @click="openScoreDeliver(row)">发货</el-button>
@@ -332,6 +333,7 @@
               </template>
               <template v-else-if="modKey === 'member'">
                 <el-button size="small" @click="openEdit(row)">编辑</el-button>
+                <el-button size="small" type="primary" plain @click="viewMemberOrders(row)">查看订单</el-button>
                 <el-button size="small" type="success" @click="openAdjust(row)">调账</el-button>
                 <el-button size="small" @click="viewTeamOrders(row)">团队订单</el-button>
                 <el-button size="small" @click="openEnergy(row)">资金流水</el-button>
@@ -564,7 +566,27 @@
       </el-descriptions>
       <!-- 转让记录：这单换过几次手、谁经手的，只能从这里看 -->
       <div v-if="modKey === 'orders' && transferHistory.length" class="transfer-log">
-        <div class="transfer-log__title">转让记录</div>
+        <div class="transfer-log__title">
+          <span>转让记录</span>
+          <!-- 只开放「最近一次」：中间那笔单独撤会让流水链与当前归属对不上 -->
+          <div v-if="canRevokeTransfer" class="transfer-log__acts">
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :loading="revokingTransfer"
+              :disabled="revokingForce"
+              @click="revokeTransfer(false)"
+            >撤销最近一次转让</el-button>
+            <el-button
+              size="small"
+              type="danger"
+              :loading="revokingForce"
+              :disabled="revokingTransfer"
+              @click="revokeTransfer(true)"
+            >强制回撤到上一手</el-button>
+          </div>
+        </div>
         <div v-for="t in transferHistory" :key="t.transfer_id" class="transfer-log__item">
           <div class="transfer-log__line">
             <span class="transfer-log__from">{{ t.from_name || `会员${t.from_member_id}` }}</span>
@@ -713,6 +735,8 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">{{ modKey === 'orders' ? '关闭' : '取消' }}</el-button>
+        <!-- 会员详情里直接进订单档案：不用退出弹窗再回列表找按钮 -->
+        <el-button v-if="modKey === 'member' && Number(form.member_id) > 0" @click="viewMemberOrdersFromDetail">查看该会员订单</el-button>
         <el-button v-if="modKey !== 'orders' && modKey !== 'recycle'" type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
@@ -928,6 +952,125 @@
       </el-table>
     </el-dialog>
 
+    <!-- 会员订单档案：只有后台会员列表能打开（接口挂 authAdmin） -->
+    <el-dialog
+      v-model="memberOrdersDlg"
+      :title="`${memberOrdersData.member?.nick_name || '会员'} · 全部关联订单`"
+      width="min(96vw, 1480px)"
+      top="4vh"
+      destroy-on-close
+    >
+      <div v-loading="memberOrdersLoading" class="member-orders">
+        <div class="team-summary">
+          <span>共 {{ memberOrdersData.stats?.orders || 0 }} 笔</span>
+          <span>货款 ¥{{ memberOrdersData.stats?.amount || '0.00' }}</span>
+          <span>实付合计 ¥{{ memberOrdersData.stats?.pay_total || '0.00' }}</span>
+          <span>已确认 {{ memberOrdersData.stats?.confirmed || 0 }} 笔</span>
+          <span class="muted">含买家 / 卖家 / 已转出，来源按单号与流水判定</span>
+        </div>
+
+        <div class="member-orders__filters">
+          <el-select v-model="memberOrdersRole" style="width: 160px" @change="loadMemberOrders(1)">
+            <el-option label="全部关联订单" value="all" />
+            <el-option label="作为买家" value="buyer" />
+            <el-option label="作为卖家" value="seller" />
+            <el-option label="已转出" value="transferred" />
+          </el-select>
+          <el-input
+            v-model="memberOrdersKeyword"
+            placeholder="订单号 / 商品名"
+            clearable
+            style="width: 220px"
+            @keyup.enter="loadMemberOrders(1)"
+            @clear="loadMemberOrders(1)"
+          />
+          <el-button type="primary" plain @click="loadMemberOrders(1)">查询</el-button>
+        </div>
+
+        <el-table :data="memberOrdersData.data || []" max-height="460" size="small" row-key="order_id">
+          <el-table-column type="expand">
+            <template #default="{ row }">
+              <div class="mo-detail">
+                <div class="mo-detail__col">
+                  <div class="mo-detail__title">金额构成</div>
+                  <div class="mo-kv"><span>商品单价 × 数量</span><b>¥{{ row.price }} × {{ row.num }}</b></div>
+                  <div class="mo-kv"><span>商品金额</span><b>¥{{ row.total_price }}</b></div>
+                  <div class="mo-kv"><span>抢单服务费</span><b>¥{{ row.service_charge }}</b></div>
+                  <div class="mo-kv"><span>转拍上架费</span><b>¥{{ row.listing_fee }}</b></div>
+                  <div class="mo-kv mo-kv--sum"><span>实付金额</span><b>¥{{ row.pay_total }}</b></div>
+                </div>
+                <div class="mo-detail__col">
+                  <div class="mo-detail__title">订单来源</div>
+                  <div class="mo-kv"><span>下单渠道</span><b>{{ row.source_text }}</b></div>
+                  <div class="mo-kv"><span>订单类型</span><b>{{ row.order_type_text }}</b></div>
+                  <div class="mo-kv"><span>关联场次</span><b>{{ row.area_name }}</b></div>
+                  <!-- 卖家没昵称时 seller_name 会回退成手机号，别再拼一遍 mobile -->
+                  <div class="mo-kv"><span>卖家</span><b>{{ row.seller_name }}<span v-if="row.seller_mobile && row.seller_mobile !== row.seller_name" class="muted"> {{ row.seller_mobile }}</span></b></div>
+                  <div class="mo-kv"><span>当前买家</span><b>{{ row.buyer_name }}</b></div>
+                  <div class="mo-kv" v-if="row.acquired_from">
+                    <span>取得方式</span>
+                    <b>由 {{ row.acquired_from.from_name }} 转让受让<span class="muted"> · {{ row.acquired_from.time }}</span></b>
+                  </div>
+                  <div class="mo-kv" v-if="row.acquired_from?.reason"><span>转让原因</span><b>{{ row.acquired_from.reason }}</b></div>
+                </div>
+                <div class="mo-detail__col">
+                  <div class="mo-detail__title">时间与状态</div>
+                  <div class="mo-kv"><span>订单编号</span><b>{{ row.order_no }}</b></div>
+                  <div class="mo-kv"><span>下单时间</span><b>{{ row.create_time }}</b></div>
+                  <div class="mo-kv" v-if="row.pay_time"><span>确认/支付时间</span><b>{{ row.pay_time }}</b></div>
+                  <div class="mo-kv" v-if="row.finish_time"><span>完成时间</span><b>{{ row.finish_time }}</b></div>
+                  <div class="mo-kv" v-if="row.transposition_time"><span>转拍时间</span><b>{{ row.transposition_time }}</b></div>
+                  <div class="mo-kv"><span>当前状态</span><b>{{ row.status_text }}</b></div>
+                  <div class="mo-kv" v-if="row.cancel_by"><span>取消来源</span><b>{{ Number(row.cancel_by) === 1 ? '用户取消' : '后台取消' }}</b></div>
+                  <div class="mo-kv" v-if="row.remark"><span>备注</span><b>{{ row.remark }}</b></div>
+                </div>
+              </div>
+              <div class="mo-extra" v-if="row.transfers?.length || row.logs?.length">
+                <div v-if="row.transfers?.length" class="mo-extra__block">
+                  <b>转让流水</b>
+                  <div v-for="(t, i) in row.transfers" :key="i" class="mo-extra__line">
+                    {{ t.create_time }} · {{ t.from_name }} → {{ t.to_name }}
+                    <span v-if="t.reason"> · {{ t.reason }}</span>
+                    <span v-if="Number(t.amount) > 0"> · 线下结算参考 ¥{{ t.amount }}</span>
+                  </div>
+                </div>
+                <div v-if="row.logs?.length" class="mo-extra__block">
+                  <b>订单动态</b>
+                  <div v-for="(l, i) in row.logs" :key="i" class="mo-extra__line">
+                    {{ l.create_time }} · {{ l.action }}<span v-if="l.remark"> · {{ l.remark }}</span><span class="muted"> · {{ l.operator }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <!-- 列宽全部用 min-width：容器宽时按比例铺满，窄时自动收缩，不产生横向滚动条。
+               单元格允许换行，商品名/场次名完整显示，不做省略号截断。 -->
+          <el-table-column prop="goods_name" label="商品名称" min-width="180" />
+          <el-table-column prop="create_time" label="下单时间" min-width="145" />
+          <el-table-column label="实付金额" min-width="100" align="right">
+            <template #default="{ row }"><b>¥{{ row.pay_total }}</b></template>
+          </el-table-column>
+          <el-table-column prop="order_type_text" label="订单类型" min-width="92" />
+          <el-table-column prop="source_text" label="订单来源" min-width="110" />
+          <el-table-column prop="area_name" label="关联场次" min-width="110" />
+          <el-table-column prop="role_text" label="与本会员关系" min-width="128" />
+          <el-table-column prop="status_text" label="状态" min-width="88" />
+        </el-table>
+
+        <div class="pager" v-if="(memberOrdersData.total || 0) > 20">
+          <el-pagination
+            v-model:current-page="memberOrdersPage"
+            :page-size="20"
+            :total="memberOrdersData.total || 0"
+            layout="total, prev, pager, next"
+            background
+            @current-change="loadMemberOrders"
+          />
+        </div>
+        <div v-if="!memberOrdersLoading && !(memberOrdersData.data || []).length" class="member-orders__empty">该会员暂无关联订单</div>
+      </div>
+    </el-dialog>
+
     <!-- 会员资金流水 -->
     <el-dialog v-model="energyDlg" :title="`${energyMember} · 资金流水`" width="880px">
       <div class="team-summary">
@@ -1105,6 +1248,15 @@ const energyMember = ref('');
 const energyList = ref([]);
 const energyTotal = ref(0);
 const teamData = ref({});
+
+// 会员订单档案（管理员专用）：与「团队订单」是两套口径，这里查该会员自己关联的单
+const memberOrdersDlg = ref(false);
+const memberOrdersLoading = ref(false);
+const memberOrdersData = ref({ data: [], stats: {}, member: {} });
+const memberOrdersMemberId = ref(0);
+const memberOrdersPage = ref(1);
+const memberOrdersRole = ref('all');
+const memberOrdersKeyword = ref('');
 
 // 提前抢购：开通弹窗的临时表单
 const advanceDlg = ref(false);
@@ -1406,6 +1558,13 @@ const candidateOptions = ref([]);
 const candidateLoading = ref(false);
 const transferring = ref(false);
 const transferHistory = ref([]);
+const revokingTransfer = ref(false);
+const revokingForce = ref(false);
+// 详情弹窗里当前订单的归属必须等于最后一条流水的接手人，否则说明数据已变，不给撤
+const lastTransfer = computed(() => transferHistory.value[transferHistory.value.length - 1] || null);
+const canRevokeTransfer = computed(() => modKey.value === 'orders'
+  && !!lastTransfer.value
+  && Number(form.member_id) === Number(lastTransfer.value.to_member_id));
 const pickedMember = ref(null);
 // 下拉重新搜索会替换候选列表，已选的那个人可能不在新列表里。
 // 只从候选里找的话，接手人信息会突然消失、点确认还会提示「请先选择接手会员」——
@@ -1513,6 +1672,9 @@ function openEdit(row) {
   if (modKey.value === 'orders') {
     form.is_examine = row.is_examine;
     form.pay_status = row.pay_status;
+    // 订单列定义里买家用的是展示字段 buyer，不会把 member_id 带进详情。
+    // 撤销转让要靠「当前归属 == 最后一次流水的接手人」判断，这里显式补上。
+    form.member_id = row.member_id;
     // 转让记录单独拉：列表行里只有次数，没有流水。换一条记录先清空，
     // 否则会短暂显示上一条订单的转让历史
     transferHistory.value = [];
@@ -1564,6 +1726,63 @@ async function removeOne(row) {
   const r = await adminApi.remove(modKey.value, [row[mod.value.pk]]);
   ElMessage.success(r?.msg || '已删除');
   load();
+}
+
+// ---------- 强制删除订单（物理删除，危险操作） ----------
+// 二次确认必须把「删了什么、什么不回滚」写清楚，否则运营把已成交单当误录单删掉，
+// 事后对账才发现资金流水还在。动态值全部走 esc，商品名是运营填的，不能直接拼 HTML。
+async function forceDeleteOrder(row) {
+  const buyer = row._buyer || row._holder || `会员#${row.member_id}`;
+  const lines = [
+    `<b>订单号</b>：${esc(row.order_no)}`,
+    `<b>商品</b>：${esc(row.goods_name || '—')}`,
+    `<b>金额</b>：¥${Number(row.total_price || 0).toFixed(2)}`,
+    `<b>买家</b>：${esc(buyer)}${row._buyer_mobile ? ` · ${esc(row._buyer_mobile)}` : ''}`,
+  ];
+  try {
+    await ElMessageBox.confirm(
+      `<div style="text-align:left">
+         <div style="color:#d03050;font-weight:700;font-size:14px;margin-bottom:10px">危险操作 · 物理删除，不可恢复</div>
+         <div style="line-height:1.9;font-size:13px">${lines.join('<br/>')}</div>
+         <div style="border-top:1px solid #e6e8ec;margin:12px 0 10px"></div>
+         <div style="line-height:1.8;font-size:12.5px;color:#606266">
+           将同时清除：本单的订单动态、转让流水，以及本单生成且仍归该会员的独立货权商品。<br/>
+           <b>会冲正</b>：本单产生的积分、佣金（含分销收益）和卖家货款，连同对应资金流水一并删除，账户按流水反向扣回。若积分/佣金已被使用，账户可能被冲成负数，需人工核账。<br/>
+           会员端「我的订单 / 订单详情 / 已转出 / 资金流水」都会同步移除这笔单。<br/>
+           <b>只保留</b>：结算台账、回收台账（审计留存）；已转拍给下一手的货不会被删除。
+         </div>
+       </div>`,
+      '强制删除订单',
+      {
+        type: 'error',
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: '我确认，强制删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+      },
+    );
+  } catch { return; }
+  try {
+    const r = await adminApi.forceDeleteOrder({
+      order_id: row.order_id,
+      order_no: row.order_no,
+      confirm: 'FORCE_DELETE',
+    });
+    const d = r.data || {};
+    const cleaned = [`${Number(d.removed?.logs || 0)} 条动态`, `${Number(d.removed?.transfers || 0)} 条转让流水`];
+    if (d.removed?.asset_goods) cleaned.push('1 件独立货权');
+    if (d.restored_stock) cleaned.push('已归还库存名额');
+    if (d.reversed?.rows) {
+      cleaned.push(`冲正 ${d.reversed.rows} 条流水（积分 ${d.reversed.score}、佣金 ¥${d.reversed.commission}、货款 ¥${d.reversed.balance}）`);
+    }
+    ElMessage.success(`已强制删除 ${d.order_no || row.order_no}（清理 ${cleaned.join('、')}）`);
+    if (d.negative_members?.length) {
+      ElMessage.warning(`有 ${d.negative_members.length} 个账户冲正后为负数，请到会员管理人工核账`);
+    }
+    load();
+  } catch {
+    // 失败提示由 http 拦截器统一给出，列表保持不变
+  }
 }
 
 async function uploadImage(file, extra = {}) {
@@ -2054,6 +2273,111 @@ async function viewTeamOrders(row) {
   teamDlg.value = true;
 }
 
+// ---------- 会员订单档案 ----------
+async function loadMemberOrders(pageNo = memberOrdersPage.value) {
+  const mid = Number(memberOrdersMemberId.value);
+  if (!mid) return;
+  memberOrdersLoading.value = true;
+  try {
+    const r = await adminApi.memberOrders({
+      member_id: mid,
+      page: pageNo,
+      limit: 20,
+      role: memberOrdersRole.value,
+      keyword: memberOrdersKeyword.value.trim(),
+    });
+    memberOrdersData.value = r.data || { data: [], stats: {}, member: {} };
+    memberOrdersPage.value = Number(r.data?.current_page) || pageNo;
+  } catch {
+    // 失败提示由 http 拦截器统一给，这里保留当前列表，别闪成空白
+  } finally {
+    memberOrdersLoading.value = false;
+  }
+}
+
+async function viewMemberOrders(row) {
+  memberOrdersMemberId.value = Number(row.member_id);
+  memberOrdersPage.value = 1;
+  memberOrdersRole.value = 'all';
+  memberOrdersKeyword.value = '';
+  memberOrdersData.value = { data: [], stats: {}, member: {} };
+  memberOrdersDlg.value = true;
+  await loadMemberOrders(1);
+}
+
+// 会员编辑弹窗里直接进入订单档案，不用退出去列表里再找按钮
+function viewMemberOrdersFromDetail() {
+  const id = Number(form.member_id || 0);
+  if (!id) { ElMessage.warning('当前会员没有 ID'); return; }
+  dialog.value = false;
+  viewMemberOrders({ member_id: id });
+}
+
+// ---------- 撤销 / 强制回撤最近一次订单转让 ----------
+// 转让流水里的昵称/原因是人工填的，塞进 dangerouslyUseHTMLString 前必须 esc
+async function revokeTransfer(force = false) {
+  const t = lastTransfer.value;
+  if (!t || revokingTransfer.value || revokingForce.value) return;
+  const flag = force ? revokingForce : revokingTransfer;
+  const fromName = t.from_name || `会员${t.from_member_id}`;
+  const toName = t.to_name || `会员${t.to_member_id}`;
+  const notice = force
+    ? `<div style="line-height:1.8;font-size:12.5px;color:#606266">
+         <b style="color:#d03050">会自动下架正在转拍的商品</b>：清除在挂标记、商品下架、退出场次关联；<br/>
+         然后订单归属、货权、转让次数与最近转让时间退回转让前，会员端「我的订单 / 我的店铺」同步恢复。<br/>
+         需要继续出售请重新点「转拍上架」，并先在商品管理里核对标价（挂牌时按下一轮涨价改过）。<br/>
+         <b>只回撤最近一次</b>：转过多次需逐次操作；平台不动账，积分 / 佣金 / 余额不受影响。<br/>
+         货已被下一手买走的订单仍会被拒绝 —— 那件货已属于第三方，不能抢回来。
+       </div>`
+    : `<div style="line-height:1.8;font-size:12.5px;color:#606266">
+         订单归属、货权、转让次数与最近转让时间都会退回转让前；会员端「我的订单 / 我的店铺」同步恢复。<br/>
+         <b>只撤销最近一次</b>：转过多次需要逐次撤销；平台不动账，积分 / 佣金 / 余额不受影响。<br/>
+         正在挂牌转拍的订单会被拒绝；转卖中的单子请用「强制回撤到上一手」。
+       </div>`;
+  try {
+    await ElMessageBox.confirm(
+      `<div style="text-align:left">
+         <div style="color:#d03050;font-weight:700;font-size:14px;margin-bottom:10px">${force
+           ? '危险操作 · 自动下架并强制回撤到上一手'
+           : '危险操作 · 撤销后本次转让记录会被删除'}</div>
+         <div style="line-height:1.9;font-size:13px">
+           订单号：${esc(form.order_no)}<br/>
+           本次转让：${esc(fromName)} → ${esc(toName)}<br/>
+           转让时间：${esc(t.create_time)}　原因：${esc(t.reason || '—')}<br/>
+           ${Number(t.paid_before) === 1 ? '已成交，货权同步退回原持有人' : '未成交，仅退回抢购名额'}
+         </div>
+         <div style="border-top:1px solid #e6e8ec;margin:12px 0 10px"></div>
+         ${notice}
+       </div>`,
+      force ? '强制回撤到上一手' : '撤销订单转让',
+      {
+        type: 'error',
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: force ? '确认强制回撤' : '确认撤销',
+        customClass: 'revoke-confirm-box',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+      },
+    );
+  } catch { return; }
+  flag.value = true;
+  try {
+    const r = await adminApi.revokeTransfer({
+      order_id: form.order_id,
+      transfer_id: t.transfer_id,
+      confirm: force ? 'FORCE_REVOKE_TRANSFER' : 'REVOKE_TRANSFER',
+    });
+    ElMessage.success(r?.msg || (force ? '已强制回撤到上一手' : '已撤销最近一次转让'));
+    dialog.value = false;
+    transferHistory.value = [];
+    reload();
+  } catch {
+    // 失败提示由 http 拦截器统一给出，详情保持打开方便核对
+  } finally {
+    flag.value = false;
+  }
+}
+
 // ---------- 会员启停用 / 删除 ----------
 async function toggleMemberStatus(row) {
   const toDisable = Number(row.disabled) === 10;
@@ -2319,7 +2643,8 @@ onUnmounted(() => {
 .tr-picked__limit.is-over { color: #d4380d; font-weight: 600; }
 
 .transfer-log { margin-top: 14px; border-top: 1px dashed #eef0f4; padding-top: 12px; }
-.transfer-log__title { font-size: 13px; font-weight: 600; color: #2b323d; margin-bottom: 6px; }
+.transfer-log__title { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; color: #2b323d; margin-bottom: 6px; }
+.transfer-log__acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .transfer-log__item { font-size: 12.5px; line-height: 1.7; padding: 5px 0; }
 .transfer-log__item + .transfer-log__item { border-top: 1px solid #f5f6f8; }
 .transfer-log__from { color: #9098a3; }
@@ -2515,4 +2840,33 @@ onUnmounted(() => {
 }
 .day-btn:hover { border-color: #ffcdc5; color: #d14328; }
 .day-btn.on { border-color: #ff8f7a; background: #fff1ee; color: #d14328; font-weight: 600; }
+/* 会员订单档案：展开行里的三栏明细，密度对齐现有列表，不另起一套配色 */
+.member-orders { width: 100%; box-sizing: border-box; }
+.member-orders__filters { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.member-orders__empty { padding: 28px; text-align: center; color: #a8adb7; font-size: 13px; }
+/* Element Plus 单元格默认 nowrap + 省略号，会把商品名/场次名截断。
+   这里放开换行，配合加宽后的弹窗让内容完整显示，而不是靠横向滚动条。 */
+.member-orders :deep(.el-table .cell) { white-space: normal; word-break: break-word; }
+.mo-detail {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px;
+  width: 100%; box-sizing: border-box;
+  padding: 12px 16px 16px; background: #fafbfc; border-radius: 10px;
+}
+.mo-detail__col { min-width: 0; }
+.mo-detail__title {
+  font-size: 12.5px; font-weight: 700; color: #2f3542;
+  margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #e8ebf0;
+}
+.mo-kv { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 12.5px; color: #6b7382; }
+.mo-kv > span { flex: none; }
+.mo-kv b { color: #2f3542; font-weight: 550; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.mo-kv--sum { margin-top: 4px; padding-top: 8px; border-top: 1px dashed #dfe3e9; }
+.mo-kv--sum b { color: #e05a3f; font-size: 14px; }
+.mo-extra { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; padding: 12px 16px; width: 100%; box-sizing: border-box; }
+.mo-extra__block { min-width: 0; }
+.mo-extra__block b { font-size: 12.5px; color: #2f3542; }
+.mo-extra__line { margin-top: 6px; font-size: 12px; color: #6b7382; line-height: 1.5; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .mo-detail, .mo-extra { grid-template-columns: 1fr; }
+}
 </style>
