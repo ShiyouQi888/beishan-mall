@@ -20,6 +20,7 @@ import mediaRouter from './media.js';
 import systemRouter from './system.js';
 import financeBoardRouter from './finance.js';
 import transposeRouter from './transpose.js';
+import unsoldRouter from './unsold.js';
 import { auditAdminRequest } from '../../lib/adminAudit.js';
 
 const r = Router();
@@ -33,6 +34,8 @@ r.use(mediaRouter);
 r.use(systemRouter);
 // 转拍订单：/transpose/* 也要排在通用路由前面（否则会被当成 module=transpose 的列表）
 r.use(transposeRouter);
+// 流拍订单：/unsold/* 同理
+r.use(unsoldRouter);
 // 财务大盘要在通用 /:module/* 之前挂载
 r.use(financeBoardRouter);
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;

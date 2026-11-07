@@ -51,6 +51,11 @@ export const MENU = [
         icon: `<path d="M4 8h13l-3.2-3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 16H7l3.2 3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`,
       },
       {
+        path: '/unsold',
+        title: '流拍订单',
+        icon: `<path d="M4 6.5h16v11H4z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M4 10h16M9 6.5v11" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m12.5 13 2 2 3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`,
+      },
+      {
         path: '/recycle',
         title: '系统回收',
         icon: `<path d="M20 12a8 8 0 1 1-2.3-5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M20.5 4.5V9H16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0 0 2.3 5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.5 19.5V15H8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`,

@@ -56,6 +56,9 @@ export const adminApi = {
   // 转拍订单：正在挂牌等下一手买走的单子，支持今日/昨日/周/月/自定义
   transposeList: (params) => http.get('/transpose/list', { params }),
   transposeDetail: (id) => http.get('/transpose/detail', { params: { id } }),
+  // 流拍订单：列表与「指定给会员（视同抢单成交）」
+  unsoldList: (params) => http.get('/unsold/list', { params }),
+  unsoldAssign: (d) => http.post('/unsold/assign', d),
   // 回撤转拍成交到指定手：撤销该手之后的成交单，货权与资金一并回退
   rollbackTranspose: (d) => http.post('/transpose/rollback', d),
   // 把正在转拍的商品改排到今天的场次

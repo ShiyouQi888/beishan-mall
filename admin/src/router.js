@@ -25,6 +25,8 @@ export default [
       list('/orders', 'orders', 'orders', '全部订单'),
       // 转拍订单是专门页面（要按今日/昨日/周/月/自定义筛选），不走通用 ListPage
       { path: '/transpose', name: 'transpose', component: () => import('./views/TransposeOrders.vue'), meta: { title: '转拍订单', permissionPath: '/transpose' } },
+      // 流拍订单：场次到期未成交、已退回持有人的货，可指定给会员视同抢单成交
+      { path: '/unsold', name: 'unsold', component: () => import('./views/UnsoldOrders.vue'), meta: { title: '流拍订单', permissionPath: '/unsold' } },
       list('/score-exchange', 'scoreExchange', 'scoreExchange', '积分兑换'),
       list('/recycle', 'recycle', 'recycle', '系统回收'),
       { path: '/finance-board', name: 'financeBoard', component: () => import('./views/FinanceBoard.vue'), meta: { title: '财务大盘', permissionPath: '/finance-board' } },
