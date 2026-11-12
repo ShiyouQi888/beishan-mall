@@ -59,6 +59,9 @@ export const adminApi = {
   // 流拍订单：列表与「指定给会员（视同抢单成交）」
   unsoldList: (params) => http.get('/unsold/list', { params }),
   unsoldAssign: (d) => http.post('/unsold/assign', d),
+  contractSignList: (params) => http.get('/contract-sign/list', { params }),
+  contractSignDetail: (params) => http.get('/contract-sign/detail', { params }),
+  contractSignExport: (params) => http.get('/contract-sign/export', { params }),
   // 回撤转拍成交到指定手：撤销该手之后的成交单，货权与资金一并回退
   rollbackTranspose: (d) => http.post('/transpose/rollback', d),
   // 把正在转拍的商品改排到今天的场次

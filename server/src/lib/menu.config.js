@@ -95,6 +95,11 @@ export const MENU = [
         title: '实名认证',
         icon: `<rect x="3" y="5" width="18" height="14" rx="2.2" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="11" r="2" stroke="currentColor" stroke-width="1.6"/><path d="M5.6 16.2c.4-1.5 1.7-2.4 3.4-2.4s3 .9 3.4 2.4" stroke="currentColor" stroke-width="1.6"/>`,
       },
+      {
+        path: '/contract-sign',
+        title: '合同签署记录',
+        icon: `<path d="M5 3.5h10l4 4V20a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 12h7M8 15.5h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="m14.5 17.5 1.4 1.2 2.6-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+      },
     ],
   },
   {

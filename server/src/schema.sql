@@ -514,3 +514,23 @@ CREATE TABLE IF NOT EXISTS delivery_template (
   sort        INTEGER DEFAULT 100,
   create_time TEXT
 );
+
+-- ---------- 会员服务电子合同签署记录 ----------
+-- 注册成功后由 registerAnAccount 在同一事务内写入；签名图落在 uploads/sign/ 下。
+-- 老库幂等建表见 lib/contractSign.js 的 ensureContractSignTable()。
+CREATE TABLE IF NOT EXISTS contract_signature (
+  sign_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  member_id         INTEGER NOT NULL DEFAULT 0,
+  phone             TEXT NOT NULL DEFAULT '',
+  real_name         TEXT NOT NULL DEFAULT '',
+  sign_image        TEXT NOT NULL DEFAULT '',     -- /uploads/sign/年月/xxx.png
+  contract_title    TEXT NOT NULL DEFAULT '',
+  contract_version  TEXT NOT NULL DEFAULT '',    -- 正文 sha256 前 16 位
+  contract_snapshot TEXT NOT NULL DEFAULT '',    -- 签署当时那一版正文
+  read_seconds      INTEGER NOT NULL DEFAULT 0,  -- 前端上报的阅读耗时
+  ip                TEXT NOT NULL DEFAULT '',
+  user_agent        TEXT NOT NULL DEFAULT '',
+  create_time       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_contract_sign_member ON contract_signature(member_id);
+CREATE INDEX IF NOT EXISTS idx_contract_sign_phone ON contract_signature(phone);

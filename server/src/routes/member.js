@@ -4,6 +4,7 @@ import { ok, fail, authMember, page, money, cfg, calcNextPrice, priceIncreaseRat
 import { priceCapOf } from '../lib/priceCap.js';
 import { addDays } from '../lib/sessionWindow.js';
 import { hashPwd, verifyPwd, needsRehash, signMember, randomCode } from '../lib/auth.js';
+import { contractMeta, decodeSignImage, insertSignature } from '../lib/contractSign.js';
 
 const r = Router();
 
@@ -47,6 +48,31 @@ r.post('/registerAnAccount', (req, res) => {
   const parent = codeStr ? get('SELECT * FROM member WHERE invitation_code = ?', codeStr) : null;
   if (codeStr && !parent) return res.json(fail('邀请码不存在'));
 
+  // ---- 电子合同签署（可选但一旦提交就必须完整合法）----
+  // 老客户端 / API 探针不带任何签署字段，走原来的注册路径；
+  // H5 签署后会带 contract_version，服务端据此核对合同版本并保存签名与证据链。
+  const signRealName = String(req.body.sign_real_name || '').trim();
+  const signImage = String(req.body.sign_image || '');
+  const signVersion = String(req.body.contract_version || '').trim();
+  const signReadSeconds = Number(req.body.sign_read_seconds) || 0;
+  const contractInfo = contractMeta();
+  let signBuf = null;
+  if (signImage || signRealName || signVersion) {
+    if (!signRealName) return res.json(fail('请填写真实姓名完成签署'));
+    if (!signImage) return res.json(fail('请手写签名后提交'));
+    if (signVersion && signVersion !== contractInfo.version) {
+      return res.json(fail('合同内容已更新，请重新阅读后签署'));
+    }
+    try {
+      signBuf = decodeSignImage(signImage);
+    } catch (e) {
+      return res.json(fail(e.message || '签名图片无效'));
+    }
+  }
+
+  const reqIp = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  const reqUa = String(req.headers['user-agent'] || '');
+
   const id = tx(() => {
     const myCode = uniqueCode();
     const info = run(
@@ -68,6 +94,19 @@ r.post('/registerAnAccount', (req, res) => {
       const childs = parent.child_id ? parent.child_id.split(',').filter(Boolean) : [];
       childs.push(String(newId));
       run('UPDATE member SET child_id = ? WHERE member_id = ?', childs.join(','), parent.member_id);
+    }
+    // 签名与账号在同一个事务里落库，避免出现「有签名没账号」
+    if (signBuf) {
+      insertSignature({
+        memberId: newId,
+        phone,
+        realName: signRealName,
+        signBuf,
+        meta: contractInfo,
+        readSeconds: signReadSeconds,
+        ip: reqIp,
+        userAgent: reqUa,
+      });
     }
     return newId;
   });

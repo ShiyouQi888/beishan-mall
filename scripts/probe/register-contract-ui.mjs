@@ -89,6 +89,8 @@ async function main() {
     db.prepare("UPDATE setting_config SET `value` = ? WHERE `key` = 'prompt_register'").run(LONG_CONTRACT);
     db.prepare("UPDATE setting_config SET `value` = ? WHERE `key` = 'contract_read_seconds'").run(String(READ_SECONDS));
     db.prepare("UPDATE setting_config SET `value` = '20' WHERE `key` = 'require_invite_code'").run();
+    // 本探针只验证「强制阅读」门控，签名是另一条链路，关掉避免多一步签署
+    db.prepare("UPDATE setting_config SET `value` = '20' WHERE `key` = 'contract_sign_required'").run();
 
     const wsUrl = await (async () => {
       for (let i = 0; i < 40; i++) {

@@ -21,6 +21,7 @@ import systemRouter from './system.js';
 import financeBoardRouter from './finance.js';
 import transposeRouter from './transpose.js';
 import unsoldRouter from './unsold.js';
+import contractSignRouter from './contractSign.js';
 import { auditAdminRequest } from '../../lib/adminAudit.js';
 
 const r = Router();
@@ -36,6 +37,8 @@ r.use(systemRouter);
 r.use(transposeRouter);
 // 流拍订单：/unsold/* 同理
 r.use(unsoldRouter);
+// 合同签署记录：/contract-sign/* 同理
+r.use(contractSignRouter);
 // 财务大盘要在通用 /:module/* 之前挂载
 r.use(financeBoardRouter);
 const cfg = (k, d = '') => get('SELECT `value` FROM setting_config WHERE `key` = ?', k)?.value ?? d;
@@ -696,6 +699,12 @@ const SETTING_GROUPS = {
       t: '强制阅读秒数',
       type: 'number',
       tip: '强制阅读倒计时，默认 15 秒；填 0 表示不限制时间（仍要求滚到底）。仅在「强制阅读合同」开启时生效。',
+    },
+    {
+      k: 'contract_sign_required',
+      t: '合同签名',
+      type: 'switch',
+      tip: '开启后，注册时读完合同还须填写真实姓名并手写签名才能提交；签名图、合同版本、时间、IP 会一并存档，可在「合同签署记录」中查询。关闭则回到「确认注册」直接提交。',
     },
     { k: 'prompt_privacy', t: '隐私政策', type: 'markdown' },
     { k: 'prompt_invite', t: '邀请须知', type: 'markdown' },

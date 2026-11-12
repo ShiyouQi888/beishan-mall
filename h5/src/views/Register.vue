@@ -64,27 +64,40 @@
       @closed="resetDoc"
     >
       <div class="reg__doc-head">
-        <strong>{{ docType === 'privacy' ? '隐私政策' : contractTitle }}</strong>
+        <strong>{{ stage === 'sign' ? '签署合同' : (docType === 'privacy' ? '隐私政策' : contractTitle) }}</strong>
         <button type="button" aria-label="关闭" @click="docVisible = false">×</button>
       </div>
-      <div ref="docBody" class="reg__doc-body" @scroll.passive="onDocScroll">
+
+      <div v-if="stage === 'read'" ref="docBody" class="reg__doc-body" @scroll.passive="onDocScroll">
         <div class="reg__doc-content rich-content" v-html="docContent" />
         <div v-if="needGate" class="reg__doc-tip" :class="{ 'is-done': reachedBottom }">
           {{ reachedBottom ? '已阅读至底部' : '请向下滑动，阅读到合同底部' }}
         </div>
       </div>
+
+      <div v-else class="reg__doc-sign">
+        <div class="reg__sign-notice">请在下方签署，<b>姓名 + 手写签名</b>将与合同版本、签署时间一并保存</div>
+        <label class="reg__sign-field">
+          <span>真实姓名 <i>*</i></span>
+          <input v-model="signName" maxlength="20" autocomplete="name" placeholder="请输入真实姓名" />
+        </label>
+        <div class="reg__sign-label">手写签名 <i>*</i></div>
+        <SignPad ref="signPad" />
+        <button type="button" class="reg__sign-back" @click="stage = 'read'">← 返回阅读合同</button>
+      </div>
+
       <div class="reg__doc-foot">
-        <div v-if="needGate" class="reg__doc-count">
+        <div v-if="needGate && stage === 'read'" class="reg__doc-count">
           <template v-if="countdown > 0">强制阅读倒计时 <b>{{ countdown }}</b> 秒</template>
           <template v-else>强制阅读已完成，可确认注册</template>
         </div>
         <button
           class="btn-main reg__doc-btn"
           type="button"
-          :disabled="needGate && !gatePassed"
+          :disabled="primaryDisabled"
           @click="onDocPrimary"
         >
-          {{ docButtonLabel }}
+          {{ primaryLabel }}
         </button>
       </div>
     </van-popup>
@@ -98,6 +111,7 @@ import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 import { sanitizeHtml } from '../../../shared/sanitize.js';
 import { renderRich } from '../../../shared/markdown.js';
+import SignPad from '../components/SignPad.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -111,6 +125,8 @@ const requireCode = ref(true);
 const contractTitle = ref('会员服务电子合同');
 const forceRead = ref(true);
 const readSeconds = ref(15);
+const signRequired = ref(true);
+const contractVersion = ref('');
 const agreements = ref({
   contract: '<h3>会员服务电子合同</h3><p>欢迎使用本商城服务。注册并使用本服务，即表示您同意遵守商城规则，并对您提交的信息和账号操作负责。</p>',
   privacy: '<h3>隐私政策</h3><p>我们仅在提供账号、订单、支付及售后服务所需范围内处理您的个人信息，并采取合理措施保护信息安全。</p>',
@@ -124,6 +140,13 @@ const reachedBottom = ref(false);
 const countdown = ref(0);
 let tickTimer = null;
 
+// ---- 签署步骤 ----
+const stage = ref('read');       // read = 阅读合同 / sign = 填写姓名 + 手写签名
+const signName = ref('');
+const signImage = ref('');
+const signPad = ref(null);
+let openedAt = 0;                // 记录阅读耗时，随签署一并存证
+
 // 只有「注册前读合同」这一路才受门控约束，主动点开查看不受限
 const needGate = computed(() => docMode.value === 'read' && docType.value === 'contract' && forceRead.value);
 const gatePassed = computed(() => !needGate.value || (reachedBottom.value && countdown.value <= 0));
@@ -131,11 +154,20 @@ const docContent = computed(() => {
   const raw = agreements.value[docType.value === 'privacy' ? 'privacy' : 'contract'];
   return sanitizeHtml(renderRich(raw)) || '<p>暂无内容</p>';
 });
-const docButtonLabel = computed(() => {
+const primaryLabel = computed(() => {
   if (docMode.value !== 'read') return '我知道了';
-  if (!needGate.value) return '确认注册';
-  if (!reachedBottom.value) return countdown.value > 0 ? `请阅读至底部（${countdown.value}s）` : '请阅读至底部';
-  return countdown.value > 0 ? `确认注册（${countdown.value}s）` : '确认注册';
+  if (stage.value === 'sign') return loading.value ? '提交中…' : '确认注册并签署';
+  if (!gatePassed.value) {
+    if (!reachedBottom.value) return countdown.value > 0 ? `请阅读至底部（${countdown.value}s）` : '请阅读至底部';
+    return signRequired.value ? `请稍候（${countdown.value}s）` : `确认注册（${countdown.value}s）`;
+  }
+  return signRequired.value ? '下一步：签署' : '确认注册';
+});
+// 签名阶段必须同时有姓名和笔迹；阅读阶段按门控放行
+const primaryDisabled = computed(() => {
+  if (docMode.value !== 'read') return false;
+  if (stage.value === 'sign') return loading.value || !signName.value.trim() || !signPad.value || signPad.value.isEmpty();
+  return needGate.value && !gatePassed.value;
 });
 
 function stopTimer() {
@@ -173,8 +205,12 @@ function onDocScroll(e) {
 function openDoc(type, mode) {
   docType.value = type;
   docMode.value = mode;
+  stage.value = 'read';
+  signName.value = '';
+  signImage.value = '';
   reachedBottom.value = false;
   countdown.value = 0;
+  openedAt = Date.now();
   docVisible.value = true;
   nextTick(() => {
     measureBottom();
@@ -188,6 +224,7 @@ function resetDoc() {
   stopTimer();
   countdown.value = 0;
   reachedBottom.value = false;
+  stage.value = 'read';
 }
 
 function onDocPrimary() {
@@ -195,7 +232,21 @@ function onDocPrimary() {
     docVisible.value = false;
     return;
   }
+  // 签署步骤：姓名 + 笔迹齐了才真正提交注册
+  if (stage.value === 'sign') {
+    if (!signName.value.trim()) return showToast('请填写真实姓名');
+    const png = signPad.value?.toDataURL?.();
+    if (!png) return showToast('请先手写签名');
+    signImage.value = png;
+    docVisible.value = false;
+    doRegister();
+    return;
+  }
   if (!gatePassed.value) return;
+  if (signRequired.value) {
+    stage.value = 'sign';
+    return;
+  }
   docVisible.value = false;
   doRegister();
 }
@@ -211,7 +262,15 @@ function submit() {
 async function doRegister() {
   loading.value = true;
   try {
-    const r = await api.register(form);
+    const payload = { ...form };
+    // 签名与账号一次提交：后端在同一事务里落库，不会出现「有签名没账号」
+    if (signImage.value) {
+      payload.sign_real_name = signName.value.trim();
+      payload.sign_image = signImage.value;
+      payload.sign_read_seconds = Math.max(0, Math.round((Date.now() - openedAt) / 1000));
+      payload.contract_version = contractVersion.value;
+    }
+    const r = await api.register(payload);
     localStorage.setItem('TOKEN', r.data.token);
     showToast('注册成功');
     setTimeout(() => router.replace('/'), 400);
@@ -229,6 +288,8 @@ onMounted(async () => {
     if (r.data?.title) contractTitle.value = r.data.title;
     if (r.data?.force_read !== undefined) forceRead.value = !!r.data.force_read;
     if (r.data?.read_seconds !== undefined) readSeconds.value = Number(r.data.read_seconds) || 0;
+    if (r.data?.sign_required !== undefined) signRequired.value = !!r.data.sign_required;
+    if (r.data?.contract_version) contractVersion.value = String(r.data.contract_version);
     if (r.data?.require_invite_code !== undefined) requireCode.value = String(r.data.require_invite_code) === '1';
   } catch {}
 });
@@ -273,6 +334,15 @@ onBeforeUnmount(stopTimer);
 .reg__doc-count b { color:#e45443;font-size:13px;font-weight:700; }
 .reg__doc-btn { width:100%;height:47px;border-radius:14px;font-size:15px;font-weight:650; }
 .reg__doc-btn:disabled { opacity:.55;box-shadow:none;cursor:not-allowed; }
+.reg__doc-sign { flex:1;min-height:0;overflow-y:auto;padding:14px 2px 4px;-webkit-overflow-scrolling:touch; }
+.reg__sign-notice { margin-bottom:16px;padding:10px 12px;border-radius:10px;background:#fff5f2;color:#a2564a;font-size:11.5px;line-height:1.65; }
+.reg__sign-notice b { color:#d94c39;font-weight:650; }
+.reg__sign-field { display:block;margin-bottom:14px; }
+.reg__sign-field > span,.reg__sign-label { display:block;margin:0 0 7px 2px;color:#727b88;font-size:12px;font-weight:600; }
+.reg__sign-field i,.reg__sign-label i { color:#e45443;font-style:normal;margin-left:2px; }
+.reg__sign-field input { display:block;width:100%;height:44px;padding:0 13px;border:1px solid #e8ebf0;border-radius:11px;background:#f8f9fb;color:#303641;font-family:var(--font);font-size:14px;outline:none;box-sizing:border-box; }
+.reg__sign-field input:focus { border-color:#ff806b;background:#fff;box-shadow:0 0 0 3px rgba(var(--brand-rgb),.08); }
+.reg__sign-back { margin-top:12px;padding:0;border:0;background:none;color:#8b93a0;font-size:12px;cursor:pointer; }
 .reg__submit { height:49px;border-radius:15px;box-shadow:0 8px 18px rgba(var(--brand-rgb),.2);font-size:15px;font-weight:650; }
 .reg__submit:disabled { opacity:.68;box-shadow:none; }
 .reg__login { margin-top:18px;color:#818995;font-size:13px;text-align:center;cursor:pointer; }

@@ -6,6 +6,7 @@ import { ok, fail, authMember } from '../lib/helper.js';
 // 后台协议/须知支持直接粘贴 Markdown：接口统一输出排版好的 HTML，
 // 已经是 HTML 的老数据原样返回（前台 sanitizeHtml 会再净化一次）。
 import { renderRich } from '../../../shared/markdown.js';
+import { contractMeta, signRequired } from '../lib/contractSign.js';
 
 const r = Router();
 
@@ -179,6 +180,9 @@ r.get('/index/getRegisterAgreements', (req, res) => {
       // 10 = 开启强制阅读（滚到底 + 倒计时），其它值 = 关闭
       force_read: String(cfg('contract_force_read', '10')) === '10',
       read_seconds: seconds > 0 ? Math.min(seconds, 600) : 0,
+      // 阅读完是否进入签署步骤；版本指纹用于后端核对"签的是哪一版合同"
+      sign_required: signRequired(),
+      contract_version: contractMeta().version,
       // 注册页要据此决定邀请码是否必填
       require_invite_code: Number(cfg('require_invite_code', '10')) === 10 ? '1' : '0',
     }),

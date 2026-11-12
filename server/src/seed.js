@@ -97,6 +97,7 @@ tx(() => {
     ['contract_title', '会员服务电子合同', 'prompt'],
     ['contract_force_read', '10', 'prompt'],   // 注册强制阅读：10 开启（滚到底 + 倒计时）/ 20 关闭
     ['contract_read_seconds', '15', 'prompt'], // 强制阅读倒计时秒数，0 = 不限时
+    ['contract_sign_required', '10', 'prompt'], // 阅读完是否必须填写姓名 + 手写签名（10 是 / 20 否）
     ['prompt_invite', '<p>邀请好友注册，好友完成交易后可获得佣金奖励。</p>', 'prompt'],
     ['prompt_shop', '<p>商城服务协议内容。</p>', 'prompt'],
     ['prompt_trade', '<p>交易规则：商品一经售出，非质量问题不予退换。</p>', 'prompt'],

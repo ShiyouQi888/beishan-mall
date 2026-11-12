@@ -16,6 +16,7 @@ import { backfillPieceOrderAssets } from './lib/orderAssets.js';
 import { fail, cfg } from './lib/helper.js';
 import { themeOf, DEFAULT_THEME } from './lib/themes.js';
 import { DEFAULT_CONTRACT_HTML, LEGACY_CONTRACT_HINT } from './lib/defaultContract.js';
+import { ensureContractSignTable } from './lib/contractSign.js';
 
 import indexRouter from './routes/index.js';
 import memberRouter from './routes/member.js';
@@ -328,11 +329,13 @@ for (const [to, from] of [
 
 // 注册协议 → 会员服务电子合同：补齐门控配置项，并把仍是旧默认提示语的正文换成合同正文。
 // 只覆盖与历史默认值完全一致的内容，运营自己改过的正文一律不动。
+ensureContractSignTable();
 {
   for (const [k, v] of [
     ['contract_title', '会员服务电子合同'],
     ['contract_force_read', '10'],
     ['contract_read_seconds', '15'],
+    ['contract_sign_required', '10'],
   ]) {
     if (!get('SELECT 1 FROM setting_config WHERE `key` = ?', k)) {
       run('INSERT INTO setting_config (`key`, `value`, `group`) VALUES (?,?,?)', k, v, 'prompt');

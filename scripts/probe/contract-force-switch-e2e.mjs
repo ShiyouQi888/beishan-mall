@@ -96,6 +96,8 @@ async function main() {
   try {
     // 测试前提：邀请码选填，注册表单里就不用猜 seed 的邀请码
     db.prepare("UPDATE setting_config SET `value` = '20' WHERE `key` = 'require_invite_code'").run();
+    // 本探针只验证强制阅读开关，关闭签名开关以隔离新签署步骤
+    db.prepare("UPDATE setting_config SET `value` = '20' WHERE `key` = 'contract_sign_required'").run();
     const cfgVal = (k) => get('SELECT `value` v FROM setting_config WHERE `key` = ?', k)?.v;
     const memberCount = (phone) => get('SELECT COUNT(*) c FROM member WHERE mobile = ?', phone)?.c || 0;
 
