@@ -21,7 +21,7 @@
     <van-popup v-model:show="show" position="bottom" round :style="{ maxHeight: '80vh', padding: '22px 18px 28px' }">
       <div class="p-title">{{ cur.title }}</div>
       <div class="p-time muted">{{ cur.create_time }}</div>
-      <div class="p-content" v-html="safeContent" />
+      <div class="p-content rich-content" v-html="safeContent" />
     </van-popup>
   </div>
 </template>
@@ -30,6 +30,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api.js';
 import { sanitizeHtml } from '../../../shared/sanitize.js';
+import { renderRich } from '../../../shared/markdown.js';
 
 const list = ref([]);
 const show = ref(false);
@@ -37,7 +38,7 @@ const cur = ref({});
 
 const strip = (h) => (h || '').replace(/<[^>]+>/g, '').slice(0, 80);
 // 公告正文来自后台，渲染前净化
-const safeContent = computed(() => sanitizeHtml(cur.value?.content));
+const safeContent = computed(() => sanitizeHtml(renderRich(cur.value?.content)));
 
 function open(n) {
   cur.value = n;
@@ -62,5 +63,4 @@ onMounted(async () => {
 .p-title { font-size: 17px; font-weight: 700; }
 .p-time { font-size: 11.5px; margin: 6px 0 14px; }
 .p-content { font-size: 13.5px; line-height: 1.8; color: var(--text-2); }
-.p-content :deep(p) { margin: 0 0 8px; }
 </style>

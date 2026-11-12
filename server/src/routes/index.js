@@ -3,6 +3,9 @@ import { useCascaderAreaData } from '@vant/area-data';
 import { themeOf, DEFAULT_THEME } from '../lib/themes.js';
 import { all, get } from '../db.js';
 import { ok, fail, authMember } from '../lib/helper.js';
+// 后台协议/须知支持直接粘贴 Markdown：接口统一输出排版好的 HTML，
+// 已经是 HTML 的老数据原样返回（前台 sanitizeHtml 会再净化一次）。
+import { renderRich } from '../../../shared/markdown.js';
 
 const r = Router();
 
@@ -160,7 +163,7 @@ r.get('/index/getSubscribeSetting', (req, res) => {
 
 // 邀请须知
 r.get('/index/getInvitationNotice', (req, res) => {
-  res.json(ok({ prompt_values: cfg('prompt_invite', cfg('invitation_notice', '')) }));
+  res.json(ok({ prompt_values: renderRich(cfg('prompt_invite', cfg('invitation_notice', ''))) }));
 });
 
 // 注册时的《会员服务电子合同》：正文、名称、强制阅读门控都由后台「须知配置」维护，
@@ -170,8 +173,8 @@ r.get('/index/getRegisterAgreements', (req, res) => {
   const seconds = Math.round(cfgNumber('contract_read_seconds', 15));
   res.json(
     ok({
-      user: cfg('prompt_register', cfg('register_agreement', '')),
-      privacy: cfg('prompt_privacy', ''),
+      user: renderRich(cfg('prompt_register', cfg('register_agreement', ''))),
+      privacy: renderRich(cfg('prompt_privacy', '')),
       title: String(cfg('contract_title', '') || '').trim() || '会员服务电子合同',
       // 10 = 开启强制阅读（滚到底 + 倒计时），其它值 = 关闭
       force_read: String(cfg('contract_force_read', '10')) === '10',
@@ -186,8 +189,8 @@ r.get('/index/getRegisterAgreements', (req, res) => {
 r.get('/index/getGroupAfterSalesAgreement', (req, res) => {
   res.json(
     ok({
-      shop_agreement: cfg('prompt_shop', cfg('shop_agreement', '')),
-      transaction_agreement: cfg('prompt_trade', cfg('transaction_agreement', '')),
+      shop_agreement: renderRich(cfg('prompt_shop', cfg('shop_agreement', ''))),
+      transaction_agreement: renderRich(cfg('prompt_trade', cfg('transaction_agreement', ''))),
     }),
   );
 });
@@ -220,11 +223,12 @@ r.get('/index/getMemberId', authMember, (req, res) => res.json(ok(req.member.mem
 
 // 公告
 r.get('/notice/getNotice', (req, res) => {
-  res.json(ok(all('SELECT id, title, content, create_time FROM notice ORDER BY sort ASC, id DESC')));
+  const rows = all('SELECT id, title, content, create_time FROM notice ORDER BY sort ASC, id DESC');
+  res.json(ok(rows.map((n) => ({ ...n, content: renderRich(n.content) }))));
 });
 
 r.get('/member/getNotice', (req, res) => {
-  res.json(ok({ content: cfg('prompt_register', cfg('register_agreement', '')) }));
+  res.json(ok({ content: renderRich(cfg('prompt_register', cfg('register_agreement', ''))) }));
 });
 
 // 地区树：服务启动时加载完整省市区数据，避免依赖数据库里的演示地区。

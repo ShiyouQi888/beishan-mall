@@ -68,7 +68,7 @@
         <button type="button" aria-label="关闭" @click="docVisible = false">×</button>
       </div>
       <div ref="docBody" class="reg__doc-body" @scroll.passive="onDocScroll">
-        <div class="reg__doc-content" v-html="docContent" />
+        <div class="reg__doc-content rich-content" v-html="docContent" />
         <div v-if="needGate" class="reg__doc-tip" :class="{ 'is-done': reachedBottom }">
           {{ reachedBottom ? '已阅读至底部' : '请向下滑动，阅读到合同底部' }}
         </div>
@@ -97,6 +97,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 import { sanitizeHtml } from '../../../shared/sanitize.js';
+import { renderRich } from '../../../shared/markdown.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -128,7 +129,7 @@ const needGate = computed(() => docMode.value === 'read' && docType.value === 'c
 const gatePassed = computed(() => !needGate.value || (reachedBottom.value && countdown.value <= 0));
 const docContent = computed(() => {
   const raw = agreements.value[docType.value === 'privacy' ? 'privacy' : 'contract'];
-  return sanitizeHtml(raw) || '<p>暂无内容</p>';
+  return sanitizeHtml(renderRich(raw)) || '<p>暂无内容</p>';
 });
 const docButtonLabel = computed(() => {
   if (docMode.value !== 'read') return '我知道了';
@@ -265,8 +266,6 @@ onBeforeUnmount(stopTimer);
 .reg__doc-head button { flex:none;width:30px;height:30px;border:0;border-radius:50%;background:#f3f4f6;color:#707985;font-size:22px;line-height:1;cursor:pointer; }
 .reg__doc-body { flex:1;min-height:0;overflow-y:auto;padding:13px 2px 6px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain; }
 .reg__doc-content { color:#515966;font-size:13px;line-height:1.85;word-break:break-word; }
-.reg__doc-content :deep(p) { margin:0 0 10px; }
-.reg__doc-content :deep(h3) { margin:2px 0 10px;color:#252a32;font-size:15px;font-weight:700; }
 .reg__doc-tip { margin:4px 0 2px;padding:8px 10px;border-radius:10px;background:#f5f6f8;color:#98a0ab;font-size:11.5px;text-align:center;transition:background .2s,color .2s; }
 .reg__doc-tip.is-done { background:#f0f8f3;color:#4a9463; }
 .reg__doc-foot { flex:none;padding-top:12px; }

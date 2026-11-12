@@ -42,6 +42,33 @@
               placeholder="支持 HTML 富文本"
               style="max-width: 620px"
             />
+            <!-- 协议/须知：直接粘贴 Markdown，或导入 .md 文件，预览即前台排版效果 -->
+            <div v-else-if="it.type === 'markdown'" class="md-editor">
+              <div class="md-editor__bar">
+                <span class="md-editor__hint">可直接粘贴 Markdown（# 标题、- 列表、表格…），也兼容已有 HTML</span>
+                <div class="md-editor__actions">
+                  <button type="button" class="md-editor__tab" :class="{ on: mdMode[it.k] !== 'preview' }" @click="mdMode[it.k] = 'edit'">编辑</button>
+                  <button type="button" class="md-editor__tab" :class="{ on: mdMode[it.k] === 'preview' }" @click="mdMode[it.k] = 'preview'">预览</button>
+                  <button type="button" class="md-editor__tab" @click="pickMdFile(it.k)">导入 .md</button>
+                  <input
+                    :ref="(el) => setMdFileRef(it.k, el)"
+                    type="file"
+                    accept=".md,.markdown,.txt,text/markdown,text/plain"
+                    hidden
+                    @change="onMdFile(it.k, $event)"
+                  />
+                </div>
+              </div>
+              <el-input
+                v-if="mdMode[it.k] !== 'preview'"
+                v-model="values[it.k]"
+                type="textarea"
+                :rows="12"
+                placeholder="# 一级标题&#10;&#10;## 二级标题&#10;&#10;- 列表项&#10;- **加粗**"
+                class="md-editor__input"
+              />
+              <div v-else class="md-editor__preview rich-content" v-html="mdPreview(it.k)" />
+            </div>
             <div v-else-if="it.type === 'image'" class="upload-inline">
               <div class="image-field">
                 <ImageUploader v-model="values[it.k]" :upload="uploadImage" :presets="imagePresets(it.k)" />
@@ -111,11 +138,32 @@ import { ElMessage } from 'element-plus';
 import { adminApi } from '../api.js';
 import ImageUploader from '../components/ImageUploader.vue';
 import PosterDesigner from '../components/PosterDesigner.vue';
+import { renderRich } from '../../../shared/markdown.js';
+import { sanitizeHtml } from '../../../shared/sanitize.js';
 
 const route = useRoute();
 const items = ref([]);
 const values = reactive({});
 const loading = ref(false);
+
+// ---- Markdown 协议编辑器：编辑/预览切换 + 导入 .md 文件 ----
+const mdMode = reactive({});
+const mdFileEls = {};
+const setMdFileRef = (k, el) => { if (el) mdFileEls[k] = el; };
+const pickMdFile = (k) => mdFileEls[k]?.click();
+function onMdFile(k, e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    values[k] = String(reader.result || '');
+    mdMode[k] = 'edit';
+    e.target.value = ''; // 允许重复导入同一个文件
+  };
+  reader.readAsText(file, 'utf-8');
+}
+// 与前台同一套渲染器，预览所见即会员看到的效果
+const mdPreview = (k) => sanitizeHtml(renderRich(values[k])) || '<p>暂无内容，请切回「编辑」粘贴 Markdown 文档</p>';
 // 外观主题候选（服务端 lib/themes.js 里维护）
 const themes = ref([]);
 async function loadThemes() {
@@ -161,7 +209,7 @@ const META = {
   nav: { t: '导航配置', d: '首页、分类、抢购、邀请和个人中心的底部导航开关' },
   storage: { t: '上传配置', d: '文件存储方式、访问域名与大小限制' },
   poster: { t: '海报配置', d: '邀请海报背景、Logo、二维码位置与文案' },
-  prompt: { t: '须知配置', d: '会员服务电子合同（含强制阅读）、隐私政策、邀请须知、商城协议、交易协议，以及抢购/转拍须知' },
+  prompt: { t: '须知配置', d: '会员服务电子合同（含强制阅读）、隐私政策、邀请/商城/交易协议及抢购、转拍须知；可直接粘贴 Markdown 并实时预览' },
 };
 
 const groupTitle = computed(() => META[route.params.group]?.t || '系统设置');
@@ -335,4 +383,21 @@ onMounted(load);
 }
 .tip .dot { width: 6px; height: 6px; border-radius: 50%; background: #ff513a; opacity: 0.6; }
 .field-tip { flex: 0 0 100%; max-width: 620px; color: #9299a3; font-size: 11.5px; line-height: 1.55; margin-top: 4px; }
+
+/* Markdown 协议编辑器：编辑/预览/导入共用一条工具栏，宽度与表单其它控件对齐 */
+.md-editor { width: min(720px, 100%); }
+.md-editor__bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.md-editor__hint { color: #8c93a0; font-size: 11.5px; line-height: 1.55; }
+.md-editor__actions { display: flex; gap: 6px; flex: none; }
+.md-editor__tab {
+  padding: 5px 11px; border: 1px solid #e3e7ee; border-radius: 8px;
+  background: #fff; color: #5b6575; font-size: 12px; cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.md-editor__tab:hover { border-color: #ff9a86; color: #e45443; }
+.md-editor__tab.on { border-color: #ff806b; background: #fff3f0; color: #e45443; font-weight: 650; }
+.md-editor__preview {
+  min-height: 220px; max-height: 520px; overflow: auto;
+  padding: 18px 22px; border: 1px solid #e8ebf0; border-radius: 10px; background: #fff;
+}
 </style>

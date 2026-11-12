@@ -1,0 +1,94 @@
+/**
+ * 后台可编辑富文本的统一样式（协议 / 须知 / 公告 / 商品详情）
+ * H5 与 admin 预览共用一份，避免两边排版各写一套。
+ * 字号用 em 相对容器，移动端 13px、后台预览 14px 都能自适应。
+ */
+.rich-content { color: #414955; line-height: 1.8; word-break: break-word; }
+.rich-content > :first-child { margin-top: 0; }
+.rich-content > :last-child { margin-bottom: 0; }
+
+.rich-content h1,
+.rich-content h2,
+.rich-content h3,
+.rich-content h4,
+.rich-content h5,
+.rich-content h6 {
+  margin: 1.35em 0 .55em;
+  color: #252a32;
+  font-weight: 700;
+  line-height: 1.45;
+}
+.rich-content h1 { font-size: 1.55em; }
+.rich-content h2 { font-size: 1.35em; }
+.rich-content h3 { font-size: 1.18em; }
+.rich-content h4 { font-size: 1.08em; }
+.rich-content h5,
+.rich-content h6 { font-size: 1em; }
+
+.rich-content p { margin: 0 0 .85em; }
+.rich-content strong,
+.rich-content b { font-weight: 700; color: #252a32; }
+.rich-content em { font-style: italic; }
+.rich-content s { text-decoration: line-through; opacity: .75; }
+.rich-content br { line-height: 1.9; }
+
+.rich-content ul,
+.rich-content ol { margin: 0 0 .95em; padding-left: 1.55em; }
+.rich-content ul { list-style: disc; }
+.rich-content ol { list-style: decimal; }
+.rich-content li { margin: .25em 0; }
+.rich-content li > ul,
+.rich-content li > ol { margin: .25em 0 .25em; }
+.rich-content dl { margin: 0 0 .95em; }
+.rich-content dt { font-weight: 650; }
+.rich-content dd { margin: 0 0 .35em 1.2em; color: #6b7280; }
+
+.rich-content blockquote {
+  margin: 0 0 1em;
+  padding: .55em .9em;
+  border-left: 3px solid #ff806b;
+  border-radius: 0 8px 8px 0;
+  background: #fff7f5;
+  color: #6b7280;
+}
+.rich-content blockquote p:last-child { margin-bottom: 0; }
+
+.rich-content hr { margin: 1.3em 0; border: 0; border-top: 1px solid #e8ebf0; }
+
+.rich-content table {
+  width: 100%;
+  margin: 0 0 1em;
+  border-collapse: collapse;
+  font-size: .95em;
+}
+.rich-content th,
+.rich-content td {
+  padding: 8px 10px;
+  border: 1px solid #e6e9ef;
+  text-align: left;
+  vertical-align: top;
+}
+.rich-content th { background: #f7f8fa; font-weight: 650; color: #333a45; }
+.rich-content tbody tr:nth-child(even) { background: #fcfcfd; }
+
+.rich-content code {
+  padding: .12em .36em;
+  border-radius: 4px;
+  background: #f1f3f7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .9em;
+}
+.rich-content pre {
+  margin: 0 0 1em;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: 9px;
+  background: #f5f6f8;
+  line-height: 1.6;
+}
+.rich-content pre code { padding: 0; background: none; font-size: .92em; }
+
+.rich-content a { color: #d94c39; text-decoration: underline; text-underline-offset: 2px; }
+.rich-content img { display: block; max-width: 100%; height: auto; margin: .6em auto; border-radius: 8px; }
+.rich-content figure { margin: 0 0 1em; }
+.rich-content figcaption { color: #8a94a3; font-size: .9em; text-align: center; }

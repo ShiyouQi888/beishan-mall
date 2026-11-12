@@ -64,7 +64,7 @@
 
     <div class="detail__desc card">
       <div class="sec-title"><span>商品详情</span></div>
-      <div v-if="hasDetailText" class="detail__rich" v-html="safeDetail" />
+      <div v-if="hasDetailText" class="detail__rich rich-content" v-html="safeDetail" />
       <!-- 详情长图：后台「详情图片」按上传顺序铺满宽度，不再单独加边距，拼接处像一整张长图 -->
       <div v-if="detailImages.length" class="detail__long">
         <img v-for="(im, i) in detailImages" :key="i" :src="im" alt="" loading="lazy" />
@@ -94,6 +94,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { showToast } from '../utils/feedback.js';
 import { api } from '../api.js';
 import { sanitizeHtml } from '../../../shared/sanitize.js';
+import { renderRich } from '../../../shared/markdown.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -105,7 +106,7 @@ let refreshing = false;
 
 // 商品详情是后台可编辑的富文本，渲染前必须净化
 const hasDetailText = computed(() => !!String(g.value.detail || '').trim());
-const safeDetail = computed(() => sanitizeHtml(g.value.detail));
+const safeDetail = computed(() => sanitizeHtml(renderRich(g.value.detail)));
 // 详情长图：后台「详情图片」字段，已由服务端转成可直接访问的地址
 const detailImages = computed(() => (Array.isArray(g.value.detail_images) ? g.value.detail_images.filter(Boolean) : []));
 const gallery = computed(() => {

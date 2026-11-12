@@ -38,7 +38,7 @@
 
       <div class="card invite__rules">
         <div class="sec-title" style="padding: 15px 0 4px"><span>奖励规则</span></div>
-        <div class="rule-richtext" v-html="safeNotice" />
+        <div class="rule-richtext rich-content" v-html="safeNotice" />
       </div>
 
       <div class="invite__actions">
@@ -66,6 +66,7 @@ import { showToast } from '../utils/feedback.js';
 import QRCode from 'qrcode';
 import { api } from '../api.js';
 import { sanitizeHtml } from '../../../shared/sanitize.js';
+import { renderRich } from '../../../shared/markdown.js';
 
 const me = ref({});
 const stats = reactive({ child: 0, team: 0 });
@@ -75,7 +76,7 @@ const posterPreview = ref('');
 const noticeHtml = ref('<p>· 好友通过您的邀请码注册后成为您的直推会员。</p><p>· 好友完成交易后，您可获得对应比例的佣金奖励。</p><p>· 佣金实时结算至您的佣金账户。</p>');
 
 // 邀请规则来自后台富文本配置，渲染前净化
-const safeNotice = computed(() => sanitizeHtml(noticeHtml.value));
+const safeNotice = computed(() => sanitizeHtml(renderRich(noticeHtml.value)));
 const steps = [
   { t: '复制邀请码', d: '点击上方按钮复制您的专属邀请码' },
   { t: '分享给好友', d: '好友注册时填写该邀请码即可绑定关系' },
@@ -355,7 +356,6 @@ onMounted(load);
   line-height: 1.75;
   padding-bottom: 4px;
 }
-.rule-richtext :deep(p) { margin: 0 0 4px; }
 
 .invite__actions { display: flex; flex-direction: column; gap: 10px; margin: 16px 0 4px; }
 .invite__poster-button{border:1px solid #f2b7aa!important;color:#dc5039!important;background:#fff!important;}

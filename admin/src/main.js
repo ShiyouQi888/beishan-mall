@@ -2,6 +2,7 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
 import './styles/main.css';
+import '../../shared/rich-content.css';
 import App from './App.vue';
 import routes from './router.js';
 import { adminApi } from './api.js';
