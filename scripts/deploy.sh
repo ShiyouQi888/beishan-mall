@@ -65,6 +65,14 @@ if [ -z "$IMG_VER" ]; then
 fi
 echo "    ✓ 镜像版本 $IMG_VER"
 
+# 运行期依赖自检：镜像里若漏了 server/src 的跨目录依赖（如 shared/），
+# 容器会一启动就 ERR_MODULE_NOT_FOUND，健康检查全红再回滚。这里提前拦住。
+if ! docker run --rm --entrypoint node "$IMAGE" /app/scripts/check-runtime-deps.mjs; then
+  echo "    ✗ 镜像运行期依赖自检失败，中止重建（镜像可能用旧 Dockerfile 构建）" >&2
+  exit 1
+fi
+echo "    ✓ 运行期依赖齐全"
+
 # ---------- 3. 逐个重建 ----------
 for NAME in "${NAMES[@]}"; do
   echo

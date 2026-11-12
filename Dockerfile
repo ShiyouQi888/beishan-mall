@@ -48,10 +48,18 @@ COPY --from=build /app/server/package*.json ./server/
 COPY --from=build /app/server/node_modules ./server/node_modules
 COPY --from=build /app/server/src ./server/src
 COPY --from=build /app/server/test ./server/test
+# 服务端运行期会 import ../../../shared/*.js（协议 Markdown 渲染器等）。
+# 构建阶段 COPY . . 里有这个目录，但运行阶段是精简镜像，漏拷会让 app.js
+# 一加载路由就 ERR_MODULE_NOT_FOUND，容器直接 unhealthy（健康检查全红后回滚）。
+COPY --from=build /app/shared ./shared
 COPY --from=build /app/public ./public
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/docs ./docs
 COPY --from=build /app/package.json ./package.json
+
+# 构建期自检：服务端任何运行期 import 漏拷，这里就直接让镜像构建失败，
+# 而不是等容器健康检查全红、部署脚本回滚才发现
+RUN node scripts/check-runtime-deps.mjs
 
 # 数据目录（SQLite + 上传文件），挂卷持久化
 RUN mkdir -p /app/data/uploads \
