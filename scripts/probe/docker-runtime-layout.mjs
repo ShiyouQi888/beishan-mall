@@ -14,6 +14,7 @@
  * 用法: node scripts/probe/docker-runtime-layout.mjs
  */
 import { spawn } from 'node:child_process';
+import { deflateSync } from 'node:zlib';
 import {
   existsSync, mkdirSync, readFileSync, cpSync, symlinkSync, rmSync, readdirSync,
 } from 'node:fs';
@@ -108,6 +109,47 @@ async function waitHealth(timeout = 15000) {
   return 0;
 }
 
+/** 构造一张真实合法的 16x16 PNG，用于验证容器内签名落盘 */
+const CRC_TABLE = (() => {
+  const t = [];
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function pngChunk(type, data) {
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  const t = Buffer.from(type, 'ascii');
+  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([t, data])));
+  return Buffer.concat([len, t, data, crc]);
+}
+function pngDataUrl() {
+  const w = 16, h = 16;
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y += 1) {
+    const row = y * (w * 3 + 1);
+    for (let x = 0; x < w; x += 1) {
+      raw[row + 1 + x * 3] = x === y ? 30 : 255;
+      raw[row + 2 + x * 3] = x === y ? 30 : 255;
+      raw[row + 3 + x * 3] = x === y ? 30 : 255;
+    }
+  }
+  const buf = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr), pngChunk('IDAT', deflateSync(raw)), pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+  return `data:image/png;base64,${buf.toString('base64')}`;
+}
+
 let srv = null;
 async function main() {
   section('[1] Dockerfile 清单 vs 服务端 import');
@@ -143,6 +185,48 @@ async function main() {
   srv.stderr.on('data', (d) => (log += String(d)));
   const health = await waitHealth();
   ok(health === 1, '容器内 /api/health 返回 code=1（对应 HEALTHCHECK 通过）', log.slice(-300));
+
+  section('[2b] 新签署代码在精简镜像布局里能否跑通');
+  const post = async (path, body, headers = {}) => {
+    const r = await fetch(BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+    return r.json();
+  };
+  const agree = await (await fetch(`${BASE}/api/index/getRegisterAgreements`)).json();
+  const signed = await post('/api/member/registerAnAccount', {
+    phone: '13975000001', password: 'probe123456', code: 'boss01',
+    sign_real_name: '容器验收', sign_image: pngDataUrl(),
+    sign_read_seconds: 5, contract_version: agree.data?.contract_version,
+  });
+  ok(signed.code === 1, '容器内带签名注册成功', JSON.stringify(signed).slice(0, 160));
+  const signRoot = join(LAYOUT, 'data', 'uploads', 'sign');
+  const pngs = [];
+  (function collect(d) {
+    if (!existsSync(d)) return;
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) collect(p);
+      else if (e.name.endsWith('.png')) pngs.push(p);
+    }
+  })(signRoot);
+  ok(pngs.length === 1, '签名 PNG 落在 /app/data/uploads/sign/（VOLUME 内）', `${pngs.length} 个`);
+  if (pngs.length) {
+    const rel = relative(join(LAYOUT, 'data', 'uploads'), pngs[0]).split('\\').join('/');
+    ok((await fetch(`${BASE}/uploads/${rel}`)).ok, '容器内 /uploads 能读到签名图');
+  }
+  const login = await post('/admin/api/login', { user_name: 'admin1', password: '123456' });
+  const token = login.data?.token;
+  ok(!!token, '容器内后台登录成功');
+  const list = await (await fetch(`${BASE}/admin/api/contract-sign/list`, { headers: { token } })).json();
+  ok(list.code === 1 && Number(list.data?.total) === 1, '新增路由 /contract-sign/list 在容器内可用', JSON.stringify(list).slice(0, 160));
+  const signId = list.data?.list?.[0]?.sign_id || 1;
+  const detail = await (await fetch(`${BASE}/admin/api/contract-sign/detail?id=${signId}`, { headers: { token } })).json();
+  ok(detail.code === 1 && String(detail.data?.contract_html || '').includes('会员服务电子合同'),
+    '容器内 renderRich 能解析 shared/markdown.js（合同快照正常）', JSON.stringify(detail).slice(0, 160));
+
   try { srv.kill(); } catch {}
   srv = null;
   await sleep(300);
