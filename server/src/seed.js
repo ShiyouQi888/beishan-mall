@@ -1,6 +1,7 @@
 import { db, all, get, run, now, tx } from './db.js';
 import { hashPwd, randomCode } from './lib/auth.js';
 import { ADMIN_USER, ADMIN_PASSWORD } from './lib/builtinAdmin.js';
+import { DEFAULT_CONTRACT_HTML } from './lib/defaultContract.js';
 import { useCascaderAreaData } from '@vant/area-data';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -92,7 +93,10 @@ tx(() => {
     ['home_category_show', '10', 'nav'],  // 首页商品分类栏：10 显示 / 20 隐藏
     ['subscribe_open', '0', 'nav'],
     ['subscribe_e_card', '50', 'nav'],
-    ['prompt_register', '<p>请认真阅读并同意本商城的《用户注册协议》后再进行注册。</p>', 'prompt'],
+    ['prompt_register', DEFAULT_CONTRACT_HTML, 'prompt'],
+    ['contract_title', '会员服务电子合同', 'prompt'],
+    ['contract_force_read', '10', 'prompt'],   // 注册强制阅读：10 开启（滚到底 + 倒计时）/ 20 关闭
+    ['contract_read_seconds', '15', 'prompt'], // 强制阅读倒计时秒数，0 = 不限时
     ['prompt_invite', '<p>邀请好友注册，好友完成交易后可获得佣金奖励。</p>', 'prompt'],
     ['prompt_shop', '<p>商城服务协议内容。</p>', 'prompt'],
     ['prompt_trade', '<p>交易规则：商品一经售出，非质量问题不予退换。</p>', 'prompt'],

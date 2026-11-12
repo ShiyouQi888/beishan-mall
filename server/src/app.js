@@ -15,6 +15,7 @@ import { cleanOrphanLinks } from './lib/areaGoods.js';
 import { backfillPieceOrderAssets } from './lib/orderAssets.js';
 import { fail, cfg } from './lib/helper.js';
 import { themeOf, DEFAULT_THEME } from './lib/themes.js';
+import { DEFAULT_CONTRACT_HTML, LEGACY_CONTRACT_HINT } from './lib/defaultContract.js';
 
 import indexRouter from './routes/index.js';
 import memberRouter from './routes/member.js';
@@ -322,6 +323,26 @@ for (const [to, from] of [
       run('INSERT INTO setting_config (`key`, `value`, `group`) VALUES (?,?,?)', to, old.v, 'prompt');
       console.log(`[migrate] ${from} → ${to}`);
     }
+  }
+}
+
+// 注册协议 → 会员服务电子合同：补齐门控配置项，并把仍是旧默认提示语的正文换成合同正文。
+// 只覆盖与历史默认值完全一致的内容，运营自己改过的正文一律不动。
+{
+  for (const [k, v] of [
+    ['contract_title', '会员服务电子合同'],
+    ['contract_force_read', '10'],
+    ['contract_read_seconds', '15'],
+  ]) {
+    if (!get('SELECT 1 FROM setting_config WHERE `key` = ?', k)) {
+      run('INSERT INTO setting_config (`key`, `value`, `group`) VALUES (?,?,?)', k, v, 'prompt');
+      console.log(`[migrate] 新增配置 ${k} = ${v}`);
+    }
+  }
+  const cur = get("SELECT `value` v FROM setting_config WHERE `key` = 'prompt_register'");
+  if (cur?.v === LEGACY_CONTRACT_HINT) {
+    run("UPDATE setting_config SET `value` = ? WHERE `key` = 'prompt_register'", DEFAULT_CONTRACT_HTML);
+    console.log('[migrate] prompt_register 旧提示语 → 会员服务电子合同正文');
   }
 }
 

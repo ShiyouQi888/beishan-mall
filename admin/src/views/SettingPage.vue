@@ -161,7 +161,7 @@ const META = {
   nav: { t: '导航配置', d: '首页、分类、抢购、邀请和个人中心的底部导航开关' },
   storage: { t: '上传配置', d: '文件存储方式、访问域名与大小限制' },
   poster: { t: '海报配置', d: '邀请海报背景、Logo、二维码位置与文案' },
-  prompt: { t: '须知配置', d: '注册协议、邀请须知、商城协议、交易协议，以及抢购/转拍须知' },
+  prompt: { t: '须知配置', d: '会员服务电子合同（含强制阅读）、隐私政策、邀请须知、商城协议、交易协议，以及抢购/转拍须知' },
 };
 
 const groupTitle = computed(() => META[route.params.group]?.t || '系统设置');
@@ -203,6 +203,8 @@ async function load() {
       const raw = vals[it.k];
       // switch 必须与 active-value 同类型，否则会被判定为关闭并在保存时写错值
       const defaults = {
+        contract_title: '会员服务电子合同',
+        contract_read_seconds: '15',
         poster_qr_x: '265', poster_qr_y: '850', poster_qr_size: '220',
         poster_logo_x: '54', poster_logo_y: '60', poster_logo_size: '116',
         poster_title: '邀请好友加入', poster_title_x: '60', poster_title_y: '240', poster_title_size: '54',
@@ -216,6 +218,8 @@ async function load() {
       };
       const defaultSwitches = {
         nav_invite: 10,
+        // 默认要求注册前强制读完电子合同，所以默认开启
+        contract_force_read: 10,
         poster_title_show: 10,
         poster_subtitle_show: 10,
         poster_content_show: 10,

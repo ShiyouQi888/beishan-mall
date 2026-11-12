@@ -672,7 +672,31 @@ const SETTING_GROUPS = {
     { k: 'poster_code_align', t: '邀请码对齐', type: 'text' },
   ],
   prompt: [
-    { k: 'prompt_register', t: '注册协议', type: 'richtext' },
+    // 注册时弹出的《会员服务电子合同》：正文 + 标题 + 强制阅读门控都在这里配
+    {
+      k: 'prompt_register',
+      t: '会员服务电子合同（正文）',
+      type: 'richtext',
+      tip: '注册时弹出展示的合同正文，支持 HTML。改完保存即生效，H5 下次打开注册页就会拿到新内容。',
+    },
+    {
+      k: 'contract_title',
+      t: '合同名称',
+      type: 'text',
+      tip: 'H5 注册页显示为《合同名称》，留空则用「会员服务电子合同」。',
+    },
+    {
+      k: 'contract_force_read',
+      t: '强制阅读合同',
+      type: 'switch',
+      tip: '开启后，注册点提交会先弹出合同，必须滚动到底并等倒计时结束才能点「确认注册」。关闭则弹窗内可直接确认。',
+    },
+    {
+      k: 'contract_read_seconds',
+      t: '强制阅读秒数',
+      type: 'number',
+      tip: '强制阅读倒计时，默认 15 秒；填 0 表示不限制时间（仍要求滚到底）。仅在「强制阅读合同」开启时生效。',
+    },
     { k: 'prompt_privacy', t: '隐私政策', type: 'richtext' },
     { k: 'prompt_invite', t: '邀请须知', type: 'richtext' },
     { k: 'prompt_shop', t: '商城协议', type: 'richtext' },

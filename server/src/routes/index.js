@@ -163,14 +163,23 @@ r.get('/index/getInvitationNotice', (req, res) => {
   res.json(ok({ prompt_values: cfg('prompt_invite', cfg('invitation_notice', '')) }));
 });
 
-// 注册协议由后台「须知配置」维护，前台注册页提供独立查看入口。
+// 注册时的《会员服务电子合同》：正文、名称、强制阅读门控都由后台「须知配置」维护，
+// 前台注册页据此决定「点提交后是否必须读完才能确认注册」。
 r.get('/index/getRegisterAgreements', (req, res) => {
-  res.json(ok({
-    user: cfg('prompt_register', cfg('register_agreement', '')),
-    privacy: cfg('prompt_privacy', ''),
-    // 注册页要据此决定邀请码是否必填
-    require_invite_code: Number(cfg('require_invite_code', '10')) === 10 ? '1' : '0',
-  }));
+  // 倒计时秒数：空值走默认 15；0 表示不限时（仍要求滚到底），上限 600 防误填
+  const seconds = Math.round(cfgNumber('contract_read_seconds', 15));
+  res.json(
+    ok({
+      user: cfg('prompt_register', cfg('register_agreement', '')),
+      privacy: cfg('prompt_privacy', ''),
+      title: String(cfg('contract_title', '') || '').trim() || '会员服务电子合同',
+      // 10 = 开启强制阅读（滚到底 + 倒计时），其它值 = 关闭
+      force_read: String(cfg('contract_force_read', '10')) === '10',
+      read_seconds: seconds > 0 ? Math.min(seconds, 600) : 0,
+      // 注册页要据此决定邀请码是否必填
+      require_invite_code: Number(cfg('require_invite_code', '10')) === 10 ? '1' : '0',
+    }),
+  );
 });
 
 // 售后 / 交易协议
